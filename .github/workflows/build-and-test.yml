@@ -41,10 +41,19 @@ jobs:
           java-version: ${{ matrix.java }}
           cache: gradle
       - run: >-
-          ./gradlew clean test --no-daemon --refresh-dependencies
+          ./gradlew clean test reportTestScoverage --no-daemon --refresh-dependencies
           -Dscala_binary_version=${{ matrix.scala }}
           -Dspark_binary_version=${{ matrix.spark }}
           -PmavenCentralMirror=https://maven-central.storage-download.googleapis.com/maven2/
+      
+      - name: Upload Coverage Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-java-${{ matrix.java }}-spark-${{ matrix.spark }}-scala-${{ matrix.scala }}
+          path: |
+            **/build/reports/scoverageTest/**
+      
       - name: Upload logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -80,3 +89,122 @@ jobs:
           path: |
             **/build/unit-tests.log
             log/**
+
+  publish-coverage:
+    runs-on: ubuntu-22.04
+    needs: run-tests
+    if: always()
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Download all coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: downloaded-coverage
+      
+      - name: Organize coverage reports for GitHub Pages
+        run: |
+          mkdir -p gh-pages
+          
+          # Copy HTML reports to their respective module directories
+          for dir in downloaded-coverage/coverage-*/; do
+            if [ -d "$dir" ]; then
+              find "$dir" -type d -name "scoverageTest" -exec sh -c '
+                for scov_dir; do
+                  module_path=$(echo "$scov_dir" | sed "s|downloaded-coverage/coverage-[^/]*/||" | sed "s|/build/reports/scoverageTest||")
+                  if [ -n "$module_path" ]; then
+                    target_dir="gh-pages/${module_path}/build/reports/scoverageTest"
+                    mkdir -p "$target_dir"
+                    cp -r "$scov_dir"/* "$target_dir/" 2>/dev/null || true
+                  fi
+                done
+              ' sh {} +
+            fi
+          done
+          
+          # Create landing page
+          cat > gh-pages/index.html << 'HTMLEOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Test Coverage Reports - Spark ClickHouse Connector</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 20px; }
+              h1 { color: #333; border-bottom: 2px solid #e1e4e8; padding-bottom: 10px; }
+              h2 { color: #0366d6; margin-top: 30px; }
+              .module-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin: 20px 0; }
+              .module-card { border: 1px solid #e1e4e8; border-radius: 6px; padding: 20px; background: #f6f8fa; }
+              .module-card h3 { margin-top: 0; color: #0366d6; }
+              .module-card a { color: #0366d6; text-decoration: none; display: block; margin: 8px 0; }
+              .module-card a:hover { text-decoration: underline; }
+              .info { background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 15px; margin: 20px 0; }
+            </style>
+          </head>
+          <body>
+            <h1>📊 Test Coverage Reports</h1>
+            <div class="info">
+              <strong>Last Updated:</strong> $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+            </div>
+            
+            <h2>Core Modules</h2>
+            <div class="module-grid">
+              <div class="module-card">
+                <h3>clickhouse-core</h3>
+                <a href="clickhouse-core/build/reports/scoverageTest/index.html">📈 View Coverage Report</a>
+              </div>
+              <div class="module-card">
+                <h3>clickhouse-core-it</h3>
+                <a href="clickhouse-core-it/build/reports/scoverageTest/index.html">📈 View Coverage Report</a>
+              </div>
+            </div>
+            
+            <h2>Spark Modules</h2>
+            <div class="module-grid">
+              <div class="module-card">
+                <h3>Spark 3.3</h3>
+                <a href="spark-3.3/clickhouse-spark/build/reports/scoverageTest/index.html">📈 clickhouse-spark Coverage</a>
+                <a href="spark-3.3/clickhouse-spark-it/build/reports/scoverageTest/index.html">📈 clickhouse-spark-it Coverage</a>
+              </div>
+              <div class="module-card">
+                <h3>Spark 3.4</h3>
+                <a href="spark-3.4/clickhouse-spark/build/reports/scoverageTest/index.html">📈 clickhouse-spark Coverage</a>
+                <a href="spark-3.4/clickhouse-spark-it/build/reports/scoverageTest/index.html">📈 clickhouse-spark-it Coverage</a>
+              </div>
+              <div class="module-card">
+                <h3>Spark 3.5</h3>
+                <a href="spark-3.5/clickhouse-spark/build/reports/scoverageTest/index.html">📈 clickhouse-spark Coverage</a>
+                <a href="spark-3.5/clickhouse-spark-it/build/reports/scoverageTest/index.html">📈 clickhouse-spark-it Coverage</a>
+              </div>
+            </div>
+            
+            <p style="color: #586069; font-size: 14px; margin-top: 30px;">
+              Reports generated from the latest push to main branch.<br>
+              View the <a href="https://github.com/ClickHouse/spark-clickhouse-connector">source repository</a>.
+            </p>
+          </body>
+          </html>
+          HTMLEOF
+      
+      - name: Post coverage report to PR
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node .github/scripts/scoverage-report-generator.mjs --pr ${{ github.event.pull_request.number }}
+      
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./gh-pages
+          keep_files: false
