@@ -1,0 +1,385 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ClickHouseCatalog.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-spark-3.5_2.12</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark</a> &gt; <span class="el_source">ClickHouseCatalog.scala</span></div><h1>ClickHouseCatalog.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark
+
+import com.clickhouse.client.ClickHouseProtocol
+import com.clickhouse.spark.exception.CHClientException
+import org.apache.spark.sql.catalyst.analysis._
+import org.apache.spark.sql.clickhouse.{ExprUtils, SchemaUtils}
+import org.apache.spark.sql.connector.catalog._
+import org.apache.spark.sql.connector.catalog.functions.UnboundFunction
+import org.apache.spark.sql.connector.expressions.Transform
+import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.util.CaseInsensitiveStringMap
+import Constants._
+import com.clickhouse.spark.exception.ClickHouseErrCode._
+import com.clickhouse.spark.func.{
+  ClickHouseXxHash64Shard,
+  CompositeFunctionRegistry,
+  DynamicFunctionRegistry,
+  FunctionRegistry,
+  StaticFunctionRegistry
+}
+import com.clickhouse.spark.spec.{ClusterSpec, DistributedEngineSpec, NodeSpec, TableEngineUtils}
+import com.clickhouse.spark.func._
+import com.clickhouse.spark.client.NodeClient
+import com.clickhouse.spark.spec._
+
+import java.time.ZoneId
+import java.util
+import scala.collection.JavaConverters._
+
+<span class="nc bnc" id="L44" title="All 12 branches missed.">class ClickHouseCatalog extends TableCatalog</span>
+    with SupportsNamespaces
+    with FunctionCatalog
+    with ClickHouseHelper
+    with SQLHelper
+    with Logging {
+
+<span class="nc" id="L51">  private var catalogName: String = _</span>
+
+  // ///////////////////////////////////////////////////
+  // ////////////////// SINGLE NODE ////////////////////
+  // ///////////////////////////////////////////////////
+<span class="nc" id="L56">  private var nodeSpec: NodeSpec = _</span>
+
+<span class="nc" id="L58">  implicit private var nodeClient: NodeClient = _</span>
+
+  // case Left  =&gt; server timezone
+  // case Right =&gt; client timezone or user specific timezone
+<span class="nc" id="L62">  private var tz: Either[ZoneId, ZoneId] = _</span>
+
+<span class="nc" id="L64">  private var currentDb: String = _</span>
+
+  // ///////////////////////////////////////////////////
+  // /////////////////// CLUSTERS //////////////////////
+  // ///////////////////////////////////////////////////
+<span class="nc" id="L69">  private var clusterSpecs: Seq[ClusterSpec] = Nil</span>
+
+<span class="nc" id="L71">  private var functionRegistry: FunctionRegistry = _</span>
+
+  override def initialize(name: String, options: CaseInsensitiveStringMap): Unit = {
+<span class="nc" id="L74">    this.catalogName = name</span>
+<span class="nc" id="L75">    this.nodeSpec = buildNodeSpec(options)</span>
+<span class="nc" id="L76">    this.currentDb = nodeSpec.database</span>
+<span class="nc" id="L77">    this.nodeClient = NodeClient(nodeSpec)</span>
+
+<span class="nc" id="L79">    this.nodeClient.syncQueryAndCheckOutputJSONEachRow(&quot;SELECT 1&quot;)</span>
+
+<span class="nc" id="L81">    this.tz = options.get(CATALOG_PROP_TZ) match {</span>
+<span class="nc bnc" id="L82" title="All 10 branches missed.">      case tz if tz == null || tz.isEmpty || tz.toLowerCase == &quot;server&quot; =&gt;</span>
+<span class="nc" id="L83">        val timezoneOutput = this.nodeClient.syncQueryAndCheckOutputJSONEachRow(&quot;SELECT timezone() AS tz&quot;)</span>
+<span class="nc bnc" id="L84" title="All 2 branches missed.">        assert(timezoneOutput.rows == 1)</span>
+<span class="nc" id="L85">        val serverTz = ZoneId.of(timezoneOutput.records.head.get(&quot;tz&quot;).asText)</span>
+<span class="nc" id="L86">        log.info(s&quot;Detect ClickHouse server timezone: $serverTz&quot;)</span>
+<span class="nc" id="L87">        Left(serverTz)</span>
+<span class="nc bnc" id="L88" title="All 6 branches missed.">      case tz if tz.toLowerCase == &quot;client&quot; =&gt; Right(ZoneId.systemDefault)</span>
+<span class="nc" id="L89">      case tz =&gt; Right(ZoneId.of(tz))</span>
+    }
+
+<span class="nc" id="L92">    this.clusterSpecs = queryClusterSpecs(nodeSpec)</span>
+
+<span class="nc" id="L94">    val dynamicFunctionRegistry = new DynamicFunctionRegistry</span>
+<span class="nc" id="L95">    val xxHash64ShardFunc = new ClickHouseXxHash64Shard(clusterSpecs)</span>
+<span class="nc" id="L96">    dynamicFunctionRegistry.register(&quot;ck_xx_hash64_shard&quot;, xxHash64ShardFunc) // for compatible</span>
+<span class="nc" id="L97">    dynamicFunctionRegistry.register(&quot;clickhouse_shard_xxHash64&quot;, xxHash64ShardFunc)</span>
+<span class="nc" id="L98">    this.functionRegistry = new CompositeFunctionRegistry(Array(StaticFunctionRegistry, dynamicFunctionRegistry))</span>
+
+<span class="nc" id="L100">    log.info(s&quot;Detect ${clusterSpecs.size} ClickHouse clusters: ${clusterSpecs.map(_.name).mkString(&quot;,&quot;)}&quot;)</span>
+<span class="nc" id="L101">    log.info(s&quot;ClickHouse clusters' detail: $clusterSpecs&quot;)</span>
+<span class="nc" id="L102">    log.info(s&quot;Registered functions: ${this.functionRegistry.list.mkString(&quot;,&quot;)}&quot;)</span>
+  }
+
+<span class="nc" id="L105">  override def name(): String = catalogName</span>
+
+  @throws[NoSuchNamespaceException]
+<span class="nc" id="L108">  override def listTables(namespace: Array[String]): Array[Identifier] = namespace match {</span>
+<span class="nc bnc" id="L109" title="All 6 branches missed.">    case Array(database) =&gt;</span>
+<span class="nc" id="L110">      nodeClient.syncQueryOutputJSONEachRow(s&quot;SHOW TABLES IN ${quoted(database)}&quot;) match {</span>
+<span class="nc bnc" id="L111" title="All 4 branches missed.">        case Left(exception) if exception.code == UNKNOWN_DATABASE.code =&gt;</span>
+<span class="nc" id="L112">          throw new NoSuchNamespaceException(namespace.mkString(&quot;.&quot;))</span>
+<span class="nc bnc" id="L113" title="All 2 branches missed.">        case Left(rethrow) =&gt;</span>
+<span class="nc" id="L114">          throw rethrow</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">        case Right(output) =&gt;</span>
+<span class="nc" id="L116">          output.records</span>
+<span class="nc" id="L117">            .map(row =&gt; row.get(&quot;name&quot;).asText)</span>
+<span class="nc" id="L118">            .map(table =&gt; Identifier.of(namespace, table))</span>
+<span class="nc" id="L119">            .toArray</span>
+      }
+<span class="nc" id="L121">    case _ =&gt; throw new NoSuchNamespaceException(namespace.mkString(&quot;.&quot;))</span>
+  }
+
+  @throws[NoSuchTableException]
+  override def loadTable(ident: Identifier): ClickHouseTable = {
+<span class="nc bnc" id="L126" title="All 2 branches missed.">    val (database, table) = unwrap(ident) match {</span>
+<span class="nc bnc" id="L127" title="All 2 branches missed.">      case None =&gt; throw new NoSuchTableException(ident)</span>
+<span class="nc bnc" id="L128" title="All 4 branches missed.">      case Some((db, tbl)) =&gt;</span>
+<span class="nc" id="L129">        nodeClient.syncQueryOutputJSONEachRow(s&quot;SELECT * FROM `$db`.`$tbl` WHERE 1=0&quot;) match {</span>
+<span class="nc bnc" id="L130" title="All 4 branches missed.">          case Left(exception) if exception.code == UNKNOWN_TABLE.code =&gt;</span>
+<span class="nc" id="L131">            throw new NoSuchTableException(ident)</span>
+          // not sure if this check is necessary
+<span class="nc bnc" id="L133" title="All 4 branches missed.">          case Left(exception) if exception.code == UNKNOWN_DATABASE.code =&gt;</span>
+<span class="nc" id="L134">            throw new NoSuchTableException(s&quot;Database $db does not exist&quot;)</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">          case Left(rethrow) =&gt;</span>
+<span class="nc" id="L136">            throw rethrow</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">          case Right(_) =&gt; (db, tbl)</span>
+        }
+    }
+<span class="nc" id="L140">    implicit val _tz: ZoneId = tz.merge</span>
+<span class="nc" id="L141">    val tableSpec = queryTableSpec(database, table)</span>
+<span class="nc" id="L142">    val tableEngineSpec = TableEngineUtils.resolveTableEngine(tableSpec)</span>
+<span class="nc" id="L143">    val tableClusterSpec = tableEngineSpec match {</span>
+<span class="nc bnc" id="L144" title="All 2 branches missed.">      case distributeSpec: DistributedEngineSpec =&gt;</span>
+<span class="nc" id="L145">        Some(TableEngineUtils.resolveTableCluster(distributeSpec, clusterSpecs))</span>
+<span class="nc" id="L146">      case _ =&gt; None</span>
+    }
+<span class="nc" id="L148">    ClickHouseTable(</span>
+<span class="nc" id="L149">      nodeSpec,</span>
+<span class="nc" id="L150">      tableClusterSpec,</span>
+<span class="nc" id="L151">      _tz,</span>
+<span class="nc" id="L152">      tableSpec,</span>
+<span class="nc" id="L153">      tableEngineSpec,</span>
+<span class="nc" id="L154">      functionRegistry</span>
+    )
+  }
+
+  /**
+   * &lt;h2&gt;MergeTree Engine&lt;/h2&gt;
+   * {{{
+   * CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+   * (
+   *     name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1] [TTL expr1],
+   *     name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2] [TTL expr2],
+   *     ...
+   *     INDEX index_name1 expr1 TYPE type1(...) GRANULARITY value1,
+   *     INDEX index_name2 expr2 TYPE type2(...) GRANULARITY value2
+   * ) ENGINE = MergeTree()
+   * ORDER BY expr
+   * [PARTITION BY expr]
+   * [PRIMARY KEY expr]
+   * [SAMPLE BY expr]
+   * [TTL expr
+   *     [DELETE|TO DISK 'xxx'|TO VOLUME 'xxx' [, ...] ]
+   *     [WHERE conditions]
+   *     [GROUP BY key_expr [SET v1 = agg_func(v1) [, v2 = agg_func(v2) ...]] ]]
+   * [SETTINGS name=value, ...]
+   * }}}
+   * &lt;p&gt;
+   *
+   * &lt;h2&gt;ReplacingMergeTree Engine&lt;/h2&gt;
+   * {{{
+   * CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+   * (
+   *     name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1],
+   *     name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2],
+   *     ...
+   * ) ENGINE = ReplacingMergeTree([ver])
+   * [PARTITION BY expr]
+   * [ORDER BY expr]
+   * [PRIMARY KEY expr]
+   * [SAMPLE BY expr]
+   * [SETTINGS name=value, ...]
+   * }}}
+   *
+   * `ver` — column with version. Type `UInt*`, `Date` or `DateTime`.
+   */
+  @throws[TableAlreadyExistsException]
+  @throws[NoSuchNamespaceException]
+  override def createTable(
+    ident: Identifier,
+    schema: StructType,
+    partitions: Array[Transform],
+    properties: util.Map[String, String]
+  ): ClickHouseTable = {
+<span class="nc bnc" id="L206" title="All 2 branches missed.">    val (db, tbl) = unwrap(ident) match {</span>
+<span class="nc bnc" id="L207" title="All 4 branches missed.">      case Some((d, t)) =&gt; (d, t)</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">      case None =&gt; throw CHClientException(s&quot;Invalid table identifier: $ident&quot;)</span>
+    }
+<span class="nc" id="L210">    val props = properties.asScala</span>
+
+<span class="nc" id="L212">    val engineExpr = props.getOrElse(&quot;engine&quot;, &quot;MergeTree()&quot;)</span>
+
+<span class="nc" id="L214">    val isCreatingDistributed = engineExpr equalsIgnoreCase &quot;Distributed&quot;</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">    val keyPrefix = if (isCreatingDistributed) &quot;local.&quot; else &quot;&quot;</span>
+
+<span class="nc" id="L217">    val partitionsClause = partitions match {</span>
+<span class="nc bnc" id="L218" title="All 2 branches missed.">      case transforms if transforms.nonEmpty =&gt;</span>
+<span class="nc" id="L219">        transforms.map(ExprUtils.toClickHouse(_, functionRegistry).sql).mkString(&quot;PARTITION BY (&quot;, &quot;, &quot;, &quot;)&quot;)</span>
+<span class="nc" id="L220">      case _ =&gt; &quot;&quot;</span>
+    }
+
+<span class="nc" id="L223">    val orderClause = props.get(s&quot;${keyPrefix}order_by&quot;).map(o =&gt; s&quot;ORDER BY ($o)&quot;).getOrElse(&quot;&quot;)</span>
+<span class="nc" id="L224">    val primaryKeyClause = props.get(s&quot;${keyPrefix}primary_key&quot;).map(p =&gt; s&quot;PRIMARY KEY ($p)&quot;).getOrElse(&quot;&quot;)</span>
+<span class="nc" id="L225">    val sampleClause = props.get(s&quot;${keyPrefix}sample_by&quot;).map(p =&gt; s&quot;SAMPLE BY ($p)&quot;).getOrElse(&quot;&quot;)</span>
+
+<span class="nc" id="L227">    val fieldsClause = SchemaUtils</span>
+<span class="nc" id="L228">      .toClickHouseSchema(schema)</span>
+<span class="nc bnc" id="L229" title="All 2 branches missed.">      .map { case (fieldName, ckType, comment) =&gt; s&quot;${quoted(fieldName)} $ckType$comment&quot; }</span>
+<span class="nc" id="L230">      .mkString(&quot;,\n &quot;)</span>
+
+<span class="nc" id="L232">    val clusterOpt = props.get(&quot;cluster&quot;)</span>
+
+<span class="nc" id="L234">    def tblSettingsClause(prefix: String): String = props.filterKeys(_.startsWith(prefix)) match {</span>
+<span class="nc bnc" id="L235" title="All 2 branches missed.">      case settings if settings.nonEmpty =&gt;</span>
+<span class="nc bnc" id="L236" title="All 2 branches missed.">        settings.map { case (k, v) =&gt;</span>
+<span class="nc" id="L237">          s&quot;${k.substring(prefix.length)}=$v&quot;</span>
+<span class="nc" id="L238">        }.mkString(&quot;SETTINGS &quot;, &quot;, &quot;, &quot;&quot;)</span>
+<span class="nc" id="L239">      case _ =&gt; &quot;&quot;</span>
+    }
+
+    def createTable(
+      clusterOpt: Option[String],
+      engineExpr: String,
+      database: String,
+      table: String,
+      settingsClause: String
+    ): Unit = {
+<span class="nc" id="L249">      val clusterClause = clusterOpt.map(c =&gt; s&quot;ON CLUSTER $c&quot;).getOrElse(&quot;&quot;)</span>
+<span class="nc" id="L250">      nodeClient.syncQueryAndCheckOutputJSONEachRow(</span>
+<span class="nc" id="L251">        s&quot;&quot;&quot;CREATE TABLE `$database`.`$table` $clusterClause (</span>
+<span class="nc" id="L252">           |$fieldsClause</span>
+<span class="nc" id="L253">           |) ENGINE = $engineExpr</span>
+<span class="nc" id="L254">           |$partitionsClause</span>
+<span class="nc" id="L255">           |$orderClause</span>
+<span class="nc" id="L256">           |$primaryKeyClause</span>
+<span class="nc" id="L257">           |$sampleClause</span>
+<span class="nc" id="L258">           |$settingsClause</span>
+           |&quot;&quot;&quot;.stripMargin
+<span class="nc" id="L260">          .replaceAll(&quot;&quot;&quot;\n\s+\n&quot;&quot;&quot;, &quot;\n&quot;) // remove empty lines</span>
+      )
+    }
+
+    def createDistributedTable(
+      cluster: String,
+      shardExpr: String,
+      localDatabase: String,
+      localTable: String,
+      distributedDatabase: String,
+      distributedTable: String,
+      settingsClause: String
+<span class="nc" id="L272">    ): Unit = nodeClient.syncQueryAndCheckOutputJSONEachRow(</span>
+<span class="nc" id="L273">      s&quot;&quot;&quot;CREATE TABLE `$distributedDatabase`.`$distributedTable` ON CLUSTER $cluster</span>
+<span class="nc" id="L274">         |AS `$localDatabase`.`$localTable`</span>
+<span class="nc" id="L275">         |ENGINE = Distributed($cluster, '$localDatabase', '$localTable', ($shardExpr))</span>
+<span class="nc" id="L276">         |$settingsClause</span>
+<span class="nc" id="L277">         |&quot;&quot;&quot;.stripMargin</span>
+    )
+
+<span class="nc bnc" id="L280" title="All 2 branches missed.">    if (isCreatingDistributed) {</span>
+<span class="nc" id="L281">      val cluster = clusterOpt.getOrElse(&quot;default&quot;)</span>
+<span class="nc" id="L282">      val shardExpr = props.getOrElse(&quot;shard_by&quot;, &quot;rand()&quot;)</span>
+<span class="nc" id="L283">      val settingsClause = tblSettingsClause(&quot;settings.&quot;)</span>
+<span class="nc" id="L284">      val localEngineExpr = props.getOrElse(s&quot;${keyPrefix}engine&quot;, s&quot;MergeTree()&quot;)</span>
+<span class="nc" id="L285">      val localDatabase = props.getOrElse(s&quot;${keyPrefix}database&quot;, db)</span>
+<span class="nc" id="L286">      val localTable = props.getOrElse(s&quot;${keyPrefix}table&quot;, s&quot;${tbl}_local&quot;)</span>
+<span class="nc" id="L287">      val localSettingsClause = tblSettingsClause(s&quot;${keyPrefix}settings.&quot;)</span>
+<span class="nc" id="L288">      createTable(Some(cluster), localEngineExpr, localDatabase, localTable, localSettingsClause)</span>
+<span class="nc" id="L289">      createDistributedTable(cluster, shardExpr, localDatabase, localTable, db, tbl, settingsClause)</span>
+    } else {
+<span class="nc" id="L291">      val settingsClause = tblSettingsClause(s&quot;${keyPrefix}settings.&quot;)</span>
+<span class="nc" id="L292">      createTable(clusterOpt, engineExpr, db, tbl, settingsClause)</span>
+    }
+
+<span class="nc" id="L295">    loadTable(ident)</span>
+  }
+
+  @throws[NoSuchTableException]
+  override def alterTable(ident: Identifier, changes: TableChange*): ClickHouseTable =
+<span class="nc" id="L300">    throw new UnsupportedOperationException</span>
+
+  override def dropTable(ident: Identifier): Boolean = {
+    val tableOpt =
+<span class="nc" id="L304">      try Some(loadTable(ident))</span>
+      catch {
+<span class="nc" id="L306">        case _: NoSuchTableException =&gt; None</span>
+      }
+<span class="nc" id="L308">    tableOpt match {</span>
+<span class="nc bnc" id="L309" title="All 2 branches missed.">      case None =&gt; false</span>
+<span class="nc bnc" id="L310" title="All 4 branches missed.">      case Some(ClickHouseTable(_, cluster, _, tableSpec, _, _)) =&gt;</span>
+<span class="nc bnc" id="L311" title="All 2 branches missed.">        val (db, tbl) = (tableSpec.database, tableSpec.name)</span>
+<span class="nc" id="L312">        val isAtomic = loadNamespaceMetadata(Array(db)).get(&quot;engine&quot;).equalsIgnoreCase(&quot;atomic&quot;)</span>
+<span class="nc bnc" id="L313" title="All 2 branches missed.">        val syncClause = if (isAtomic) &quot;SYNC&quot; else &quot;&quot;</span>
+        // limitation: only support Distribute table, can not handle cases such as drop local table on cluster nodes
+<span class="nc" id="L315">        val clusterClause = cluster.map(c =&gt; s&quot;ON CLUSTER ${c.name}&quot;).getOrElse(&quot;&quot;)</span>
+<span class="nc" id="L316">        nodeClient.syncQueryOutputJSONEachRow(s&quot;DROP TABLE `$db`.`$tbl` $clusterClause $syncClause&quot;).isRight</span>
+    }
+  }
+
+  @throws[NoSuchTableException]
+  @throws[TableAlreadyExistsException]
+  override def renameTable(oldIdent: Identifier, newIdent: Identifier): Unit =
+<span class="nc bnc" id="L323" title="All 2 branches missed.">    (unwrap(oldIdent), unwrap(newIdent)) match {</span>
+<span class="nc bnc" id="L324" title="All 8 branches missed.">      case (Some((oldDb, oldTbl)), Some((newDb, newTbl))) =&gt;</span>
+<span class="nc" id="L325">        nodeClient.syncQueryOutputJSONEachRow(s&quot;RENAME TABLE `$oldDb`.`$oldTbl` to `$newDb`.`$newTbl`&quot;) match {</span>
+<span class="nc bnc" id="L326" title="All 2 branches missed.">          case Left(exception) =&gt; throw new NoSuchTableException(exception.getMessage, Some(exception))</span>
+<span class="nc bnc" id="L327" title="All 2 branches missed.">          case Right(_) =&gt;</span>
+        }
+<span class="nc" id="L329">      case _ =&gt; throw CHClientException(&quot;Invalid table identifier&quot;)</span>
+    }
+
+<span class="nc" id="L332">  override def defaultNamespace(): Array[String] = Array(currentDb)</span>
+
+  @throws[NoSuchNamespaceException]
+  override def listNamespaces(): Array[Array[String]] = {
+<span class="nc" id="L336">    val output = nodeClient.syncQueryAndCheckOutputJSONEachRow(&quot;SHOW DATABASES&quot;)</span>
+<span class="nc" id="L337">    output.records.map(row =&gt; Array(row.get(&quot;name&quot;).asText)).toArray</span>
+  }
+
+  @throws[NoSuchNamespaceException]
+<span class="nc" id="L341">  override def listNamespaces(namespace: Array[String]): Array[Array[String]] = namespace match {</span>
+<span class="nc bnc" id="L342" title="All 6 branches missed.">    case Array() =&gt; listNamespaces()</span>
+<span class="nc bnc" id="L343" title="All 6 branches missed.">    case Array(_) =&gt;</span>
+<span class="nc" id="L344">      loadNamespaceMetadata(namespace)</span>
+<span class="nc" id="L345">      Array()</span>
+<span class="nc" id="L346">    case _ =&gt; throw new NoSuchNamespaceException(namespace.map(quoted).mkString(&quot;.&quot;))</span>
+  }
+
+  @throws[NoSuchNamespaceException]
+<span class="nc" id="L350">  override def loadNamespaceMetadata(namespace: Array[String]): util.Map[String, String] = namespace match {</span>
+<span class="nc bnc" id="L351" title="All 6 branches missed.">    case Array(database) =&gt; queryDatabaseSpec(database).toJavaMap</span>
+<span class="nc" id="L352">    case _ =&gt; throw new NoSuchNamespaceException(namespace.map(quoted).mkString(&quot;.&quot;))</span>
+  }
+
+  @throws[NamespaceAlreadyExistsException]
+<span class="nc" id="L356">  override def createNamespace(namespace: Array[String], metadata: util.Map[String, String]): Unit = namespace match {</span>
+<span class="nc bnc" id="L357" title="All 6 branches missed.">    case Array(database) =&gt;</span>
+<span class="nc" id="L358">      val onClusterClause = metadata.asScala.get(&quot;cluster&quot;).map(c =&gt; s&quot;ON CLUSTER $c&quot;).getOrElse(&quot;&quot;)</span>
+<span class="nc" id="L359">      nodeClient.syncQueryOutputJSONEachRow(s&quot;CREATE DATABASE ${quoted(database)} $onClusterClause&quot;)</span>
+  }
+
+  @throws[NoSuchNamespaceException]
+  override def alterNamespace(namespace: Array[String], changes: NamespaceChange*): Unit =
+<span class="nc" id="L364">    throw new UnsupportedOperationException(&quot;ALTER NAMESPACE OPERATION is unsupported yet&quot;)</span>
+
+  @throws[NoSuchNamespaceException]
+<span class="nc" id="L367">  override def dropNamespace(namespace: Array[String], cascade: Boolean): Boolean = namespace match {</span>
+<span class="nc bnc" id="L368" title="All 6 branches missed.">    case Array(database) =&gt;</span>
+<span class="nc" id="L369">      loadNamespaceMetadata(namespace) // test existing</span>
+<span class="nc bnc" id="L370" title="All 4 branches missed.">      if (!cascade &amp;&amp; listNamespaces(namespace).nonEmpty) {</span>
+<span class="nc" id="L371">        throw new NonEmptyNamespaceException(namespace)</span>
+      }
+<span class="nc" id="L373">      nodeClient.syncQueryOutputJSONEachRow(s&quot;DROP DATABASE ${quoted(database)}&quot;).isRight</span>
+<span class="nc" id="L374">    case _ =&gt; false</span>
+  }
+
+  @throws[NoSuchNamespaceException]
+  override def listFunctions(namespace: Array[String]): Array[Identifier] =
+<span class="nc" id="L379">    functionRegistry.list.map(name =&gt; Identifier.of(Array.empty, name))</span>
+
+  @throws[NoSuchFunctionException]
+  override def loadFunction(ident: Identifier): UnboundFunction =
+<span class="nc" id="L383">    functionRegistry.load(ident.name).getOrElse(throw new NoSuchFunctionException(ident))</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

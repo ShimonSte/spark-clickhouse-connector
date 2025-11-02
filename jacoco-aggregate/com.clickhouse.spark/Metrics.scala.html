@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Metrics.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">spark-clickhouse-connector</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark</a> &gt; <span class="el_source">Metrics.scala</span></div><h1>Metrics.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark
+
+import org.apache.spark.sql.connector.metric.{CustomMetric, CustomSumMetric, CustomTaskMetric}
+import Metrics._
+
+<span class="pc bnc" id="L20" title="All 21 branches missed.">case class TaskMetric(override val name: String, override val value: Long) extends CustomTaskMetric</span>
+
+<span class="fc" id="L22">abstract class SizeSumMetric extends CustomMetric {</span>
+<span class="fc" id="L23">  override def aggregateTaskMetrics(taskMetrics: Array[Long]): String = Utils.bytesToString(taskMetrics.sum)</span>
+}
+
+<span class="fc" id="L26">abstract class DurationSumMetric extends CustomMetric {</span>
+<span class="fc" id="L27">  override def aggregateTaskMetrics(taskMetrics: Array[Long]): String = Utils.msDurationToString(taskMetrics.sum)</span>
+}
+
+<span class="fc" id="L30">object Metrics {</span>
+<span class="fc" id="L31">  val BLOCKS_READ = &quot;blocksRead&quot;</span>
+<span class="fc" id="L32">  val BYTES_READ = &quot;bytesRead&quot;</span>
+
+<span class="fc" id="L34">  val RECORDS_WRITTEN = &quot;recordsWritten&quot;</span>
+<span class="fc" id="L35">  val BYTES_WRITTEN = &quot;bytesWritten&quot;</span>
+<span class="fc" id="L36">  val SERIALIZE_TIME = &quot;serializeTime&quot;</span>
+<span class="fc" id="L37">  val WRITE_TIME = &quot;writeTime&quot;</span>
+}
+
+<span class="pc bnc" id="L40" title="All 8 branches missed.">case class BlocksReadMetric() extends CustomSumMetric {</span>
+<span class="fc" id="L41">  override def name: String = BLOCKS_READ</span>
+<span class="fc" id="L42">  override def description: String = &quot;number of blocks&quot;</span>
+}
+
+<span class="pc bnc" id="L45" title="All 8 branches missed.">case class BytesReadMetric() extends SizeSumMetric {</span>
+<span class="fc" id="L46">  override def name: String = BYTES_READ</span>
+<span class="fc" id="L47">  override def description: String = &quot;data size&quot;</span>
+}
+
+<span class="pc bnc" id="L50" title="All 8 branches missed.">case class RecordsWrittenMetric() extends CustomSumMetric {</span>
+<span class="fc" id="L51">  override def name: String = RECORDS_WRITTEN</span>
+<span class="fc" id="L52">  override def description: String = &quot;number of output rows&quot;</span>
+}
+
+<span class="pc bnc" id="L55" title="All 8 branches missed.">case class BytesWrittenMetric() extends SizeSumMetric {</span>
+<span class="fc" id="L56">  override def name: String = BYTES_WRITTEN</span>
+<span class="fc" id="L57">  override def description: String = &quot;written output&quot;</span>
+}
+
+<span class="pc bnc" id="L60" title="All 8 branches missed.">case class SerializeTimeMetric() extends DurationSumMetric {</span>
+<span class="fc" id="L61">  override def name: String = SERIALIZE_TIME</span>
+<span class="fc" id="L62">  override def description: String = &quot;total time of serialization&quot;</span>
+}
+
+<span class="pc bnc" id="L65" title="All 8 branches missed.">case class WriteTimeMetric() extends DurationSumMetric {</span>
+<span class="fc" id="L66">  override def name: String = WRITE_TIME</span>
+<span class="fc" id="L67">  override def description: String = &quot;total time of writing&quot;</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

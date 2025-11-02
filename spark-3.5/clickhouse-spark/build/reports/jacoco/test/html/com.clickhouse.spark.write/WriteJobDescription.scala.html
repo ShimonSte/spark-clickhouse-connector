@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>WriteJobDescription.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-spark-3.5_2.12</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.write</a> &gt; <span class="el_source">WriteJobDescription.scala</span></div><h1>WriteJobDescription.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.write
+
+import com.clickhouse.spark.expr.{Expr, FuncExpr, OrderExpr}
+import com.clickhouse.spark.func.FunctionRegistry
+import com.clickhouse.spark.spec.{ClusterSpec, DistributedEngineSpec, NodeSpec, TableEngineSpec, TableSpec}
+
+import java.time.ZoneId
+import org.apache.spark.sql.clickhouse.{ExprUtils, WriteOptions}
+import org.apache.spark.sql.connector.expressions.{Expression, SortOrder, Transform}
+import org.apache.spark.sql.types.StructType
+import com.clickhouse.spark.spec._
+
+<span class="nc bnc" id="L27" title="All 123 branches missed.">case class WriteJobDescription(</span>
+<span class="nc" id="L28">  queryId: String,</span>
+<span class="nc" id="L29">  tableSchema: StructType,</span>
+<span class="nc" id="L30">  metadataSchema: StructType,</span>
+<span class="nc" id="L31">  dataSetSchema: StructType,</span>
+<span class="nc" id="L32">  node: NodeSpec,</span>
+<span class="nc" id="L33">  tz: ZoneId,</span>
+<span class="nc" id="L34">  tableSpec: TableSpec,</span>
+<span class="nc" id="L35">  tableEngineSpec: TableEngineSpec,</span>
+<span class="nc" id="L36">  cluster: Option[ClusterSpec],</span>
+<span class="nc" id="L37">  localTableSpec: Option[TableSpec],</span>
+<span class="nc" id="L38">  localTableEngineSpec: Option[TableEngineSpec],</span>
+<span class="nc" id="L39">  shardingKey: Option[Expr],</span>
+<span class="nc" id="L40">  partitionKey: Option[List[Expr]],</span>
+<span class="nc" id="L41">  sortingKey: Option[List[OrderExpr]],</span>
+<span class="nc" id="L42">  writeOptions: WriteOptions,</span>
+<span class="nc" id="L43">  functionRegistry: FunctionRegistry</span>
+) {
+
+<span class="nc" id="L46">  def targetDatabase(convert2Local: Boolean): String = tableEngineSpec match {</span>
+<span class="nc bnc" id="L47" title="All 4 branches missed.">    case dist: DistributedEngineSpec if convert2Local =&gt; dist.local_db</span>
+<span class="nc" id="L48">    case _ =&gt; tableSpec.database</span>
+  }
+
+<span class="nc" id="L51">  def targetTable(convert2Local: Boolean): String = tableEngineSpec match {</span>
+<span class="nc bnc" id="L52" title="All 4 branches missed.">    case dist: DistributedEngineSpec if convert2Local =&gt; dist.local_table</span>
+<span class="nc" id="L53">    case _ =&gt; tableSpec.name</span>
+  }
+
+<span class="nc" id="L56">  def shardingKeyIgnoreRand: Option[Expr] = shardingKey filter {</span>
+<span class="nc bnc" id="L57" title="All 6 branches missed.">    case FuncExpr(&quot;rand&quot;, Nil) =&gt; false</span>
+<span class="nc" id="L58">    case _ =&gt; true</span>
+  }
+
+<span class="nc" id="L61">  def sparkShardExpr: Option[Expression] = shardingKeyIgnoreRand match {</span>
+<span class="nc bnc" id="L62" title="All 2 branches missed.">    case Some(expr) =&gt; ExprUtils.toSparkTransformOpt(expr, functionRegistry)</span>
+<span class="nc" id="L63">    case _ =&gt; None</span>
+  }
+
+  def sparkSplits: Array[Transform] =
+<span class="nc bnc" id="L67" title="All 2 branches missed.">    if (writeOptions.repartitionByPartition) {</span>
+<span class="nc" id="L68">      ExprUtils.toSparkSplits(</span>
+<span class="nc" id="L69">        shardingKeyIgnoreRand,</span>
+<span class="nc" id="L70">        partitionKey,</span>
+<span class="nc" id="L71">        functionRegistry</span>
+      )
+    } else {
+<span class="nc" id="L74">      ExprUtils.toSparkSplits(</span>
+<span class="nc" id="L75">        shardingKeyIgnoreRand,</span>
+<span class="nc" id="L76">        None,</span>
+<span class="nc" id="L77">        functionRegistry</span>
+      )
+    }
+
+  def sparkSortOrders: Array[SortOrder] = {
+<span class="nc bnc" id="L82" title="All 2 branches missed.">    val _partitionKey = if (writeOptions.localSortByPartition) partitionKey else None</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">    val _sortingKey = if (writeOptions.localSortByKey) sortingKey else None</span>
+<span class="nc" id="L84">    ExprUtils.toSparkSortOrders(shardingKeyIgnoreRand, _partitionKey, _sortingKey, cluster, functionRegistry)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

@@ -1,0 +1,301 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ClickHouseWriter.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">spark-clickhouse-connector</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.write</a> &gt; <span class="el_source">ClickHouseWriter.scala</span></div><h1>ClickHouseWriter.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.write
+
+import com.clickhouse.spark.{CommitMessage, Logging, TaskMetric, Utils}
+import com.clickhouse.client.ClickHouseProtocol
+import com.clickhouse.data.ClickHouseCompression
+import com.clickhouse.spark.exception.{CHClientException, RetryableCHException}
+import com.clickhouse.spark.spec.{DistributedEngineSpec, ShardUtils}
+import org.apache.commons.io.IOUtils
+import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, TransformExpression}
+import org.apache.spark.sql.catalyst.expressions.{Projection, SafeProjection}
+import org.apache.spark.sql.catalyst.{expressions, InternalRow}
+import org.apache.spark.sql.clickhouse.ExprUtils
+import org.apache.spark.sql.connector.metric.CustomTaskMetric
+import org.apache.spark.sql.connector.write.{DataWriter, WriterCommitMessage}
+import org.apache.spark.sql.types._
+import com.clickhouse.spark.Metrics._
+import com.clickhouse.spark.io.{ForwardingOutputStream, ObservableOutputStream}
+import com.clickhouse.spark._
+import com.clickhouse.spark.client.{ClusterClient, NodeClient}
+import com.clickhouse.spark.exception._
+
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, OutputStream}
+import java.util.concurrent.atomic.LongAdder
+import scala.util.{Failure, Success}
+
+<span class="pc bpc" id="L40" title="1 of 4 branches missed.">abstract class ClickHouseWriter(writeJob: WriteJobDescription)</span>
+<span class="fc" id="L41">    extends DataWriter[InternalRow] with Logging {</span>
+
+<span class="fc" id="L43">  val database: String = writeJob.targetDatabase(writeJob.writeOptions.convertDistributedToLocal)</span>
+<span class="fc" id="L44">  val table: String = writeJob.targetTable(writeJob.writeOptions.convertDistributedToLocal)</span>
+<span class="fc" id="L45">  val codec: ClickHouseCompression = writeJob.writeOptions.compressionCodec</span>
+<span class="fc" id="L46">  val protocol: ClickHouseProtocol = writeJob.node.protocol</span>
+
+  // ClickHouse is nullable sensitive, if the table column is not nullable, we need to cast the column
+  // to be non-nullable forcibly.
+<span class="fc" id="L50">  protected val revisedDataSchema: StructType = StructType(</span>
+<span class="fc" id="L51">    writeJob.dataSetSchema.map { field =&gt;</span>
+<span class="pc bpc" id="L52" title="3 of 6 branches missed.">      writeJob.tableSchema.find(_.name == field.name) match {</span>
+<span class="pc bpc" id="L53" title="2 of 6 branches missed.">        case Some(tableField) if !tableField.nullable &amp;&amp; field.nullable =&gt; field.copy(nullable = false)</span>
+<span class="fc" id="L54">        case _ =&gt; field</span>
+      }
+    }
+  )
+
+<span class="pc bpc" id="L59" title="1 of 4 branches missed.">  protected lazy val shardExpr: Option[Expression] = writeJob.sparkShardExpr match {</span>
+<span class="fc bfc" id="L60" title="All 2 branches covered.">    case None =&gt; None</span>
+<span class="pc bpc" id="L61" title="1 of 2 branches missed.">    case Some(v2Expr) =&gt;</span>
+<span class="fc" id="L62">      val catalystExpr = ExprUtils.toCatalyst(v2Expr, writeJob.dataSetSchema.fields, writeJob.functionRegistry)</span>
+<span class="pc" id="L63">      catalystExpr match {</span>
+<span class="pc bpc" id="L64" title="1 of 2 branches missed.">        case BoundReference(_, dataType, _)</span>
+<span class="pc bpc" id="L65" title="1 of 2 branches missed.">            if dataType.isInstanceOf[ByteType] // list all integral types here because we can not access `IntegralType`</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">              || dataType.isInstanceOf[ShortType]</span>
+<span class="pc bpc" id="L67" title="1 of 2 branches missed.">              || dataType.isInstanceOf[IntegerType]</span>
+<span class="nc bnc" id="L68" title="All 2 branches missed.">              || dataType.isInstanceOf[LongType] =&gt;</span>
+<span class="fc" id="L69">          Some(catalystExpr)</span>
+<span class="nc bnc" id="L70" title="All 2 branches missed.">        case BoundReference(_, dataType, _) =&gt;</span>
+<span class="nc" id="L71">          throw CHClientException(s&quot;Invalid data type of sharding field: $dataType&quot;)</span>
+<span class="nc bnc" id="L72" title="All 2 branches missed.">        case TransformExpression(function, _, _) =&gt;</span>
+<span class="nc" id="L73">          function.resultType match {</span>
+<span class="nc bnc" id="L74" title="All 10 branches missed.">            case ByteType | ShortType | IntegerType | LongType =&gt; Some(catalystExpr)</span>
+<span class="nc" id="L75">            case _ =&gt; throw CHClientException(s&quot;Invalid data type of sharding field: ${function.resultType}&quot;)</span>
+          }
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        case unsupported: Expression =&gt;</span>
+<span class="nc" id="L78">          log.warn(s&quot;Unsupported expression of sharding field: $unsupported&quot;)</span>
+<span class="nc" id="L79">          None</span>
+      }
+  }
+
+<span class="pc bpc" id="L83" title="1 of 4 branches missed.">  protected lazy val shardProjection: Option[expressions.Projection] = shardExpr</span>
+<span class="fc" id="L84">    .filter(_ =&gt; writeJob.writeOptions.convertDistributedToLocal)</span>
+<span class="pc" id="L85">    .flatMap {</span>
+<span class="pc bpc" id="L86" title="1 of 2 branches missed.">      case expr: BoundReference =&gt;</span>
+<span class="fc" id="L87">        Some(SafeProjection.create(Seq(expr)))</span>
+<span class="nc bnc" id="L88" title="All 2 branches missed.">      case expr @ TransformExpression(function, _, _) =&gt;</span>
+        // result type must be integer class
+<span class="nc" id="L90">        function.resultType match {</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">          case ByteType =&gt; classOf[Byte]</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">          case ShortType =&gt; classOf[Short]</span>
+<span class="nc bnc" id="L93" title="All 2 branches missed.">          case IntegerType =&gt; classOf[Int]</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">          case LongType =&gt; classOf[Long]</span>
+<span class="nc" id="L95">          case _ =&gt; throw CHClientException(s&quot;Invalid return data type for function ${function.name()},&quot; +</span>
+<span class="nc" id="L96">              s&quot;sharding field: ${function.resultType}&quot;)</span>
+        }
+<span class="nc" id="L98">        Some(SafeProjection.create(Seq(ExprUtils.resolveTransformCatalyst(expr, Some(writeJob.tz.getId)))))</span>
+    }
+
+  // put the node select strategy in executor side because we need to calculate shard and don't know the records
+  // util DataWriter#write(InternalRow) invoked.
+<span class="pc bpc" id="L103" title="1 of 4 branches missed.">  protected lazy val client: Either[ClusterClient, NodeClient] =</span>
+<span class="fc" id="L104">    writeJob.tableEngineSpec match {</span>
+<span class="fc bfc" id="L105" title="All 2 branches covered.">      case _: DistributedEngineSpec</span>
+<span class="pc bpc" id="L106" title="3 of 4 branches missed.">          if writeJob.writeOptions.useClusterNodesForDistributed || writeJob.writeOptions.convertDistributedToLocal =&gt;</span>
+<span class="fc" id="L107">        val clusterSpec = writeJob.cluster.get</span>
+<span class="fc" id="L108">        log.info(s&quot;Connect to cluster ${clusterSpec.name}, which has ${clusterSpec.shards.length} shards and &quot; +</span>
+<span class="fc" id="L109">          s&quot;${clusterSpec.nodes.length} nodes.&quot;)</span>
+<span class="fc" id="L110">        Left(ClusterClient(clusterSpec))</span>
+      case _ =&gt;
+<span class="fc" id="L112">        val nodeSpec = writeJob.node</span>
+<span class="fc" id="L113">        log.info(s&quot;Connect to single node: $nodeSpec&quot;)</span>
+<span class="fc" id="L114">        Right(NodeClient(nodeSpec))</span>
+    }
+
+<span class="pc" id="L117">  def nodeClient(shardNum: Option[Int]): NodeClient = client match {</span>
+<span class="fc bfc" id="L118" title="All 2 branches covered.">    case Left(clusterClient) =&gt; clusterClient.node(shardNum)</span>
+<span class="pc bpc" id="L119" title="1 of 2 branches missed.">    case Right(nodeClient) =&gt; nodeClient</span>
+  }
+
+<span class="pc bpc" id="L122" title="2 of 4 branches missed.">  def calcShard(record: InternalRow): Option[Int] = (shardExpr, shardProjection) match {</span>
+<span class="pc bpc" id="L123" title="1 of 6 branches missed.">    case (Some(BoundReference(_, dataType, _)), Some(projection)) =&gt;</span>
+<span class="fc" id="L124">      doCalcShard(record, dataType, projection)</span>
+<span class="pc bpc" id="L125" title="3 of 6 branches missed.">    case (Some(TransformExpression(function, _, _)), Some(projection)) =&gt;</span>
+<span class="nc" id="L126">      doCalcShard(record, function.resultType, projection)</span>
+<span class="fc" id="L127">    case _ =&gt; None</span>
+  }
+
+  private def doCalcShard(record: InternalRow, dataType: DataType, projection: Projection): Option[Int] = {
+<span class="fc" id="L131">    val shardValue = dataType match {</span>
+<span class="pc bpc" id="L132" title="1 of 2 branches missed.">      case ByteType =&gt; Some(projection(record).getByte(0).toLong)</span>
+<span class="pc bpc" id="L133" title="1 of 2 branches missed.">      case ShortType =&gt; Some(projection(record).getShort(0).toLong)</span>
+<span class="pc bpc" id="L134" title="1 of 2 branches missed.">      case IntegerType =&gt; Some(projection(record).getInt(0).toLong)</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">      case LongType =&gt; Some(projection(record).getLong(0))</span>
+<span class="pc" id="L136">      case _ =&gt; None</span>
+    }
+<span class="fc" id="L138">    shardValue.map(value =&gt; ShardUtils.calcShard(writeJob.cluster.get, value).num)</span>
+  }
+
+<span class="fc" id="L141">  val _currentBufferedRows = new LongAdder</span>
+<span class="fc" id="L142">  def currentBufferedRows: Long = _currentBufferedRows.longValue</span>
+<span class="fc" id="L143">  val _totalRecordsWritten = new LongAdder</span>
+<span class="fc" id="L144">  def totalRecordsWritten: Long = _totalRecordsWritten.longValue</span>
+<span class="fc" id="L145">  val _currentRawBytesWritten = new LongAdder</span>
+<span class="fc" id="L146">  def currentBufferedRawBytes: Long = _currentRawBytesWritten.longValue</span>
+<span class="fc" id="L147">  val _totalRawBytesWritten = new LongAdder</span>
+<span class="nc" id="L148">  def totalRawBytesWritten: Long = _totalRawBytesWritten.longValue</span>
+<span class="fc" id="L149">  val _lastSerializedBytesWritten = new LongAdder</span>
+<span class="fc" id="L150">  def lastSerializedBytesWritten: Long = _lastSerializedBytesWritten.longValue</span>
+<span class="fc" id="L151">  val _totalSerializedBytesWritten = new LongAdder</span>
+<span class="fc" id="L152">  def totalSerializedBytesWritten: Long = _totalSerializedBytesWritten.longValue</span>
+<span class="fc" id="L153">  val _lastSerializeTime = new LongAdder</span>
+<span class="fc" id="L154">  def lastSerializeTime: Long = _lastSerializeTime.longValue</span>
+<span class="fc" id="L155">  val _totalSerializeTime = new LongAdder</span>
+<span class="fc" id="L156">  def totalSerializeTime: Long = _totalSerializeTime.longValue</span>
+<span class="fc" id="L157">  val _totalWriteTime = new LongAdder</span>
+<span class="fc" id="L158">  def totalWriteTime: Long = _totalWriteTime.longValue</span>
+
+<span class="fc" id="L160">  val serializedBuffer = new ByteArrayOutputStream(64 * 1024 * 1024)</span>
+
+  // it is not accurate when using http protocol, because we delegate compression to
+  // clickhouse http client
+<span class="fc" id="L164">  private val observableSerializedOutput = new ObservableOutputStream(</span>
+<span class="fc" id="L165">    serializedBuffer,</span>
+<span class="fc" id="L166">    Some(_lastSerializedBytesWritten),</span>
+<span class="fc" id="L167">    Some(_totalSerializedBytesWritten)</span>
+  )
+
+<span class="fc" id="L170">  private val compressedForwardingOutput = new ForwardingOutputStream()</span>
+
+<span class="fc" id="L172">  private val observableCompressedOutput = new ObservableOutputStream(</span>
+<span class="fc" id="L173">    compressedForwardingOutput,</span>
+<span class="fc" id="L174">    Some(_currentRawBytesWritten),</span>
+<span class="fc" id="L175">    Some(_totalRawBytesWritten),</span>
+<span class="fc" id="L176">    Some(_lastSerializeTime),</span>
+<span class="fc" id="L177">    Some(_totalSerializeTime)</span>
+  )
+
+<span class="fc" id="L180">  def output: OutputStream = observableCompressedOutput</span>
+
+  private def renewCompressedOutput(): Unit = {
+<span class="pc bpc" id="L183" title="2 of 4 branches missed.">    val compressedOutput = (codec, protocol) match {</span>
+<span class="pc bpc" id="L184" title="1 of 2 branches missed.">      case (ClickHouseCompression.NONE, _) =&gt; observableSerializedOutput</span>
+<span class="pc bpc" id="L185" title="2 of 4 branches missed.">      case (ClickHouseCompression.LZ4, ClickHouseProtocol.HTTP) =&gt;</span>
+        // clickhouse http client forces compressed output stream
+        // new Lz4OutputStream(observableSerializedOutput, 4 * 1024 * 1024, null)
+<span class="fc" id="L188">        observableSerializedOutput</span>
+      case unsupported =&gt;
+<span class="pc" id="L190">        throw CHClientException(s&quot;unsupported compression codec: $unsupported&quot;)</span>
+    }
+<span class="fc" id="L192">    compressedForwardingOutput.updateDelegate(compressedOutput)</span>
+  }
+
+<span class="fc" id="L195">  renewCompressedOutput()</span>
+
+<span class="fc" id="L197">  override def currentMetricsValues: Array[CustomTaskMetric] = Array(</span>
+<span class="fc" id="L198">    TaskMetric(RECORDS_WRITTEN, totalRecordsWritten),</span>
+<span class="fc" id="L199">    TaskMetric(BYTES_WRITTEN, totalSerializedBytesWritten),</span>
+<span class="fc" id="L200">    TaskMetric(SERIALIZE_TIME, totalSerializeTime),</span>
+<span class="fc" id="L201">    TaskMetric(WRITE_TIME, totalWriteTime)</span>
+  )
+
+  def format: String
+
+<span class="fc" id="L206">  var currentShardNum: Option[Int] = None</span>
+
+  override def write(record: InternalRow): Unit = {
+<span class="fc" id="L209">    val shardNum = calcShard(record)</span>
+<span class="pc bpc" id="L210" title="3 of 8 branches missed.">    flush(force = shardNum != currentShardNum &amp;&amp; currentBufferedRows &gt; 0, currentShardNum)</span>
+<span class="fc" id="L211">    currentShardNum = shardNum</span>
+<span class="pc bpc" id="L212" title="1 of 2 branches missed.">    val (_, serializedTime) = Utils.timeTakenMs(writeRow(record))</span>
+<span class="fc" id="L213">    _lastSerializeTime.add(serializedTime)</span>
+<span class="fc" id="L214">    _totalSerializeTime.add(serializedTime)</span>
+<span class="fc" id="L215">    _currentBufferedRows.add(1)</span>
+<span class="fc" id="L216">    flush(force = false, currentShardNum)</span>
+  }
+
+  def writeRow(record: InternalRow): Unit
+
+  def serialize(): Array[Byte] = {
+<span class="pc bpc" id="L222" title="1 of 2 branches missed.">    val (data, serializedTime) = Utils.timeTakenMs(doSerialize())</span>
+<span class="fc" id="L223">    _lastSerializeTime.add(serializedTime)</span>
+<span class="fc" id="L224">    _totalSerializeTime.add(serializedTime)</span>
+<span class="fc" id="L225">    data</span>
+  }
+
+  def doSerialize(): Array[Byte]
+
+  def reset(): Unit = {
+<span class="fc" id="L231">    _currentBufferedRows.reset()</span>
+<span class="fc" id="L232">    _currentRawBytesWritten.reset()</span>
+<span class="fc" id="L233">    _lastSerializedBytesWritten.reset()</span>
+<span class="fc" id="L234">    _lastSerializeTime.reset()</span>
+<span class="fc" id="L235">    currentShardNum = None</span>
+<span class="fc" id="L236">    serializedBuffer.reset()</span>
+<span class="fc" id="L237">    renewCompressedOutput()</span>
+  }
+
+  def flush(force: Boolean, shardNum: Option[Int]): Unit =
+<span class="fc bfc" id="L241" title="All 2 branches covered.">    if (force) {</span>
+<span class="fc" id="L242">      doFlush(shardNum)</span>
+<span class="fc bfc" id="L243" title="All 2 branches covered.">    } else if (currentBufferedRows &gt;= writeJob.writeOptions.batchSize) {</span>
+<span class="fc" id="L244">      doFlush(shardNum)</span>
+    }
+
+  def doFlush(shardNum: Option[Int]): Unit = {
+<span class="fc" id="L248">    val client = nodeClient(shardNum)</span>
+<span class="fc" id="L249">    val data = serialize()</span>
+<span class="fc" id="L250">    var writeTime = 0L</span>
+<span class="fc" id="L251">    Utils.retry[Unit, RetryableCHException](</span>
+<span class="fc" id="L252">      writeJob.writeOptions.maxRetry,</span>
+<span class="fc" id="L253">      writeJob.writeOptions.retryInterval</span>
+<span class="pc" id="L254">    ) {</span>
+<span class="fc" id="L255">      var startWriteTime = System.currentTimeMillis</span>
+<span class="pc" id="L256">      client.syncInsertOutputJSONEachRow(database, table, format, codec, new ByteArrayInputStream(data)) match {</span>
+<span class="pc bpc" id="L257" title="1 of 2 branches missed.">        case Right(_) =&gt;</span>
+<span class="fc" id="L258">          writeTime = System.currentTimeMillis - startWriteTime</span>
+<span class="fc" id="L259">          _totalWriteTime.add(writeTime)</span>
+<span class="fc" id="L260">          _totalRecordsWritten.add(currentBufferedRows)</span>
+<span class="nc bnc" id="L261" title="All 4 branches missed.">        case Left(retryable) if writeJob.writeOptions.retryableErrorCodes.contains(retryable.code) =&gt;</span>
+<span class="nc" id="L262">          startWriteTime = System.currentTimeMillis</span>
+<span class="nc" id="L263">          throw RetryableCHException(retryable.code, retryable.reason, Some(client.nodeSpec))</span>
+<span class="nc bnc" id="L264" title="All 2 branches missed.">        case Left(rethrow) =&gt; throw rethrow</span>
+      }
+    } match {
+<span class="pc bpc" id="L267" title="1 of 2 branches missed.">      case Success(_) =&gt;</span>
+<span class="fc" id="L268">        log.info(</span>
+<span class="fc" id="L269">          s&quot;&quot;&quot;Job[${writeJob.queryId}]: batch write completed</span>
+<span class="fc" id="L270">             |cluster: ${writeJob.cluster.map(_.name).getOrElse(&quot;none&quot;)}, shard: ${shardNum.getOrElse(&quot;none&quot;)}</span>
+<span class="fc" id="L271">             |node: ${client.nodeSpec}</span>
+<span class="fc" id="L272">             |        row count: $currentBufferedRows</span>
+<span class="fc" id="L273">             |         raw size: ${Utils.bytesToString(currentBufferedRawBytes)}</span>
+<span class="fc" id="L274">             |           format: $format</span>
+<span class="fc" id="L275">             |compression codec: $codec</span>
+<span class="fc" id="L276">             |  serialized size: ${Utils.bytesToString(lastSerializedBytesWritten)}</span>
+<span class="fc" id="L277">             |   serialize time: ${lastSerializeTime}ms</span>
+<span class="fc" id="L278">             |       write time: ${writeTime}ms</span>
+             |&quot;&quot;&quot;.stripMargin
+        )
+<span class="fc" id="L281">        reset()</span>
+<span class="nc bnc" id="L282" title="All 2 branches missed.">      case Failure(rethrow) =&gt; throw rethrow</span>
+    }
+  }
+
+  override def commit(): WriterCommitMessage = {
+<span class="fc bfc" id="L287" title="All 2 branches covered.">    flush(currentBufferedRows &gt; 0, currentShardNum)</span>
+<span class="fc" id="L288">    CommitMessage(s&quot;Job[${writeJob.queryId}]: commit&quot;)</span>
+  }
+
+<span class="nc" id="L291">  override def abort(): Unit = {}</span>
+
+  override def close(): Unit = {
+<span class="fc" id="L294">    IOUtils.closeQuietly(output)</span>
+<span class="pc" id="L295">    client match {</span>
+<span class="fc bfc" id="L296" title="All 2 branches covered.">      case Left(clusterClient) =&gt; clusterClient.close()</span>
+<span class="pc bpc" id="L297" title="1 of 2 branches missed.">      case Right(nodeClient) =&gt; nodeClient.close()</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

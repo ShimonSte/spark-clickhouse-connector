@@ -1,0 +1,357 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CityHash_v1_0_2.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-core</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.hash.cityhash</a> &gt; <span class="el_source">CityHash_v1_0_2.java</span></div><h1>CityHash_v1_0_2.java</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.hash.cityhash;
+
+
+// modified from https://github.com/dpoluyanov/achord/blob/master/src/main/java/com/github/mangelion/achord/CityHash_v1_0_2.java
+// 1. fixed some bugs involving int32 to uint32 conversion
+// 2. changed netty ByteBuf to raw byte[]
+final public class CityHash_v1_0_2 {
+
+    private static final long kMul = 0x9ddfea08eb382d69L;
+    // Some primes between 2^63 and 2^64 for various uses.
+    private static final long k0 = 0xc3a5c85c97cb3127L;
+    private static final long k1 = 0xb492b66fbe98f273L;
+    private static final long k2 = 0x9ae16a3b2f90404fL;
+    private static final long k3 = 0xc949d7c7509e6557L;
+
+    private CityHash_v1_0_2() { /* restricted */ }
+
+    private static long toLongLE(byte[] b, int i) {
+<span class="nc" id="L33">        return 0xffffffffffffffffL &amp;</span>
+                (((long) b[i + 7] &lt;&lt; 56) +
+                        ((long) (b[i + 6] &amp; 255) &lt;&lt; 48) +
+                        ((long) (b[i + 5] &amp; 255) &lt;&lt; 40) +
+                        ((long) (b[i + 4] &amp; 255) &lt;&lt; 32) +
+                        ((long) (b[i + 3] &amp; 255) &lt;&lt; 24) +
+                        ((b[i + 2] &amp; 255) &lt;&lt; 16) +
+                        ((b[i + 1] &amp; 255) &lt;&lt; 8) +
+                        ((b[i + 0] &amp; 255) &lt;&lt; 0));
+    }
+
+    private static long toIntLE(byte[] b, int i) {
+<span class="nc" id="L45">        return 0xffffffffL &amp;</span>
+                (((b[i + 3] &amp; 255) &lt;&lt; 24) +
+                        ((b[i + 2] &amp; 255) &lt;&lt; 16) +
+                        ((b[i + 1] &amp; 255) &lt;&lt; 8) +
+                        ((b[i + 0] &amp; 255) &lt;&lt; 0));
+    }
+
+    private static long Fetch64(byte[] p, int index) {
+<span class="nc" id="L53">        return toLongLE(p, index);</span>
+    }
+
+    private static long Fetch32(byte[] p, int index) {
+<span class="nc" id="L57">        return toIntLE(p, index);</span>
+    }
+
+    // Equivalent to Rotate(), but requires the second arg to be non-zero.
+    // On x86-64, and probably others, it's possible for this to compile
+    // to a single instruction if both args are already in registers.
+    private static long RotateByAtLeast1(long val, int shift) {
+<span class="nc" id="L64">        return (val &gt;&gt;&gt; shift) | (val &lt;&lt; (64 - shift));</span>
+    }
+
+    private static long ShiftMix(long val) {
+<span class="nc" id="L68">        return val ^ (val &gt;&gt;&gt; 47);</span>
+    }
+
+    private static long Uint128Low64(UInt128 x) {
+<span class="nc" id="L72">        return x.first;</span>
+    }
+
+    private static long Rotate(long val, int shift) {
+<span class="nc bnc" id="L76" title="All 2 branches missed.">        return shift == 0 ? val : (val &gt;&gt;&gt; shift) | (val &lt;&lt; (64 - shift));</span>
+    }
+
+    private static long Uint128High64(UInt128 x) {
+<span class="nc" id="L80">        return x.second;</span>
+    }
+
+    // Hash 128 input bits down to 64 bits of output.
+    // This is intended to be a reasonably good hash function.
+    public static long Hash128to64(UInt128 x) {
+        // Murmur-inspired hashing.
+<span class="nc" id="L87">        long a = (Uint128Low64(x) ^ Uint128High64(x)) * kMul;</span>
+<span class="nc" id="L88">        a ^= (a &gt;&gt;&gt; 47);</span>
+<span class="nc" id="L89">        long b = (Uint128High64(x) ^ a) * kMul;</span>
+<span class="nc" id="L90">        b ^= (b &gt;&gt;&gt; 47);</span>
+<span class="nc" id="L91">        b *= kMul;</span>
+<span class="nc" id="L92">        return b;</span>
+    }
+
+    private static long HashLen16(long u, long v) {
+<span class="nc" id="L96">        return Hash128to64(UInt128.of(u, v));</span>
+    }
+
+    private static long HashLen0to16(byte[] s, int index, int len) {
+<span class="nc bnc" id="L100" title="All 2 branches missed.">        if (len &gt; 8) {</span>
+<span class="nc" id="L101">            long a = Fetch64(s, index);</span>
+<span class="nc" id="L102">            long b = Fetch64(s, index + len - 8);</span>
+<span class="nc" id="L103">            return HashLen16(a, RotateByAtLeast1(b + len, len)) ^ b;</span>
+        }
+<span class="nc bnc" id="L105" title="All 2 branches missed.">        if (len &gt;= 4) {</span>
+<span class="nc" id="L106">            long a = Fetch32(s, index);</span>
+<span class="nc" id="L107">            return HashLen16(len + (a &lt;&lt; 3), Fetch32(s, index + len - 4));</span>
+        }
+<span class="nc bnc" id="L109" title="All 2 branches missed.">        if (len &gt; 0) {</span>
+<span class="nc" id="L110">            byte a = s[index];</span>
+<span class="nc" id="L111">            byte b = s[index + len &gt;&gt;&gt; 1];</span>
+<span class="nc" id="L112">            byte c = s[index + len - 1];</span>
+<span class="nc" id="L113">            int y = (a &amp; 0xFF) + ((b &amp; 0xFF) &lt;&lt; 8);</span>
+<span class="nc" id="L114">            int z = len + ((c &amp; 0xFF) &lt;&lt; 2);</span>
+<span class="nc" id="L115">            return ShiftMix(y * k2 ^ z * k3) * k2;</span>
+        }
+<span class="nc" id="L117">        return k2;</span>
+    }
+
+    // This probably works well for 16-byte strings as well, but it may be overkill
+    // in that case.
+    private static long HashLen17to32(byte[] s, int index, int len) {
+<span class="nc" id="L123">        long a = Fetch64(s, index) * k1;</span>
+<span class="nc" id="L124">        long b = Fetch64(s, index + 8);</span>
+<span class="nc" id="L125">        long c = Fetch64(s, index + len - 8) * k2;</span>
+<span class="nc" id="L126">        long d = Fetch64(s, index + len - 16) * k0;</span>
+<span class="nc" id="L127">        return HashLen16(Rotate(a - b, 43) + Rotate(c, 30) + d,</span>
+<span class="nc" id="L128">                a + Rotate(b ^ k3, 20) - c + len);</span>
+    }
+
+    // Return a 16-byte hash for 48 bytes.  Quick and dirty.
+    // Callers do best to use &quot;random-looking&quot; values for a and b.
+    private static UInt128 WeakHashLen32WithSeeds(
+            long w, long x, long y, long z, long a, long b) {
+<span class="nc" id="L135">        a += w;</span>
+<span class="nc" id="L136">        b = Rotate(b + a + z, 21);</span>
+<span class="nc" id="L137">        long c = a;</span>
+<span class="nc" id="L138">        a += x;</span>
+<span class="nc" id="L139">        a += y;</span>
+<span class="nc" id="L140">        b += Rotate(a, 44);</span>
+<span class="nc" id="L141">        return UInt128.of(a + z, b + c);</span>
+    }
+
+    // Return a 16-byte hash for s[0] ... s[31], a, and b.  Quick and dirty.
+    private static UInt128 WeakHashLen32WithSeeds(byte[] s, int index, long a, long b) {
+<span class="nc" id="L146">        return WeakHashLen32WithSeeds(Fetch64(s, index),</span>
+<span class="nc" id="L147">                Fetch64(s, index + 8),</span>
+<span class="nc" id="L148">                Fetch64(s, index + 16),</span>
+<span class="nc" id="L149">                Fetch64(s, index + 24),</span>
+                a,
+                b);
+    }
+
+    // Return an 8-byte hash for 33 to 64 bytes.
+    private static long HashLen33to64(byte[] s, int index, int len) {
+<span class="nc" id="L156">        long z = Fetch64(s, index + 24);</span>
+<span class="nc" id="L157">        long a = Fetch64(s, index) + (len + Fetch64(s, index + len - 16)) * k0;</span>
+<span class="nc" id="L158">        long b = Rotate(a + z, 52);</span>
+<span class="nc" id="L159">        long c = Rotate(a, 37);</span>
+<span class="nc" id="L160">        a += Fetch64(s, index + 8);</span>
+<span class="nc" id="L161">        c += Rotate(a, 7);</span>
+<span class="nc" id="L162">        a += Fetch64(s, index + 16);</span>
+<span class="nc" id="L163">        long vf = a + z;</span>
+<span class="nc" id="L164">        long vs = b + Rotate(a, 31) + c;</span>
+<span class="nc" id="L165">        a = Fetch64(s, index + 16) + Fetch64(s, index + len - 32);</span>
+<span class="nc" id="L166">        z = Fetch64(s, index + len - 8);</span>
+<span class="nc" id="L167">        b = Rotate(a + z, 52);</span>
+<span class="nc" id="L168">        c = Rotate(a, 37);</span>
+<span class="nc" id="L169">        a += Fetch64(s, index + len - 24);</span>
+<span class="nc" id="L170">        c += Rotate(a, 7);</span>
+<span class="nc" id="L171">        a += Fetch64(s, index + len - 16);</span>
+<span class="nc" id="L172">        long wf = a + z;</span>
+<span class="nc" id="L173">        long ws = b + Rotate(a, 31) + c;</span>
+<span class="nc" id="L174">        long r = ShiftMix((vf + ws) * k2 + (wf + vs) * k0);</span>
+<span class="nc" id="L175">        return ShiftMix(r * k0 + vs) * k2;</span>
+    }
+
+    // A subroutine for CityHash128().  Returns a decent 128-bit hash for strings
+    // of any length representable in size_t.  Based on City and Murmur.
+    private static UInt128 CityMurmur(byte[] s, int index, int len, UInt128 seed) {
+<span class="nc" id="L181">        long a = Uint128Low64(seed);</span>
+<span class="nc" id="L182">        long b = Uint128High64(seed);</span>
+        long c;
+        long d;
+<span class="nc" id="L185">        int l = len - 16;</span>
+<span class="nc bnc" id="L186" title="All 2 branches missed.">        if (l &lt;= 0) {  // len &lt;= 16</span>
+<span class="nc" id="L187">            a = ShiftMix(a * k1) * k1;</span>
+<span class="nc" id="L188">            c = b * k1 + HashLen0to16(s, index, len);</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">            d = ShiftMix(a + (len &gt;= 8 ? Fetch64(s, index) : c));</span>
+        } else {  // len &gt; 16
+<span class="nc" id="L191">            c = HashLen16(Fetch64(s, index + len - 8) + k1, a);</span>
+<span class="nc" id="L192">            d = HashLen16(b + len, c + Fetch64(s, index + len - 16));</span>
+<span class="nc" id="L193">            a += d;</span>
+            do {
+<span class="nc" id="L195">                a ^= ShiftMix(Fetch64(s, index) * k1) * k1;</span>
+<span class="nc" id="L196">                a *= k1;</span>
+<span class="nc" id="L197">                b ^= a;</span>
+<span class="nc" id="L198">                c ^= ShiftMix(Fetch64(s, index + 8) * k1) * k1;</span>
+<span class="nc" id="L199">                c *= k1;</span>
+<span class="nc" id="L200">                d ^= c;</span>
+<span class="nc" id="L201">                index += 16;</span>
+<span class="nc" id="L202">                l -= 16;</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">            } while (l &gt; 0);</span>
+        }
+<span class="nc" id="L205">        a = HashLen16(a, c);</span>
+<span class="nc" id="L206">        b = HashLen16(d, b);</span>
+<span class="nc" id="L207">        return UInt128.of(a ^ b, HashLen16(b, a));</span>
+    }
+
+    public static long CityHash64(byte[] s, int index, int len) {
+<span class="nc bnc" id="L211" title="All 2 branches missed.">        if (len &lt;= 32) {</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">            if (len &lt;= 16) {</span>
+<span class="nc" id="L213">                return HashLen0to16(s, index, len);</span>
+            } else {
+<span class="nc" id="L215">                return HashLen17to32(s, index, len);</span>
+            }
+<span class="nc bnc" id="L217" title="All 2 branches missed.">        } else if (len &lt;= 64) {</span>
+<span class="nc" id="L218">            return HashLen33to64(s, index, len);</span>
+        }
+
+        // For strings over 64 bytes we hash the end first, and then as we
+        // loop we keep 56 bytes of state: v, w, x, y, and z.
+<span class="nc" id="L223">        long x = Fetch64(s, index);</span>
+<span class="nc" id="L224">        long y = Fetch64(s, index + len - 16) ^ k1;</span>
+<span class="nc" id="L225">        long z = Fetch64(s, index + len - 56) ^ k0;</span>
+<span class="nc" id="L226">        UInt128 v = WeakHashLen32WithSeeds(s, len - 64, len, y);</span>
+<span class="nc" id="L227">        UInt128 w = WeakHashLen32WithSeeds(s, len - 32, len * k1, k0);</span>
+<span class="nc" id="L228">        z += ShiftMix(v.second) * k1;</span>
+<span class="nc" id="L229">        x = Rotate(z + x, 39) * k1;</span>
+<span class="nc" id="L230">        y = Rotate(y, 33) * k1;</span>
+
+        // Decrease len to the nearest multiple of 64, and operate on 64-byte chunks.
+<span class="nc" id="L233">        len = (len - 1) &amp; ~63;</span>
+        do {
+<span class="nc" id="L235">            x = Rotate(x + y + v.first + Fetch64(s, index + 16), 37) * k1;</span>
+<span class="nc" id="L236">            y = Rotate(y + v.second + Fetch64(s, index + 48), 42) * k1;</span>
+<span class="nc" id="L237">            x ^= w.second;</span>
+<span class="nc" id="L238">            y ^= v.first;</span>
+<span class="nc" id="L239">            z = Rotate(z ^ w.first, 33);</span>
+<span class="nc" id="L240">            v = WeakHashLen32WithSeeds(s, index, v.second * k1, x + w.first);</span>
+<span class="nc" id="L241">            w = WeakHashLen32WithSeeds(s, index + 32, z + w.second, y);</span>
+            // swap
+<span class="nc" id="L243">            long t = z;</span>
+<span class="nc" id="L244">            z = x;</span>
+<span class="nc" id="L245">            x = t;</span>
+<span class="nc" id="L246">            index += 64;</span>
+<span class="nc" id="L247">            len -= 64;</span>
+<span class="nc bnc" id="L248" title="All 2 branches missed.">        } while (len != 0);</span>
+<span class="nc" id="L249">        return HashLen16(HashLen16(v.first, w.first) + ShiftMix(y) * k1 + z,</span>
+<span class="nc" id="L250">                HashLen16(v.second, w.second) + x);</span>
+    }
+
+    private static long CityHash64WithSeed(byte[] s, int index, int len, long seed) {
+<span class="nc" id="L254">        return CityHash64WithSeeds(s, index, len, k2, seed);</span>
+    }
+
+    private static long CityHash64WithSeeds(byte[] s, int index, int len,
+                                            long seed0, long seed1) {
+<span class="nc" id="L259">        return HashLen16(CityHash64(s, index, len) - seed0, seed1);</span>
+    }
+
+    private static UInt128 CityHash128WithSeed(byte[] s, int index, int len, UInt128 seed) {
+<span class="nc bnc" id="L263" title="All 2 branches missed.">        if (len &lt; 128) {</span>
+<span class="nc" id="L264">            return CityMurmur(s, index, len, seed);</span>
+        }
+
+        // We expect len &gt;= 128 to be the common case.  Keep 56 bytes of state:
+        // v, w, x, y, and z.
+        UInt128 v, w;
+<span class="nc" id="L270">        long x = Uint128Low64(seed);</span>
+<span class="nc" id="L271">        long y = Uint128High64(seed);</span>
+<span class="nc" id="L272">        long z = len * k1;</span>
+<span class="nc" id="L273">        long vFirst = Rotate(y ^ k1, 49) * k1 + Fetch64(s, index);</span>
+<span class="nc" id="L274">        long vSecond = Rotate(vFirst, 42) * k1 + Fetch64(s, index + 8);</span>
+<span class="nc" id="L275">        long wFirst = Rotate(y + z, 35) * k1 + x;</span>
+<span class="nc" id="L276">        long wSecond = Rotate(x + Fetch64(s, index + 88), 53) * k1;</span>
+
+        // This is the same inner loop as CityHash64(), manually unrolled.
+        do {
+<span class="nc" id="L280">            x = Rotate(x + y + vFirst + Fetch64(s, index + 16), 37) * k1;</span>
+<span class="nc" id="L281">            y = Rotate(y + vSecond + Fetch64(s, index + 48), 42) * k1;</span>
+<span class="nc" id="L282">            x ^= wSecond;</span>
+<span class="nc" id="L283">            y ^= vFirst;</span>
+<span class="nc" id="L284">            z = Rotate(z ^ wFirst, 33);</span>
+<span class="nc" id="L285">            v = WeakHashLen32WithSeeds(s, index, vSecond * k1, x + wFirst);</span>
+<span class="nc" id="L286">            w = WeakHashLen32WithSeeds(s, index + 32, z + wSecond, y);</span>
+
+<span class="nc" id="L288">            vFirst = v.first;</span>
+<span class="nc" id="L289">            vSecond = v.second;</span>
+<span class="nc" id="L290">            wFirst = w.first;</span>
+<span class="nc" id="L291">            wSecond = w.second;</span>
+            {
+<span class="nc" id="L293">                long swap = z;</span>
+<span class="nc" id="L294">                z = x;</span>
+<span class="nc" id="L295">                x = swap;</span>
+            }
+<span class="nc" id="L297">            index += 64;</span>
+<span class="nc" id="L298">            x = Rotate(x + y + vFirst + Fetch64(s, index + 16), 37) * k1;</span>
+<span class="nc" id="L299">            y = Rotate(y + vSecond + Fetch64(s, index + 48), 42) * k1;</span>
+<span class="nc" id="L300">            x ^= wSecond;</span>
+<span class="nc" id="L301">            y ^= vFirst;</span>
+<span class="nc" id="L302">            z = Rotate(z ^ wFirst, 33);</span>
+<span class="nc" id="L303">            v = WeakHashLen32WithSeeds(s, index, vSecond * k1, x + wFirst);</span>
+<span class="nc" id="L304">            w = WeakHashLen32WithSeeds(s, index + 32, z + wSecond, y);</span>
+
+<span class="nc" id="L306">            vFirst = v.first;</span>
+<span class="nc" id="L307">            vSecond = v.second;</span>
+<span class="nc" id="L308">            wFirst = w.first;</span>
+<span class="nc" id="L309">            wSecond = w.second;</span>
+            {
+<span class="nc" id="L311">                long swap = z;</span>
+<span class="nc" id="L312">                z = x;</span>
+<span class="nc" id="L313">                x = swap;</span>
+            }
+<span class="nc" id="L315">            index += 64;</span>
+<span class="nc" id="L316">            len -= 128;</span>
+<span class="nc bnc" id="L317" title="All 2 branches missed.">        } while (len &gt;= 128);</span>
+<span class="nc" id="L318">        y += Rotate(wFirst, 37) * k0 + z;</span>
+<span class="nc" id="L319">        x += Rotate(vFirst + z, 49) * k0;</span>
+        // If 0 &lt; len &lt; 128, hash up to 4 chunks of 32 bytes each from the end of s.
+<span class="nc bnc" id="L321" title="All 2 branches missed.">        for (int tail_done = 0; tail_done &lt; len; ) {</span>
+<span class="nc" id="L322">            tail_done += 32;</span>
+<span class="nc" id="L323">            y = Rotate(y - x, 42) * k0 + vSecond;</span>
+<span class="nc" id="L324">            wFirst += Fetch64(s, index + len - tail_done + 16);</span>
+<span class="nc" id="L325">            x = Rotate(x, 49) * k0 + wFirst;</span>
+<span class="nc" id="L326">            wFirst += vFirst;</span>
+<span class="nc" id="L327">            v = WeakHashLen32WithSeeds(s, index + len - tail_done, vFirst, vSecond);</span>
+
+<span class="nc" id="L329">            vFirst = v.first;</span>
+<span class="nc" id="L330">            vSecond = v.second;</span>
+        }
+        // At this point our 48 bytes of state should contain more than
+        // enough information for a strong 128-bit hash.  We use two
+        // different 48-byte-to-8-byte hashes to get a 16-byte final result.
+<span class="nc" id="L335">        x = HashLen16(x, vFirst);</span>
+<span class="nc" id="L336">        y = HashLen16(y, wFirst);</span>
+<span class="nc" id="L337">        return UInt128.of(HashLen16(x + vSecond, wSecond) + y,</span>
+<span class="nc" id="L338">                HashLen16(x + wSecond, y + vSecond));</span>
+    }
+
+    public static UInt128 CityHash128(byte[] s, int len) {
+<span class="nc bnc" id="L342" title="All 2 branches missed.">        if (len &gt;= 16) {</span>
+<span class="nc" id="L343">            return CityHash128WithSeed(s, 16,</span>
+                    len - 16,
+<span class="nc" id="L345">                    UInt128.of(Fetch64(s, 0) ^ k3,</span>
+<span class="nc" id="L346">                            Fetch64(s, 8)));</span>
+<span class="nc bnc" id="L347" title="All 2 branches missed.">        } else if (len &gt;= 8) {</span>
+<span class="nc" id="L348">            return CityHash128WithSeed(null,</span>
+                    0, 0,
+<span class="nc" id="L350">                    UInt128.of(Fetch64(s, 0) ^ (len * k0),</span>
+<span class="nc" id="L351">                            Fetch64(s, len - 8) ^ k1));</span>
+        } else {
+<span class="nc" id="L353">            return CityHash128WithSeed(s, 0, len, UInt128.of(k0, k1));</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

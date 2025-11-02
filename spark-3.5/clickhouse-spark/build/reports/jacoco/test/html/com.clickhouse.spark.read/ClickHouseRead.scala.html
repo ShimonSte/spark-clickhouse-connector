@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ClickHouseRead.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-spark-3.5_2.12</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.read</a> &gt; <span class="el_source">ClickHouseRead.scala</span></div><h1>ClickHouseRead.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.read
+
+import com.clickhouse.spark.client.NodeClient
+import com.clickhouse.spark.exception.CHClientException
+import com.clickhouse.spark.read.format.{ClickHouseBinaryReader, ClickHouseJsonReader}
+import com.clickhouse.spark.spec.{DistributedEngineSpec, NoPartitionSpec, TableEngineSpec}
+import com.clickhouse.spark.{BlocksReadMetric, BytesReadMetric, ClickHouseHelper, Logging, SQLHelper, Utils}
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.clickhouse.ClickHouseSQLConf._
+import org.apache.spark.sql.connector.expressions.{Expressions, NamedReference, Transform}
+import org.apache.spark.sql.connector.expressions.aggregate.Aggregation
+import org.apache.spark.sql.connector.metric.CustomMetric
+import org.apache.spark.sql.connector.read._
+import org.apache.spark.sql.connector.read.partitioning.{Partitioning, UnknownPartitioning}
+import org.apache.spark.sql.sources.{AlwaysTrue, Filter}
+import org.apache.spark.sql.types.StructType
+import com.clickhouse.spark._
+import com.clickhouse.spark.spec._
+
+import java.time.ZoneId
+import scala.util.control.NonFatal
+
+<span class="nc bnc" id="L37" title="All 12 branches missed.">class ClickHouseScanBuilder(</span>
+<span class="nc" id="L38">  scanJob: ScanJobDescription,</span>
+<span class="nc" id="L39">  physicalSchema: StructType,</span>
+  metadataSchema: StructType,
+  partitionTransforms: Array[Transform]
+<span class="nc" id="L42">) extends ScanBuilder</span>
+    with SupportsPushDownLimit
+    with SupportsPushDownFilters
+    with SupportsPushDownAggregates
+    with SupportsPushDownRequiredColumns
+    with ClickHouseHelper
+    with SQLHelper
+    with Logging {
+
+<span class="nc" id="L51">  implicit private val tz: ZoneId = scanJob.tz</span>
+
+<span class="nc" id="L53">  private val reservedMetadataSchema: StructType = StructType(</span>
+<span class="nc" id="L54">    metadataSchema.dropWhile(field =&gt; physicalSchema.fields.map(_.name).contains(field.name))</span>
+  )
+
+<span class="nc" id="L57">  private var _readSchema: StructType = StructType(</span>
+<span class="nc" id="L58">    physicalSchema.fields ++ reservedMetadataSchema.fields</span>
+  )
+
+<span class="nc" id="L61">  private var _limit: Option[Int] = None</span>
+
+  override def pushLimit(limit: Int): Boolean = {
+<span class="nc" id="L64">    this._limit = Some(limit)</span>
+<span class="nc" id="L65">    true</span>
+  }
+
+<span class="nc" id="L68">  private var _pushedFilters = Array.empty[Filter]</span>
+
+<span class="nc" id="L70">  override def pushedFilters: Array[Filter] = this._pushedFilters</span>
+
+  override def pushFilters(filters: Array[Filter]): Array[Filter] = {
+<span class="nc bnc" id="L73" title="All 2 branches missed.">    val (pushed, unSupported) = filters.partition(f =&gt; compileFilter(f).isDefined)</span>
+<span class="nc" id="L74">    this._pushedFilters = pushed</span>
+<span class="nc" id="L75">    unSupported</span>
+  }
+
+<span class="nc" id="L78">  private var _pushedGroupByCols: Option[Array[String]] = None</span>
+<span class="nc" id="L79">  private var _groupByClause: Option[String] = None</span>
+
+  override def pushAggregation(aggregation: Aggregation): Boolean = {
+<span class="nc" id="L82">    val compiledAggs = aggregation.aggregateExpressions.flatMap(compileAggregate)</span>
+<span class="nc bnc" id="L83" title="All 2 branches missed.">    if (compiledAggs.length != aggregation.aggregateExpressions.length) return false</span>
+
+<span class="nc" id="L85">    val compiledGroupByCols = aggregation.groupByExpressions.map(_.toString)</span>
+
+    // The column names here are already quoted and can be used to build sql string directly.
+    // e.g. [`DEPT`, `NAME`, MAX(`SALARY`), MIN(`BONUS`)] =&gt;
+    //        SELECT `DEPT`, `NAME`, MAX(`SALARY`), MIN(`BONUS`)
+    //        FROM `test`.`employee`
+    //        WHERE 1=0
+    //        GROUP BY `DEPT`, `NAME`
+<span class="nc" id="L93">    val compiledSelectItems = compiledGroupByCols ++ compiledAggs</span>
+<span class="nc bnc" id="L94" title="All 2 branches missed.">    val groupByClause = if (compiledGroupByCols.nonEmpty) &quot;GROUP BY &quot; + compiledGroupByCols.mkString(&quot;, &quot;) else &quot;&quot;</span>
+    val aggQuery =
+<span class="nc" id="L96">      s&quot;&quot;&quot;SELECT ${compiledSelectItems.mkString(&quot;, &quot;)}</span>
+<span class="nc" id="L97">         |FROM ${quoted(scanJob.tableSpec.database)}.${quoted(scanJob.tableSpec.name)}</span>
+         |WHERE 1=0
+<span class="nc" id="L99">         |$groupByClause</span>
+         |&quot;&quot;&quot;.stripMargin
+<span class="nc" id="L101">    try {</span>
+<span class="nc" id="L102">      _readSchema = Utils.tryWithResource(NodeClient(scanJob.node)) { implicit nodeClient: NodeClient =&gt;</span>
+<span class="nc" id="L103">        val fields = (getQueryOutputSchema(aggQuery) zip compiledSelectItems)</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">          .map { case (structField, colExpr) =&gt; structField.copy(name = colExpr) }</span>
+<span class="nc" id="L105">        StructType(fields)</span>
+      }
+<span class="nc" id="L107">      _pushedGroupByCols = Some(compiledGroupByCols)</span>
+<span class="nc" id="L108">      _groupByClause = Some(groupByClause)</span>
+<span class="nc" id="L109">      true</span>
+    } catch {
+<span class="nc bnc" id="L111" title="All 2 branches missed.">      case NonFatal(e) =&gt;</span>
+<span class="nc" id="L112">        log.error(&quot;Failed to push down aggregation to ClickHouse&quot;, e)</span>
+<span class="nc" id="L113">        false</span>
+    }
+  }
+
+  override def pruneColumns(requiredSchema: StructType): Unit = {
+<span class="nc" id="L118">    val requiredCols = requiredSchema.map(_.name)</span>
+<span class="nc" id="L119">    this._readSchema = StructType(_readSchema.filter(field =&gt; requiredCols.contains(field.name)))</span>
+  }
+
+<span class="nc" id="L122">  override def build(): Scan = new ClickHouseBatchScan(scanJob.copy(</span>
+<span class="nc" id="L123">    readSchema = _readSchema,</span>
+<span class="nc" id="L124">    filtersExpr = compileFilters(AlwaysTrue :: pushedFilters.toList),</span>
+<span class="nc" id="L125">    groupByClause = _groupByClause,</span>
+<span class="nc" id="L126">    limit = _limit</span>
+  ))
+}
+
+<span class="nc bnc" id="L130" title="All 12 branches missed.">class ClickHouseBatchScan(scanJob: ScanJobDescription) extends Scan with Batch</span>
+    with SupportsReportPartitioning
+    with SupportsRuntimeFiltering
+    with PartitionReaderFactory
+    with ClickHouseHelper
+    with SQLHelper {
+
+<span class="nc" id="L137">  implicit private val tz: ZoneId = scanJob.tz</span>
+
+<span class="nc" id="L139">  private var runtimeFilters: Array[Filter] = Array.empty</span>
+
+<span class="nc" id="L141">  val database: String = scanJob.database</span>
+<span class="nc" id="L142">  val table: String = scanJob.table</span>
+
+<span class="nc bnc" id="L144" title="All 4 branches missed.">  lazy val inputPartitions: Array[ClickHouseInputPartition] = scanJob.tableEngineSpec match {</span>
+<span class="nc bnc" id="L145" title="All 4 branches missed.">    case DistributedEngineSpec(_, _, local_db, local_table, _, _) if scanJob.readOptions.convertDistributedToLocal =&gt;</span>
+<span class="nc" id="L146">      scanJob.cluster.get.shards.flatMap { shardSpec =&gt;</span>
+<span class="nc" id="L147">        Utils.tryWithResource(NodeClient(shardSpec.nodes.head)) { implicit nodeClient: NodeClient =&gt;</span>
+<span class="nc" id="L148">          queryPartitionSpec(local_db, local_table).map { partitionSpec =&gt;</span>
+<span class="nc" id="L149">            ClickHouseInputPartition(</span>
+<span class="nc" id="L150">              scanJob.localTableSpec.get,</span>
+<span class="nc" id="L151">              partitionSpec,</span>
+<span class="nc" id="L152">              scanJob.readOptions.splitByPartitionId,</span>
+<span class="nc" id="L153">              shardSpec // TODO pickup preferred</span>
+            )
+          }
+        }
+      }
+<span class="nc bnc" id="L158" title="All 4 branches missed.">    case _: DistributedEngineSpec if scanJob.readOptions.useClusterNodesForDistributed =&gt;</span>
+<span class="nc" id="L159">      throw CHClientException(</span>
+<span class="nc" id="L160">        s&quot;${READ_DISTRIBUTED_USE_CLUSTER_NODES.key} is not supported yet.&quot;</span>
+      )
+<span class="nc bnc" id="L162" title="All 2 branches missed.">    case _: DistributedEngineSpec =&gt;</span>
+      // we can not collect all partitions from single node, thus should treat table as no partitioned table
+<span class="nc" id="L164">      Array(ClickHouseInputPartition(</span>
+<span class="nc" id="L165">        scanJob.tableSpec,</span>
+<span class="nc" id="L166">        NoPartitionSpec,</span>
+<span class="nc" id="L167">        scanJob.readOptions.splitByPartitionId,</span>
+<span class="nc" id="L168">        scanJob.node</span>
+      ))
+<span class="nc bnc" id="L170" title="All 2 branches missed.">    case _: TableEngineSpec =&gt;</span>
+<span class="nc" id="L171">      Utils.tryWithResource(NodeClient(scanJob.node)) { implicit nodeClient: NodeClient =&gt;</span>
+<span class="nc" id="L172">        queryPartitionSpec(database, table).map { partitionSpec =&gt;</span>
+<span class="nc" id="L173">          ClickHouseInputPartition(</span>
+<span class="nc" id="L174">            scanJob.tableSpec,</span>
+<span class="nc" id="L175">            partitionSpec,</span>
+<span class="nc" id="L176">            scanJob.readOptions.splitByPartitionId,</span>
+<span class="nc" id="L177">            scanJob.node // TODO pickup preferred</span>
+          )
+        }
+<span class="nc" id="L180">      }.toArray</span>
+  }
+
+<span class="nc" id="L183">  override def toBatch: Batch = this</span>
+
+  // may contains meta columns
+<span class="nc" id="L186">  override def readSchema(): StructType = scanJob.readSchema</span>
+
+<span class="nc" id="L188">  override def planInputPartitions: Array[InputPartition] = inputPartitions.toArray</span>
+
+  // TODO KeyGroupedPartitioning
+<span class="nc" id="L191">  override def outputPartitioning(): Partitioning = new UnknownPartitioning(inputPartitions.length)</span>
+
+<span class="nc" id="L193">  override def createReaderFactory: PartitionReaderFactory = this</span>
+
+  override def createReader(_partition: InputPartition): PartitionReader[InternalRow] = {
+<span class="nc" id="L196">    val format = scanJob.readOptions.format</span>
+<span class="nc" id="L197">    val partition = _partition.asInstanceOf[ClickHouseInputPartition]</span>
+<span class="nc" id="L198">    val finalScanJob = scanJob.copy(filtersExpr =</span>
+<span class="nc" id="L199">      scanJob.filtersExpr + &quot; AND &quot;</span>
+<span class="nc" id="L200">        + compileFilters(AlwaysTrue :: runtimeFilters.toList)</span>
+    )
+<span class="nc" id="L202">    format match {</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">      case &quot;json&quot; =&gt; new ClickHouseJsonReader(finalScanJob, partition)</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">      case &quot;binary&quot; =&gt; new ClickHouseBinaryReader(finalScanJob, partition)</span>
+<span class="nc" id="L205">      case unsupported =&gt; throw CHClientException(s&quot;Unsupported read format: $unsupported&quot;)</span>
+    }
+  }
+
+<span class="nc" id="L209">  override def supportedCustomMetrics(): Array[CustomMetric] = Array(</span>
+<span class="nc" id="L210">    BlocksReadMetric(),</span>
+<span class="nc" id="L211">    BytesReadMetric()</span>
+  )
+
+  override def filterAttributes(): Array[NamedReference] =
+<span class="nc bnc" id="L215" title="All 2 branches missed.">    if (scanJob.readOptions.runtimeFilterEnabled) {</span>
+<span class="nc" id="L216">      scanJob.readSchema.fields.map(field =&gt; Expressions.column(field.name))</span>
+    } else {
+<span class="nc" id="L218">      Array.empty</span>
+    }
+
+  override def filter(filters: Array[Filter]): Unit =
+<span class="nc" id="L222">    runtimeFilters = filters</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

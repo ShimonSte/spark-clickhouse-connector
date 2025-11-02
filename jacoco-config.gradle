@@ -1,0 +1,53 @@
+// Add to build.gradle to enable JaCoCo for cross-module coverage
+
+apply plugin: 'jacoco'
+
+jacoco {
+    toolVersion = "0.8.11"
+}
+
+test {
+    finalizedBy jacocoTestReport
+    jacoco {
+        // This allows JaCoCo to track execution across module boundaries
+        includeNoLocationClasses = true
+        excludes = ['jdk.internal.*']
+    }
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+    
+    // Aggregate coverage from dependencies
+    executionData.setFrom(fileTree(buildDir).include("/jacoco/*.exec"))
+    
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: [
+                '**/generated/**',
+                '**/*Test*',
+                '**/*Suite*'
+            ])
+        }))
+    }
+}
+
+// Aggregate task for all modules
+task jacocoAggregateReport(type: JacocoReport) {
+    dependsOn = subprojects.test
+    
+    additionalSourceDirs.setFrom(files(subprojects.sourceSets.main.allSource.srcDirs))
+    sourceDirectories.setFrom(files(subprojects.sourceSets.main.allSource.srcDirs))
+    classDirectories.setFrom(files(subprojects.sourceSets.main.output))
+    executionData.setFrom(files(subprojects.jacocoTestReport.executionData))
+    
+    reports {
+        html.required = true
+        xml.required = true
+    }
+}

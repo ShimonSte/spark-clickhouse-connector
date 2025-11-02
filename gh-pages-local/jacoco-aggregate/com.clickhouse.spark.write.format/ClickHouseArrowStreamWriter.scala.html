@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ClickHouseArrowStreamWriter.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">spark-clickhouse-connector</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.write.format</a> &gt; <span class="el_source">ClickHouseArrowStreamWriter.scala</span></div><h1>ClickHouseArrowStreamWriter.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under th e License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.write.format
+
+import com.clickhouse.spark.write.{ClickHouseWriter, WriteJobDescription}
+import org.apache.arrow.memory.BufferAllocator
+import org.apache.arrow.vector.VectorSchemaRoot
+import org.apache.arrow.vector.ipc.ArrowStreamWriter
+import org.apache.arrow.vector.types.pojo.Schema
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.clickhouse.SparkUtils
+import org.apache.spark.sql.execution.arrow.ArrowWriter
+
+<span class="fc" id="L26">class ClickHouseArrowStreamWriter(writeJob: WriteJobDescription) extends ClickHouseWriter(writeJob) {</span>
+
+<span class="fc" id="L28">  override def format: String = &quot;ArrowStream&quot;</span>
+
+<span class="fc" id="L30">  val allocator: BufferAllocator = SparkUtils.spawnArrowAllocator(&quot;writer for ClickHouse&quot;)</span>
+<span class="fc" id="L31">  val arrowSchema: Schema = SparkUtils.toArrowSchema(revisedDataSchema, writeJob.tz.getId)</span>
+<span class="fc" id="L32">  val root: VectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator)</span>
+<span class="fc" id="L33">  val arrowWriter: ArrowWriter = ArrowWriter.create(root)</span>
+
+<span class="fc" id="L35">  override def writeRow(record: InternalRow): Unit = arrowWriter.write(record)</span>
+
+  override def doSerialize(): Array[Byte] = {
+<span class="fc" id="L38">    arrowWriter.finish()</span>
+<span class="fc" id="L39">    val arrowStreamWriter = new ArrowStreamWriter(root, null, output)</span>
+<span class="fc" id="L40">    arrowStreamWriter.writeBatch()</span>
+<span class="fc" id="L41">    arrowStreamWriter.end()</span>
+<span class="fc" id="L42">    output.flush()</span>
+<span class="fc" id="L43">    output.close()</span>
+<span class="fc" id="L44">    serializedBuffer.toByteArray</span>
+  }
+
+  override def reset(): Unit = {
+<span class="fc" id="L48">    super.reset()</span>
+<span class="fc" id="L49">    arrowWriter.reset()</span>
+  }
+
+  override def close(): Unit = {
+<span class="fc" id="L53">    root.close()</span>
+<span class="fc" id="L54">    allocator.close()</span>
+<span class="fc" id="L55">    super.close()</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SQLHelper.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-spark-3.5_2.12</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark</a> &gt; <span class="el_source">SQLHelper.scala</span></div><h1>SQLHelper.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark
+
+import java.sql.{Date, Timestamp}
+import java.time.{Instant, LocalDate, LocalDateTime, ZoneId}
+import org.apache.commons.lang3.StringUtils
+import org.apache.spark.sql.connector.expressions.aggregate._
+import org.apache.spark.sql.connector.expressions.NamedReference
+import org.apache.spark.sql.sources._
+import org.apache.spark.unsafe.types.UTF8String
+import Utils._
+
+<span class="nc" id="L26">trait SQLHelper {</span>
+
+<span class="nc" id="L28">  def quoted(token: String) = s&quot;`$token`&quot;</span>
+
+  // null =&gt; null, ' =&gt; ''
+<span class="nc" id="L31">  def escapeSql(value: String): String = StringUtils.replace(value, &quot;'&quot;, &quot;''&quot;)</span>
+
+<span class="nc" id="L33">  def compileValue(value: Any)(implicit tz: ZoneId): Any = value match {</span>
+<span class="nc bnc" id="L34" title="All 2 branches missed.">    case string: String =&gt; s&quot;'${escapeSql(string)}'&quot;</span>
+<span class="nc bnc" id="L35" title="All 2 branches missed.">    case utf8: UTF8String =&gt; s&quot;'${escapeSql(utf8.toString)}'&quot;</span>
+<span class="nc bnc" id="L36" title="All 2 branches missed.">    case instant: Instant =&gt; s&quot;'${dateTimeFmt.withZone(tz).format(instant)}'&quot;</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">    case timestamp: Timestamp =&gt; s&quot;'${legacyDateTimeFmt.format(timestamp)}'&quot;</span>
+<span class="nc bnc" id="L38" title="All 2 branches missed.">    case localDateTime: LocalDateTime =&gt; s&quot;'${dateTimeFmt.format(localDateTime)}'&quot;</span>
+<span class="nc bnc" id="L39" title="All 2 branches missed.">    case legacyDate: Date =&gt; s&quot;'${legacyDateFmt.format(legacyDate)}'&quot;</span>
+<span class="nc bnc" id="L40" title="All 2 branches missed.">    case localDate: LocalDate =&gt; s&quot;'${dateFmt.format(localDate)}'&quot;</span>
+<span class="nc bnc" id="L41" title="All 2 branches missed.">    case array: Array[Any] =&gt; array.map(compileValue).mkString(&quot;,&quot;)</span>
+<span class="nc" id="L42">    case _ =&gt; value</span>
+  }
+
+<span class="nc" id="L45">  def compileFilter(f: Filter)(implicit tz: ZoneId): Option[String] = Option(f match {</span>
+<span class="nc bnc" id="L46" title="All 2 branches missed.">    case AlwaysTrue =&gt; &quot;1=1&quot;</span>
+<span class="nc bnc" id="L47" title="All 2 branches missed.">    case AlwaysFalse =&gt; &quot;1=0&quot;</span>
+<span class="nc bnc" id="L48" title="All 2 branches missed.">    case EqualTo(attr, value) =&gt; s&quot;${quoted(attr)} = ${compileValue(value)}&quot;</span>
+<span class="nc bnc" id="L49" title="All 2 branches missed.">    case EqualNullSafe(attr, nullableValue) =&gt;</span>
+<span class="nc bnc" id="L50" title="All 2 branches missed.">      val (col, value) = (quoted(attr), compileValue(nullableValue))</span>
+<span class="nc" id="L51">      s&quot;(NOT ($col != $value OR $col IS NULL OR $value IS NULL) OR ($col IS NULL AND $value IS NULL))&quot;</span>
+<span class="nc bnc" id="L52" title="All 2 branches missed.">    case LessThan(attr, value) =&gt; s&quot;${quoted(attr)} &lt; ${compileValue(value)}&quot;</span>
+<span class="nc bnc" id="L53" title="All 2 branches missed.">    case GreaterThan(attr, value) =&gt; s&quot;${quoted(attr)} &gt; ${compileValue(value)}&quot;</span>
+<span class="nc bnc" id="L54" title="All 2 branches missed.">    case LessThanOrEqual(attr, value) =&gt; s&quot;${quoted(attr)} &lt;= ${compileValue(value)}&quot;</span>
+<span class="nc bnc" id="L55" title="All 2 branches missed.">    case GreaterThanOrEqual(attr, value) =&gt; s&quot;${quoted(attr)} &gt;= ${compileValue(value)}&quot;</span>
+<span class="nc bnc" id="L56" title="All 2 branches missed.">    case IsNull(attr) =&gt; s&quot;${quoted(attr)} IS NULL&quot;</span>
+<span class="nc bnc" id="L57" title="All 2 branches missed.">    case IsNotNull(attr) =&gt; s&quot;${quoted(attr)} IS NOT NULL&quot;</span>
+<span class="nc bnc" id="L58" title="All 2 branches missed.">    case StringStartsWith(attr, value) =&gt; s&quot;${quoted(attr)} LIKE '$value%'&quot;</span>
+<span class="nc bnc" id="L59" title="All 2 branches missed.">    case StringEndsWith(attr, value) =&gt; s&quot;${quoted(attr)} LIKE '%$value'&quot;</span>
+<span class="nc bnc" id="L60" title="All 2 branches missed.">    case StringContains(attr, value) =&gt; s&quot;${quoted(attr)} LIKE '%$value%'&quot;</span>
+<span class="nc bnc" id="L61" title="All 4 branches missed.">    case In(attr, value) if value.isEmpty =&gt; s&quot;CASE WHEN ${quoted(attr)} IS NULL THEN NULL ELSE FALSE END&quot;</span>
+<span class="nc bnc" id="L62" title="All 2 branches missed.">    case In(attr, value) =&gt; s&quot;${quoted(attr)} IN (${compileValue(value)})&quot;</span>
+<span class="nc bnc" id="L63" title="All 2 branches missed.">    case Not(f) =&gt; compileFilter(f).map(p =&gt; s&quot;(NOT ($p))&quot;).orNull</span>
+<span class="nc bnc" id="L64" title="All 2 branches missed.">    case Or(f1, f2) =&gt;</span>
+<span class="nc" id="L65">      val or = Seq(f1, f2).flatMap(_f =&gt; compileFilter(_f)(tz))</span>
+<span class="nc bnc" id="L66" title="All 2 branches missed.">      if (or.size == 2) or.map(p =&gt; s&quot;($p)&quot;).mkString(&quot; OR &quot;) else null</span>
+<span class="nc bnc" id="L67" title="All 2 branches missed.">    case And(f1, f2) =&gt;</span>
+<span class="nc" id="L68">      val and = Seq(f1, f2).flatMap(_f =&gt; compileFilter(_f)(tz))</span>
+<span class="nc bnc" id="L69" title="All 2 branches missed.">      if (and.size == 2) and.map(p =&gt; s&quot;($p)&quot;).mkString(&quot; AND &quot;) else null</span>
+<span class="nc" id="L70">    case _ =&gt; null</span>
+  })
+
+  def compileAggregate(aggFunction: AggregateFunc): Option[String] =
+<span class="nc" id="L74">    aggFunction match {</span>
+<span class="nc bnc" id="L75" title="All 4 branches missed.">      case min: Min if min.column.isInstanceOf[NamedReference] =&gt;</span>
+<span class="nc" id="L76">        val col = min.column.asInstanceOf[NamedReference]</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        if (col.fieldNames().length != 1) return None</span>
+<span class="nc" id="L78">        Some(s&quot;MIN(${quoted(col.fieldNames.head)})&quot;)</span>
+<span class="nc bnc" id="L79" title="All 4 branches missed.">      case max: Max if max.column.isInstanceOf[NamedReference] =&gt;</span>
+<span class="nc" id="L80">        val col = max.column.asInstanceOf[NamedReference]</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">        if (col.fieldNames.length != 1) return None</span>
+<span class="nc" id="L82">        Some(s&quot;MAX(${quoted(col.fieldNames.head)})&quot;)</span>
+<span class="nc bnc" id="L83" title="All 4 branches missed.">      case count: Count if count.column.isInstanceOf[NamedReference] =&gt;</span>
+<span class="nc" id="L84">        val col = count.column.asInstanceOf[NamedReference]</span>
+<span class="nc bnc" id="L85" title="All 2 branches missed.">        if (col.fieldNames.length != 1) return None</span>
+<span class="nc bnc" id="L86" title="All 2 branches missed.">        val distinct = if (count.isDistinct) &quot;DISTINCT &quot; else &quot;&quot;</span>
+<span class="nc" id="L87">        val column = quoted(col.fieldNames.head)</span>
+<span class="nc" id="L88">        Some(s&quot;COUNT($distinct$column)&quot;)</span>
+<span class="nc bnc" id="L89" title="All 4 branches missed.">      case sum: Sum if sum.column.isInstanceOf[NamedReference] =&gt;</span>
+<span class="nc" id="L90">        val col = sum.column.asInstanceOf[NamedReference]</span>
+<span class="nc bnc" id="L91" title="All 2 branches missed.">        if (col.fieldNames.length != 1) return None</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">        val distinct = if (sum.isDistinct) &quot;DISTINCT &quot; else &quot;&quot;</span>
+<span class="nc" id="L93">        val column = quoted(col.fieldNames.head)</span>
+<span class="nc" id="L94">        Some(s&quot;SUM($distinct$column)&quot;)</span>
+<span class="nc bnc" id="L95" title="All 2 branches missed.">      case _: CountStar =&gt;</span>
+<span class="nc" id="L96">        Some(&quot;COUNT(*)&quot;)</span>
+<span class="nc" id="L97">      case _ =&gt; None</span>
+    }
+
+  def compileFilters(filters: Seq[Filter])(implicit tz: ZoneId): String =
+<span class="nc" id="L101">    filters</span>
+<span class="nc" id="L102">      .flatMap(_f =&gt; compileFilter(_f)(tz))</span>
+<span class="nc" id="L103">      .map(p =&gt; s&quot;($p)&quot;).mkString(&quot; AND &quot;)</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

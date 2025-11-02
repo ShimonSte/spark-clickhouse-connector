@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ParseUtils.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-core</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.parse</a> &gt; <span class="el_source">ParseUtils.scala</span></div><h1>ParseUtils.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.parse
+
+import java.util
+import org.antlr.v4.runtime.{ParserRuleContext, Token}
+import org.antlr.v4.runtime.misc.Interval
+
+import scala.collection.JavaConverters._
+
+<span class="fc" id="L23">object ParseUtils {</span>
+
+<span class="pc" id="L25">  private val _parser: ThreadLocal[SQLParser] = ThreadLocal.withInitial(() =&gt; new SQLParser(new AstVisitor))</span>
+
+<span class="nc" id="L27">  def parser: SQLParser = _parser.get</span>
+
+<span class="pc bpc" id="L29" title="1 of 3 branches missed.">  def seqToOption[T](seq: Seq[T]): Option[T] = seq.size match {</span>
+<span class="fc" id="L30">    case 0 =&gt; None</span>
+<span class="fc" id="L31">    case 1 =&gt; Some(seq.head)</span>
+<span class="nc" id="L32">    case illegal =&gt; throw new IllegalArgumentException(s&quot;Expect list size 0 or 1, but got $illegal&quot;)</span>
+  }
+
+<span class="fc" id="L35">  def listToOption[T](list: util.List[T]): Option[T] = seqToOption(list.asScala.toSeq)</span>
+
+  def source(ctx: ParserRuleContext): String = {
+<span class="fc" id="L38">    val stream = ctx.getStart.getInputStream</span>
+<span class="fc" id="L39">    stream.getText(Interval.of(ctx.getStart.getStartIndex, ctx.getStop.getStopIndex))</span>
+  }
+
+  def position(token: Token): Origin = {
+<span class="nc" id="L43">    val opt = Option(token)</span>
+<span class="nc" id="L44">    Origin(opt.map(_.getLine), opt.map(_.getCharPositionInLine))</span>
+  }
+}
+
+<span class="pc bnc" id="L48" title="All 25 branches missed.">case class Origin(</span>
+<span class="nc" id="L49">  line: Option[Int] = None,</span>
+<span class="nc" id="L50">  startPosition: Option[Int] = None</span>
+)
+
+<span class="nc" id="L53">object CurrentOrigin {</span>
+<span class="nc" id="L54">  private val value = new ThreadLocal[Origin]() {</span>
+<span class="nc" id="L55">    override def initialValue: Origin = Origin()</span>
+  }
+
+<span class="nc" id="L58">  def get: Origin = value.get()</span>
+<span class="nc" id="L59">  def set(o: Origin): Unit = value.set(o)</span>
+
+<span class="nc" id="L61">  def reset(): Unit = value.set(Origin())</span>
+
+  def setPosition(line: Int, start: Int): Unit =
+<span class="nc" id="L64">    value.set(</span>
+<span class="nc" id="L65">      value.get.copy(line = Some(line), startPosition = Some(start))</span>
+    )
+
+  def withOrigin[A](o: Origin)(f: =&gt; A): A = {
+    // remember the previous one so it can be reset to this
+    // this way withOrigin can be recursive
+<span class="nc" id="L71">    val previous = get</span>
+<span class="nc" id="L72">    set(o)</span>
+    val ret =
+<span class="nc" id="L74">      try f</span>
+<span class="nc" id="L75">      finally set(previous)</span>
+<span class="nc" id="L76">    ret</span>
+  }
+<span class="nc" id="L78">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

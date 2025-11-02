@@ -1,0 +1,44 @@
+// Fix for scoverage multi-module coverage
+// Add this to build.gradle
+
+// Make -it modules depend on instrumented classes from main modules
+project(":clickhouse-spark-it-${spark_binary_version}_$scala_binary_version") {
+    
+    // Use instrumented classes for test runtime
+    configurations {
+        testRuntimeClasspath {
+            // Replace normal classes with scoverage-instrumented classes
+            resolutionStrategy.dependencySubstitution {
+                substitute(project(":clickhouse-spark-${spark_binary_version}_$scala_binary_version"))
+                    .using(project(":clickhouse-spark-${spark_binary_version}_$scala_binary_version"))
+                    .because("Use instrumented classes for coverage")
+            }
+        }
+    }
+    
+    test {
+        // Ensure scoverage data is written
+        systemProperty 'scoverage.dataDir', 
+            "${project(':clickhouse-spark-' + spark_binary_version + '_' + scala_binary_version).buildDir}/scoverage"
+        
+        // Use instrumented classes
+        classpath = files(
+            project(':clickhouse-spark-' + spark_binary_version + '_' + scala_binary_version)
+                .sourceSets.scoverage.output,
+            configurations.testRuntimeClasspath
+        )
+    }
+}
+
+// Aggregate coverage report
+task aggregateScoverage(type: org.scoverage.ScoverageAggregate) {
+    dependsOn subprojects.reportTestScoverage
+    
+    // Collect all scoverage data
+    scoverageDataDirs = files(subprojects.collect { 
+        it.file("${it.buildDir}/scoverage") 
+    })
+    
+    // Output directory
+    reportDir = file("${buildDir}/reports/scoverage-aggregate")
+}

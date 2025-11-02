@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>NodeClient.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">spark-clickhouse-connector</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.client</a> &gt; <span class="el_source">NodeClient.scala</span></div><h1>NodeClient.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.client
+
+import com.clickhouse.spark.Logging
+import com.clickhouse.client._
+import com.clickhouse.client.config.ClickHouseClientOption
+import com.clickhouse.data.{ClickHouseCompression, ClickHouseFormat}
+import com.clickhouse.spark.exception.{CHClientException, CHException, CHServerException}
+import com.clickhouse.spark.format.{
+  JSONCompactEachRowWithNamesAndTypesSimpleOutput,
+  JSONEachRowSimpleOutput,
+  NamesAndTypes,
+  SimpleOutput
+}
+import com.clickhouse.spark.spec.NodeSpec
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.node.ObjectNode
+import com.clickhouse.spark.format._
+
+import java.io.InputStream
+import java.util.UUID
+import scala.util.{Failure, Success, Try}
+
+<span class="fc" id="L37">object NodeClient {</span>
+<span class="fc" id="L38">  def apply(node: NodeSpec): NodeClient = new NodeClient(node)</span>
+}
+
+<span class="pc bpc" id="L41" title="1 of 4 branches missed.">class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {</span>
+  // TODO: add configurable timeout
+<span class="fc" id="L43">  private val timeout: Int = 30000</span>
+
+<span class="pc bpc" id="L45" title="2 of 4 branches missed.">  private lazy val userAgent = {</span>
+<span class="fc" id="L46">    val title = getClass.getPackage.getImplementationTitle</span>
+<span class="fc" id="L47">    val version = getClass.getPackage.getImplementationVersion</span>
+<span class="pc bpc" id="L48" title="1 of 4 branches missed.">    if (version != null &amp;&amp; title != null) {</span>
+<span class="fc" id="L49">      val versions = version.split(&quot;_&quot;)</span>
+<span class="pc bpc" id="L50" title="1 of 2 branches missed.">      if (versions.length &lt; 3) {</span>
+<span class="nc" id="L51">        &quot;Spark-ClickHouse-Connector&quot;</span>
+      } else {
+<span class="fc" id="L53">        val sparkVersion = versions(0)</span>
+<span class="fc" id="L54">        val scalaVersion = versions(1)</span>
+<span class="fc" id="L55">        val connectorVersion = versions(2)</span>
+<span class="fc" id="L56">        s&quot;${title}/${connectorVersion} (fv:spark/${sparkVersion}, lv:scala/${scalaVersion})&quot;</span>
+      }
+    } else {
+<span class="fc" id="L59">      &quot;Spark-ClickHouse-Connector&quot;</span>
+    }
+  }
+<span class="fc" id="L62">  private val node: ClickHouseNode = ClickHouseNode.builder()</span>
+<span class="fc" id="L63">    .options(nodeSpec.options)</span>
+<span class="fc" id="L64">    .host(nodeSpec.host)</span>
+<span class="fc" id="L65">    .port(nodeSpec.protocol, nodeSpec.port)</span>
+<span class="fc" id="L66">    .database(nodeSpec.database)</span>
+<span class="fc" id="L67">    .credentials(ClickHouseCredentials.fromUserAndPassword(nodeSpec.username, nodeSpec.password))</span>
+    .build()
+
+<span class="fc" id="L70">  private val client: ClickHouseClient = ClickHouseClient.builder()</span>
+<span class="fc" id="L71">    .option(ClickHouseClientOption.FORMAT, ClickHouseFormat.RowBinary)</span>
+    .option(
+<span class="fc" id="L73">      ClickHouseClientOption.PRODUCT_NAME,</span>
+<span class="fc" id="L74">      userAgent</span>
+    )
+<span class="fc" id="L76">    .nodeSelector(ClickHouseNodeSelector.of(node.getProtocol))</span>
+    .build()
+
+<span class="fc" id="L79">  override def close(): Unit = client.close()</span>
+
+<span class="fc" id="L81">  private def nextQueryId(): String = UUID.randomUUID.toString</span>
+
+  // //////////////////////////////////////////////////////////////////////////////
+  // ///////////////////////// Synchronized Normal API ////////////////////////////
+  // //////////////////////////////////////////////////////////////////////////////
+
+  def syncQueryOutputJSONEachRow(
+    sql: String,
+<span class="fc" id="L89">    settings: Map[String, String] = Map.empty</span>
+  ): Either[CHException, SimpleOutput[ObjectNode]] =
+<span class="fc" id="L91">    syncQuery(sql, &quot;JSONEachRow&quot;, JSONEachRowSimpleOutput.deserialize, settings)</span>
+
+  def syncQueryAndCheckOutputJSONEachRow(
+    sql: String,
+<span class="fc" id="L95">    settings: Map[String, String] = Map.empty</span>
+  ): SimpleOutput[ObjectNode] =
+<span class="fc" id="L97">    syncQueryAndCheck(sql, &quot;JSONEachRow&quot;, JSONEachRowSimpleOutput.deserialize, settings)</span>
+
+  def syncInsertOutputJSONEachRow(
+    database: String,
+    table: String,
+    inputFormat: String,
+<span class="nc" id="L103">    inputCompressionType: ClickHouseCompression = ClickHouseCompression.NONE,</span>
+    data: InputStream,
+<span class="fc" id="L105">    settings: Map[String, String] = Map.empty</span>
+  ): Either[CHException, SimpleOutput[ObjectNode]] =
+<span class="fc" id="L107">    syncInsert(</span>
+<span class="fc" id="L108">      database,</span>
+<span class="fc" id="L109">      table,</span>
+<span class="fc" id="L110">      inputFormat,</span>
+<span class="fc" id="L111">      inputCompressionType,</span>
+<span class="fc" id="L112">      data,</span>
+<span class="fc" id="L113">      &quot;JSONEachRow&quot;,</span>
+<span class="fc" id="L114">      JSONEachRowSimpleOutput.deserialize,</span>
+<span class="fc" id="L115">      settings</span>
+    )
+
+  def syncQueryAndCheckOutputJSONCompactEachRowWithNamesAndTypes(
+    sql: String,
+<span class="fc" id="L120">    settings: Map[String, String] = Map.empty</span>
+  ): SimpleOutput[Array[JsonNode]] with NamesAndTypes =
+<span class="fc" id="L122">    syncQueryAndCheck(</span>
+<span class="fc" id="L123">      sql,</span>
+<span class="fc" id="L124">      &quot;JSONCompactEachRowWithNamesAndTypes&quot;,</span>
+<span class="fc" id="L125">      JSONCompactEachRowWithNamesAndTypesSimpleOutput.deserialize,</span>
+<span class="fc" id="L126">      settings</span>
+    ).asInstanceOf[SimpleOutput[Array[JsonNode]] with NamesAndTypes]
+
+  def syncInsert[OUT](
+    database: String,
+    table: String,
+    inputFormat: String,
+    inputCompressionType: ClickHouseCompression,
+    data: InputStream,
+    outputFormat: String,
+    deserializer: InputStream =&gt; SimpleOutput[OUT],
+    settings: Map[String, String]
+  ): Either[CHException, SimpleOutput[OUT]] = {
+<span class="fc" id="L139">    val queryId = nextQueryId()</span>
+<span class="fc" id="L140">    val sql = s&quot;INSERT INTO `$database`.`$table` FORMAT $inputFormat&quot;</span>
+<span class="fc" id="L141">    onExecuteQuery(queryId, sql)</span>
+<span class="fc" id="L142">    val req = client.write(node)</span>
+<span class="fc" id="L143">      .query(sql, queryId)</span>
+<span class="fc" id="L144">      .decompressClientRequest(inputCompressionType)</span>
+<span class="fc" id="L145">      .format(ClickHouseFormat.valueOf(outputFormat))</span>
+<span class="pc bnc" id="L146" title="All 2 branches missed.">    settings.foreach { case (k, v) =&gt; req.set(k, v) }</span>
+<span class="pc" id="L147">    Try(req.data(data).executeAndWait()) match {</span>
+<span class="pc bpc" id="L148" title="1 of 2 branches missed.">      case Success(resp) =&gt; Right(deserializer(resp.getInputStream))</span>
+<span class="nc bnc" id="L149" title="All 4 branches missed.">      case Failure(ex: ClickHouseException) =&gt;</span>
+<span class="nc" id="L150">        Left(CHServerException(ex.getErrorCode, ex.getMessage, Some(nodeSpec), Some(ex)))</span>
+<span class="nc bnc" id="L151" title="All 2 branches missed.">      case Failure(ex) =&gt; Left(CHClientException(ex.getMessage, Some(nodeSpec), Some(ex)))</span>
+    }
+  }
+
+  def syncQuery[OUT](
+    sql: String,
+    outputFormat: String,
+    deserializer: InputStream =&gt; SimpleOutput[OUT],
+    settings: Map[String, String]
+  ): Either[CHException, SimpleOutput[OUT]] = {
+<span class="fc" id="L161">    val queryId = nextQueryId()</span>
+<span class="fc" id="L162">    onExecuteQuery(queryId, sql)</span>
+<span class="fc" id="L163">    val req = client.read(node)</span>
+<span class="fc" id="L164">      .query(sql, queryId).asInstanceOf[ClickHouseRequest[_]]</span>
+<span class="fc" id="L165">      .format(ClickHouseFormat.valueOf(outputFormat)).asInstanceOf[ClickHouseRequest[_]]</span>
+<span class="fc" id="L166">      .option(ClickHouseClientOption.CONNECTION_TIMEOUT, timeout).asInstanceOf[ClickHouseRequest[_]]</span>
+<span class="pc bpc" id="L167" title="1 of 2 branches missed.">    settings.foreach { case (k, v) =&gt; req.set(k, v).asInstanceOf[ClickHouseRequest[_]] }</span>
+<span class="pc" id="L168">    Try(req.executeAndWait()) match {</span>
+<span class="fc bfc" id="L169" title="All 2 branches covered.">      case Success(resp) =&gt; Right(deserializer(resp.getInputStream))</span>
+<span class="pc bpc" id="L170" title="2 of 4 branches missed.">      case Failure(ex: ClickHouseException) =&gt;</span>
+<span class="fc" id="L171">        Left(CHServerException(ex.getErrorCode, ex.getMessage, Some(nodeSpec), Some(ex)))</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">      case Failure(ex) =&gt; Left(CHClientException(ex.getMessage, Some(nodeSpec), Some(ex)))</span>
+    }
+  }
+
+  def syncQueryAndCheck[OUT](
+    sql: String,
+    outputFormat: String,
+    deserializer: InputStream =&gt; SimpleOutput[OUT],
+    settings: Map[String, String]
+<span class="pc" id="L181">  ): SimpleOutput[OUT] = syncQuery[OUT](sql, outputFormat, deserializer, settings) match {</span>
+<span class="pc bpc" id="L182" title="1 of 2 branches missed.">    case Left(rethrow) =&gt; throw rethrow</span>
+<span class="pc bpc" id="L183" title="1 of 2 branches missed.">    case Right(output) =&gt; output</span>
+  }
+
+  // //////////////////////////////////////////////////////////////////////////////
+  // ///////////////////////// ret ClickHouseResponse /////////////////////////////
+  // //////////////////////////////////////////////////////////////////////////////
+
+  def queryAndCheck(
+    sql: String,
+    outputFormat: String,
+    outputCompressionType: ClickHouseCompression,
+<span class="fc" id="L194">    settings: Map[String, String] = Map.empty</span>
+  ): ClickHouseResponse = {
+<span class="fc" id="L196">    val queryId = nextQueryId()</span>
+<span class="fc" id="L197">    onExecuteQuery(queryId, sql)</span>
+<span class="fc" id="L198">    val req = client.read(node)</span>
+<span class="fc" id="L199">      .query(sql, queryId).asInstanceOf[ClickHouseRequest[_]]</span>
+<span class="fc" id="L200">      .compressServerResponse(outputCompressionType).asInstanceOf[ClickHouseRequest[_]]</span>
+<span class="fc" id="L201">      .format(ClickHouseFormat.valueOf(outputFormat)).asInstanceOf[ClickHouseRequest[_]]</span>
+<span class="fc" id="L202">      .option(ClickHouseClientOption.CONNECTION_TIMEOUT, timeout).asInstanceOf[ClickHouseRequest[_]]</span>
+<span class="pc bnc" id="L203" title="All 2 branches missed.">    settings.foreach { case (k, v) =&gt; req.set(k, v).asInstanceOf[ClickHouseRequest[_]] }</span>
+<span class="pc" id="L204">    Try(req.executeAndWait()) match {</span>
+<span class="pc bpc" id="L205" title="1 of 2 branches missed.">      case Success(resp) =&gt; resp</span>
+<span class="nc bnc" id="L206" title="All 4 branches missed.">      case Failure(ex: ClickHouseException) =&gt;</span>
+<span class="nc" id="L207">        throw CHServerException(ex.getErrorCode, ex.getMessage, Some(nodeSpec), Some(ex))</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">      case Failure(ex) =&gt; throw CHClientException(ex.getMessage, Some(nodeSpec), Some(ex))</span>
+    }
+  }
+
+  // //////////////////////////////////////////////////////////////////////////////
+  // /////////////////////////////////// Hook /////////////////////////////////////
+  // //////////////////////////////////////////////////////////////////////////////
+
+<span class="fc" id="L216">  def onExecuteQuery(queryId: String, sql: String): Unit = log.debug(</span>
+<span class="fc" id="L217">    s&quot;&quot;&quot;Execute ClickHouse SQL [$queryId]:</span>
+<span class="fc" id="L218">       |$sql</span>
+       |&quot;&quot;&quot;.stripMargin
+  )
+<span class="nc" id="L221">  def ping(timeout: Int = timeout) =</span>
+<span class="nc" id="L222">    client.ping(node, timeout)</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ClickHouseJsonReader.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">spark-clickhouse-connector</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.read.format</a> &gt; <span class="el_source">ClickHouseJsonReader.scala</span></div><h1>ClickHouseJsonReader.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.read.format
+
+import com.clickhouse.spark.exception.CHClientException
+import com.clickhouse.spark.format.{JSONCompactEachRowWithNamesAndTypesStreamOutput, StreamOutput}
+import com.clickhouse.spark.read.{ClickHouseInputPartition, ClickHouseReader, ScanJobDescription}
+import com.fasterxml.jackson.databind.JsonNode
+import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.GenericInternalRow
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData}
+import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.types.UTF8String
+import com.clickhouse.spark.Utils.{dateFmt, dateTimeFmt}
+
+import java.math.{MathContext, RoundingMode =&gt; RM}
+import java.time.{LocalDate, ZoneOffset, ZonedDateTime}
+import java.util.concurrent.TimeUnit
+import scala.collection.JavaConverters._
+import scala.math.BigDecimal.RoundingMode
+
+<span class="fc" id="L34">class ClickHouseJsonReader(</span>
+<span class="fc" id="L35">  scanJob: ScanJobDescription,</span>
+  part: ClickHouseInputPartition
+<span class="fc" id="L37">) extends ClickHouseReader[Array[JsonNode]](scanJob, part) {</span>
+
+<span class="fc" id="L39">  override val format: String = &quot;JSONCompactEachRowWithNamesAndTypes&quot;</span>
+
+<span class="pc bpc" id="L41" title="1 of 4 branches missed.">  lazy val streamOutput: StreamOutput[Array[JsonNode]] =</span>
+<span class="fc" id="L42">    JSONCompactEachRowWithNamesAndTypesStreamOutput.deserializeStream(resp.getInputStream)</span>
+
+  override def decode(record: Array[JsonNode]): InternalRow = {
+<span class="fc" id="L45">    val values: Array[Any] = new Array[Any](record.length)</span>
+<span class="pc bpc" id="L46" title="1 of 2 branches missed.">    if (readSchema.nonEmpty) {</span>
+<span class="fc" id="L47">      var i: Int = 0</span>
+<span class="fc bfc" id="L48" title="All 2 branches covered.">      while (i &lt; record.length) {</span>
+<span class="fc" id="L49">        values(i) = decodeValue(record(i), readSchema.fields(i))</span>
+<span class="fc" id="L50">        i = i + 1</span>
+      }
+    }
+<span class="fc" id="L53">    new GenericInternalRow(values)</span>
+  }
+
+  private def decodeValue(jsonNode: JsonNode, structField: StructField): Any = {
+<span class="pc bpc" id="L57" title="2 of 4 branches missed.">    if (jsonNode == null || jsonNode.isNull) {</span>
+      // should we check `structField.nullable`?
+<span class="nc" id="L59">      return null</span>
+    }
+
+<span class="fc" id="L62">    structField.dataType match {</span>
+<span class="pc bpc" id="L63" title="1 of 2 branches missed.">      case BooleanType =&gt; jsonNode.asBoolean</span>
+<span class="fc bfc" id="L64" title="All 2 branches covered.">      case ByteType =&gt; jsonNode.asInt.byteValue</span>
+<span class="fc bfc" id="L65" title="All 2 branches covered.">      case ShortType =&gt; jsonNode.asInt.shortValue</span>
+<span class="fc bfc" id="L66" title="All 2 branches covered.">      case IntegerType =&gt; jsonNode.asInt</span>
+<span class="fc bfc" id="L67" title="All 2 branches covered.">      case LongType =&gt; jsonNode.asLong</span>
+<span class="pc bpc" id="L68" title="1 of 2 branches missed.">      case FloatType =&gt; jsonNode.asDouble.floatValue</span>
+<span class="pc bpc" id="L69" title="1 of 2 branches missed.">      case DoubleType =&gt; jsonNode.asDouble</span>
+<span class="pc bpc" id="L70" title="1 of 4 branches missed.">      case d: DecimalType if jsonNode.isBigDecimal =&gt;</span>
+<span class="nc" id="L71">        Decimal(jsonNode.decimalValue, d.precision, d.scale)</span>
+<span class="fc bfc" id="L72" title="All 4 branches covered.">      case d: DecimalType if jsonNode.isFloat | jsonNode.isDouble =&gt;</span>
+<span class="fc" id="L73">        Decimal(BigDecimal(jsonNode.doubleValue, new MathContext(d.precision)), d.precision, d.scale)</span>
+<span class="pc bpc" id="L74" title="1 of 4 branches missed.">      case d: DecimalType if jsonNode.isInt =&gt;</span>
+<span class="nc" id="L75">        Decimal(BigDecimal(jsonNode.intValue, new MathContext(d.precision)), d.precision, d.scale)</span>
+<span class="pc bpc" id="L76" title="1 of 4 branches missed.">      case d: DecimalType if jsonNode.isLong =&gt;</span>
+<span class="nc" id="L77">        Decimal(BigDecimal(jsonNode.longValue, new MathContext(d.precision)), d.precision, d.scale)</span>
+<span class="pc bpc" id="L78" title="1 of 4 branches missed.">      case d: DecimalType if jsonNode.isBigInteger =&gt;</span>
+<span class="nc" id="L79">        Decimal(BigDecimal(jsonNode.bigIntegerValue, new MathContext(d.precision)), d.precision, d.scale)</span>
+<span class="fc bfc" id="L80" title="All 2 branches covered.">      case d: DecimalType =&gt;</span>
+<span class="fc" id="L81">        Decimal(BigDecimal(jsonNode.textValue, new MathContext(d.precision)), d.precision, d.scale)</span>
+<span class="fc bfc" id="L82" title="All 2 branches covered.">      case TimestampType =&gt;</span>
+        var _instant =
+<span class="fc" id="L84">          ZonedDateTime.parse(jsonNode.asText, dateTimeFmt.withZone(scanJob.tz)).withZoneSameInstant(ZoneOffset.UTC)</span>
+<span class="fc" id="L85">        TimeUnit.SECONDS.toMicros(_instant.toEpochSecond) + TimeUnit.NANOSECONDS.toMicros(_instant.getNano())</span>
+<span class="fc bfc" id="L86" title="All 2 branches covered.">      case StringType =&gt; UTF8String.fromString(jsonNode.asText)</span>
+<span class="fc bfc" id="L87" title="All 2 branches covered.">      case DateType =&gt; LocalDate.parse(jsonNode.asText, dateFmt).toEpochDay.toInt</span>
+<span class="pc bpc" id="L88" title="1 of 2 branches missed.">      case BinaryType =&gt; jsonNode.binaryValue</span>
+<span class="fc bfc" id="L89" title="All 2 branches covered.">      case ArrayType(_dataType, _nullable) =&gt;</span>
+<span class="fc" id="L90">        val _structField = StructField(s&quot;${structField.name}__array_element__&quot;, _dataType, _nullable)</span>
+<span class="fc" id="L91">        new GenericArrayData(jsonNode.asScala.map(decodeValue(_, _structField)))</span>
+<span class="pc bpc" id="L92" title="2 of 4 branches missed.">      case MapType(StringType, _valueType, _valueNullable) =&gt;</span>
+<span class="fc" id="L93">        val mapData = jsonNode.fields.asScala.map { entry =&gt;</span>
+<span class="fc" id="L94">          val _structField = StructField(s&quot;${structField.name}__map_value__&quot;, _valueType, _valueNullable)</span>
+<span class="fc" id="L95">          UTF8String.fromString(entry.getKey) -&gt; decodeValue(entry.getValue, _structField)</span>
+<span class="fc" id="L96">        }.toMap</span>
+<span class="fc" id="L97">        ArrayBasedMapData(mapData)</span>
+      case _ =&gt;
+<span class="nc" id="L99">        throw CHClientException(s&quot;Unsupported catalyst type ${structField.name}[${structField.dataType}]&quot;)</span>
+    }
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

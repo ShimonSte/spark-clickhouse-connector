@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ScanJobDescription.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">spark-clickhouse-connector</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.read</a> &gt; <span class="el_source">ScanJobDescription.scala</span></div><h1>ScanJobDescription.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.read
+
+import com.clickhouse.spark.spec.{ClusterSpec, DistributedEngineSpec, NodeSpec, TableEngineSpec, TableSpec}
+import org.apache.spark.sql.clickhouse.ReadOptions
+import org.apache.spark.sql.types.StructType
+
+import java.time.ZoneId
+
+<span class="pc bnc" id="L23" title="All 95 branches missed.">case class ScanJobDescription(</span>
+<span class="fc" id="L24">  node: NodeSpec,</span>
+<span class="fc" id="L25">  tz: ZoneId,</span>
+<span class="fc" id="L26">  tableSpec: TableSpec,</span>
+<span class="fc" id="L27">  tableEngineSpec: TableEngineSpec,</span>
+<span class="fc" id="L28">  cluster: Option[ClusterSpec],</span>
+<span class="fc" id="L29">  localTableSpec: Option[TableSpec],</span>
+<span class="fc" id="L30">  localTableEngineSpec: Option[TableEngineSpec],</span>
+<span class="fc" id="L31">  readOptions: ReadOptions,</span>
+  // Below fields will be constructed in ScanBuilder.
+<span class="pc" id="L33">  readSchema: StructType = new StructType,</span>
+  // We should pass compiled ClickHouse SQL snippets(or ClickHouse SQL AST data structure) instead of Spark Expression
+  // into Scan tasks because the check happens in planing phase on driver side.
+<span class="pc" id="L36">  filtersExpr: String = &quot;1=1&quot;,</span>
+<span class="pc" id="L37">  groupByClause: Option[String] = None,</span>
+<span class="pc" id="L38">  limit: Option[Int] = None</span>
+) {
+
+<span class="fc" id="L41">  def database: String = tableEngineSpec match {</span>
+<span class="fc bfc" id="L42" title="All 4 branches covered.">    case dist: DistributedEngineSpec if readOptions.convertDistributedToLocal =&gt; dist.local_db</span>
+<span class="fc" id="L43">    case _ =&gt; tableSpec.database</span>
+  }
+
+<span class="fc" id="L46">  def table: String = tableEngineSpec match {</span>
+<span class="fc bfc" id="L47" title="All 4 branches covered.">    case dist: DistributedEngineSpec if readOptions.convertDistributedToLocal =&gt; dist.local_table</span>
+<span class="fc" id="L48">    case _ =&gt; tableSpec.name</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

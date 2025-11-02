@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Expressions.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">spark-clickhouse-connector</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.expr</a> &gt; <span class="el_source">Expressions.scala</span></div><h1>Expressions.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.expr
+
+<span class="fc" id="L17">trait Expr extends Serializable {</span>
+  def sql: String // ClickHouse dialect
+<span class="nc" id="L19">  def sparkSql: String = sql</span>
+<span class="fc" id="L20">  def desc: String = s&quot;${this.getClass.getSimpleName.stripSuffix(&quot;$&quot;)}[$sql]&quot;</span>
+<span class="fc" id="L21">  override def toString: String = desc</span>
+}
+
+<span class="pc bpc" id="L24" title="12 of 18 branches missed.">case class StringLiteral(value: String) extends Expr {</span>
+<span class="nc" id="L25">  override def sql: String = s&quot;'$value'&quot;</span>
+}
+
+<span class="pc bpc" id="L28" title="11 of 18 branches missed.">case class FieldRef(name: String) extends Expr {</span>
+<span class="fc" id="L29">  override def sql: String = name</span>
+}
+
+<span class="nc bnc" id="L32" title="All 18 branches missed.">case class SQLExpr(sqlText: String) extends Expr {</span>
+<span class="nc" id="L33">  override def sql: String = sqlText</span>
+}
+
+<span class="pc bpc" id="L36" title="17 of 25 branches missed.">case class FuncExpr(name: String, args: List[Expr]) extends Expr {</span>
+<span class="fc" id="L37">  override def sql: String = s&quot;$name(${args.map(_.sql).mkString(&quot;,&quot;)})&quot;</span>
+}
+
+// If the direction is not specified, ASC is assumed ...
+// By default or with the NULLS LAST modifier: first the values, then NaN, then NULL ...
+// https://clickhouse.com/docs/en/sql-reference/statements/select/order-by
+<span class="pc bnc" id="L43" title="All 28 branches missed.">case class OrderExpr(expr: Expr, asc: Boolean = true, nullFirst: Boolean = false) extends Expr {</span>
+<span class="nc bnc" id="L44" title="All 4 branches missed.">  override def sql: String = s&quot;$expr ${if (asc) &quot;ASC&quot; else &quot;DESC&quot;} NULLS ${if (nullFirst) &quot;FIRST&quot; else &quot;LAST&quot;}&quot;</span>
+}
+
+<span class="pc bpc" id="L47" title="12 of 18 branches missed.">case class TupleExpr(exprList: List[Expr]) extends Expr {</span>
+<span class="fc" id="L48">  override def sql: String = exprList.mkString(&quot;(&quot;, &quot;,&quot;, &quot;)&quot;)</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

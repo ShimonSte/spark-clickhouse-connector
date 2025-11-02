@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ClickHouseHelper.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-spark-3.5_2.12</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark</a> &gt; <span class="el_source">ClickHouseHelper.scala</span></div><h1>ClickHouseHelper.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark
+
+import com.clickhouse.client.ClickHouseProtocol
+import com.clickhouse.spark.exception.CHException
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.node.NullNode
+import org.apache.spark.sql.catalyst.analysis.{NoSuchNamespaceException, NoSuchTableException}
+import org.apache.spark.sql.clickhouse.SchemaUtils
+import org.apache.spark.sql.connector.catalog.Identifier
+import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.util.CaseInsensitiveStringMap
+import Constants._
+import com.clickhouse.spark.client.NodeClient
+import Utils.dateTimeFmt
+import com.clickhouse.spark.spec.{
+  ClusterSpec,
+  DatabaseSpec,
+  NoPartitionSpec,
+  NodeSpec,
+  PartitionSpec,
+  ReplicaSpec,
+  ShardSpec,
+  TableSpec
+}
+import com.clickhouse.spark.spec._
+
+import java.time.{LocalDateTime, ZoneId}
+import java.util.{HashMap =&gt; JHashMap}
+import scala.collection.JavaConverters._
+
+<span class="fc" id="L45">trait ClickHouseHelper extends Logging {</span>
+
+  @volatile lazy val DEFAULT_ACTION_IF_NO_SUCH_DATABASE: String =&gt; Unit =
+<span class="nc" id="L48">    (db: String) =&gt; throw new NoSuchNamespaceException(db)</span>
+
+  @volatile lazy val DEFAULT_ACTION_IF_NO_SUCH_TABLE: (String, String) =&gt; Unit =
+<span class="nc" id="L51">    (database, table) =&gt; throw new NoSuchTableException(s&quot;$database.$table&quot;)</span>
+
+<span class="nc" id="L53">  def unwrap(ident: Identifier): Option[(String, String)] = ident.namespace() match {</span>
+<span class="nc bnc" id="L54" title="All 6 branches missed.">    case Array(database) =&gt; Some((database, ident.name()))</span>
+<span class="nc" id="L55">    case _ =&gt; None</span>
+  }
+
+  def buildNodeSpec(options: CaseInsensitiveStringMap): NodeSpec = {
+<span class="fc" id="L59">    val clientOpts = options.asScala</span>
+<span class="fc" id="L60">      .filterKeys(_.startsWith(CATALOG_PROP_OPTION_PREFIX))</span>
+<span class="pc bpc" id="L61" title="1 of 2 branches missed.">      .map { case (k, v) =&gt; k.substring(CATALOG_PROP_OPTION_PREFIX.length) -&gt; v }</span>
+<span class="fc" id="L62">      .toMap</span>
+<span class="fc" id="L63">      .filterKeys { key =&gt;</span>
+<span class="fc" id="L64">        val ignore = CATALOG_PROP_IGNORE_OPTIONS.contains(key)</span>
+<span class="fc bfc" id="L65" title="All 2 branches covered.">        if (ignore) {</span>
+<span class="fc" id="L66">          log.warn(s&quot;Ignore configuration $key.&quot;)</span>
+        }
+<span class="fc bfc" id="L68" title="All 2 branches covered.">        !ignore</span>
+      }
+<span class="fc" id="L70">      .toMap</span>
+<span class="fc" id="L71">    NodeSpec(</span>
+<span class="fc" id="L72">      _host = options.getOrDefault(CATALOG_PROP_HOST, &quot;localhost&quot;),</span>
+<span class="fc" id="L73">      _tcp_port = Some(options.getInt(CATALOG_PROP_TCP_PORT, 9000)),</span>
+<span class="fc" id="L74">      _http_port = Some(options.getInt(CATALOG_PROP_HTTP_PORT, 8123)),</span>
+<span class="fc" id="L75">      protocol = ClickHouseProtocol.fromUriScheme(options.getOrDefault(CATALOG_PROP_PROTOCOL, &quot;http&quot;)),</span>
+<span class="fc" id="L76">      username = options.getOrDefault(CATALOG_PROP_USER, &quot;default&quot;),</span>
+<span class="fc" id="L77">      password = options.getOrDefault(CATALOG_PROP_PASSWORD, &quot;&quot;),</span>
+<span class="fc" id="L78">      database = options.getOrDefault(CATALOG_PROP_DATABASE, &quot;default&quot;),</span>
+<span class="fc" id="L79">      options = new JHashMap(clientOpts.asJava)</span>
+    )
+  }
+
+  def queryClusterSpecs(nodeSpec: NodeSpec)(implicit nodeClient: NodeClient): Seq[ClusterSpec] = {
+<span class="nc" id="L84">    val clustersOutput = nodeClient.syncQueryAndCheckOutputJSONEachRow(</span>
+<span class="nc" id="L85">      &quot;&quot;&quot; SELECT</span>
+        |   `cluster`,                 -- String
+        |   `shard_num`,               -- UInt32
+        |   `shard_weight`,            -- UInt32
+        |   `replica_num`,             -- UInt32
+        |   `host_name`,               -- String
+        |   `host_address`,            -- String
+        |   `port`,                    -- UInt16
+        |   `is_local`,                -- UInt8
+        |   `user`,                    -- String
+        |   `default_database`,        -- String
+        |   `errors_count`,            -- UInt32
+        |   `estimated_recovery_time`  -- UInt32
+        | FROM `system`.`clusters`
+        |&quot;&quot;&quot;.stripMargin
+    )
+<span class="nc" id="L101">    clustersOutput.records</span>
+<span class="nc" id="L102">      .groupBy(_.get(&quot;cluster&quot;).asText)</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">      .map { case (cluster, rows) =&gt;</span>
+<span class="nc" id="L104">        val shards = rows</span>
+<span class="nc" id="L105">          .groupBy(_.get(&quot;shard_num&quot;).asInt)</span>
+<span class="nc bnc" id="L106" title="All 2 branches missed.">          .map { case (shardNum, rows) =&gt;</span>
+<span class="nc" id="L107">            val shardWeight = rows.head.get(&quot;shard_weight&quot;).asInt</span>
+<span class="nc" id="L108">            val nodes = rows.map { row =&gt;</span>
+<span class="nc" id="L109">              val replicaNum = row.get(&quot;replica_num&quot;).asInt</span>
+              // should other properties be provided by `SparkConf`?
+<span class="nc" id="L111">              val clickhouseNode = nodeSpec.copy(</span>
+                // host_address is not works for testcontainers
+<span class="nc" id="L113">                _host = row.get(&quot;host_name&quot;).asText,</span>
+<span class="nc" id="L114">                _tcp_port = Some(row.get(&quot;port&quot;).asInt),</span>
+<span class="nc bnc" id="L115" title="All 2 branches missed.">                _http_port = if (Utils.isTesting) Some(8123) else nodeSpec.http_port</span>
+              )
+<span class="nc" id="L117">              ReplicaSpec(replicaNum, clickhouseNode)</span>
+<span class="nc" id="L118">            }.toArray</span>
+<span class="nc" id="L119">            ShardSpec(shardNum, shardWeight, nodes)</span>
+<span class="nc" id="L120">          }.toArray</span>
+<span class="nc" id="L121">        ClusterSpec(cluster, shards)</span>
+      }.toSeq
+  }
+
+  def queryDatabaseSpec(
+    database: String,
+<span class="nc" id="L127">    actionIfNoSuchDatabase: String =&gt; Unit = DEFAULT_ACTION_IF_NO_SUCH_DATABASE</span>
+  )(implicit nodeClient: NodeClient): DatabaseSpec = {
+<span class="nc" id="L129">    val output = nodeClient.syncQueryAndCheckOutputJSONEachRow(</span>
+<span class="nc" id="L130">      s&quot;&quot;&quot;SELECT</span>
+         |  `name`,          -- String
+         |  `engine`,        -- String
+         |  `data_path`,     -- String
+         |  `metadata_path`, -- String
+         |  `uuid`           -- String
+         |FROM `system`.`databases`
+<span class="nc" id="L137">         |WHERE `name`='$database'</span>
+         |&quot;&quot;&quot;.stripMargin
+    )
+<span class="nc bnc" id="L140" title="All 2 branches missed.">    if (output.rows == 0) {</span>
+<span class="nc" id="L141">      actionIfNoSuchDatabase(database)</span>
+    }
+<span class="nc" id="L143">    val row = output.records.head</span>
+<span class="nc" id="L144">    DatabaseSpec(</span>
+<span class="nc" id="L145">      name = row.get(&quot;name&quot;).asText,</span>
+<span class="nc" id="L146">      engine = row.get(&quot;engine&quot;).asText,</span>
+<span class="nc" id="L147">      data_path = row.get(&quot;data_path&quot;).asText,</span>
+<span class="nc" id="L148">      metadata_path = row.get(&quot;metadata_path&quot;).asText,</span>
+<span class="nc" id="L149">      uuid = row.get(&quot;uuid&quot;).asText</span>
+    )
+  }
+
+  def queryTableSpec(
+    database: String,
+    table: String,
+<span class="nc" id="L156">    actionIfNoSuchTable: (String, String) =&gt; Unit = DEFAULT_ACTION_IF_NO_SUCH_TABLE</span>
+  )(implicit
+    nodeClient: NodeClient,
+    tz: ZoneId
+  ): TableSpec = {
+<span class="nc" id="L161">    val tableOutput = nodeClient.syncQueryAndCheckOutputJSONEachRow(</span>
+<span class="nc" id="L162">      s&quot;&quot;&quot;SELECT</span>
+         |  `database`,                   -- String
+         |  `name`,                       -- String
+         |  `uuid`,                       -- UUID
+         |  `engine`,                     -- String
+         |  `is_temporary`,               -- UInt8
+         |  `data_paths`,                 -- Array(String)
+         |  `metadata_path`,              -- String
+         |  `metadata_modification_time`, -- DateTime
+         |  `dependencies_database`,      -- Array(String)
+         |  `dependencies_table`,         -- Array(String)
+         |  `create_table_query`,         -- String
+         |  `engine_full`,                -- String
+         |  `partition_key`,              -- String
+         |  `sorting_key`,                -- String
+         |  `primary_key`,                -- String
+         |  `sampling_key`,               -- String
+         |  `storage_policy`,             -- String
+         |  `total_rows`,                 -- Nullable(UInt64)
+         |  `total_bytes`,                -- Nullable(UInt64)
+         |  `lifetime_rows`,              -- Nullable(UInt64)
+         |  `lifetime_bytes`              -- Nullable(UInt64)
+         |FROM `system`.`tables`
+<span class="nc" id="L185">         |WHERE `database`='$database' AND `name`='$table'</span>
+         |&quot;&quot;&quot;.stripMargin
+    )
+<span class="nc bnc" id="L188" title="All 2 branches missed.">    if (tableOutput.isEmpty) {</span>
+<span class="nc" id="L189">      actionIfNoSuchTable(database, table)</span>
+    }
+<span class="nc" id="L191">    val tableRow = tableOutput.records.head</span>
+<span class="nc" id="L192">    TableSpec(</span>
+<span class="nc" id="L193">      database = tableRow.get(&quot;database&quot;).asText,</span>
+<span class="nc" id="L194">      name = tableRow.get(&quot;name&quot;).asText,</span>
+<span class="nc" id="L195">      uuid = tableRow.get(&quot;uuid&quot;).asText,</span>
+<span class="nc" id="L196">      engine = tableRow.get(&quot;engine&quot;).asText,</span>
+<span class="nc" id="L197">      is_temporary = tableRow.get(&quot;is_temporary&quot;).asBoolean,</span>
+<span class="nc" id="L198">      data_paths = tableRow.get(&quot;data_paths&quot;).elements().asScala.map(_.asText).toList,</span>
+<span class="nc" id="L199">      metadata_path = tableRow.get(&quot;metadata_path&quot;).asText,</span>
+      metadata_modification_time = LocalDateTime.parse(
+<span class="nc" id="L201">        tableRow.get(&quot;metadata_modification_time&quot;).asText,</span>
+<span class="nc" id="L202">        dateTimeFmt.withZone(tz)</span>
+      ),
+<span class="nc" id="L204">      dependencies_database = tableRow.get(&quot;dependencies_database&quot;).elements().asScala.map(_.asText).toList,</span>
+<span class="nc" id="L205">      dependencies_table = tableRow.get(&quot;dependencies_table&quot;).elements().asScala.map(_.asText).toList,</span>
+<span class="nc" id="L206">      create_table_query = tableRow.get(&quot;create_table_query&quot;).asText,</span>
+<span class="nc" id="L207">      engine_full = tableRow.get(&quot;engine_full&quot;).asText,</span>
+<span class="nc" id="L208">      partition_key = tableRow.get(&quot;partition_key&quot;).asText,</span>
+<span class="nc" id="L209">      sorting_key = tableRow.get(&quot;sorting_key&quot;).asText,</span>
+<span class="nc" id="L210">      primary_key = tableRow.get(&quot;primary_key&quot;).asText,</span>
+<span class="nc" id="L211">      sampling_key = tableRow.get(&quot;sampling_key&quot;).asText,</span>
+<span class="nc" id="L212">      storage_policy = tableRow.get(&quot;storage_policy&quot;).asText,</span>
+<span class="nc" id="L213">      total_rows = tableRow.get(&quot;total_rows&quot;) match {</span>
+<span class="nc bnc" id="L214" title="All 6 branches missed.">        case _: NullNode | null =&gt; None</span>
+<span class="nc bnc" id="L215" title="All 2 branches missed.">        case node: JsonNode =&gt; Some(node.asLong)</span>
+      },
+<span class="nc" id="L217">      total_bytes = tableRow.get(&quot;total_bytes&quot;) match {</span>
+<span class="nc bnc" id="L218" title="All 6 branches missed.">        case _: NullNode | null =&gt; None</span>
+<span class="nc bnc" id="L219" title="All 2 branches missed.">        case node: JsonNode =&gt; Some(node.asLong)</span>
+      },
+<span class="nc" id="L221">      lifetime_rows = tableRow.get(&quot;lifetime_rows&quot;) match {</span>
+<span class="nc bnc" id="L222" title="All 6 branches missed.">        case _: NullNode | null =&gt; None</span>
+<span class="nc bnc" id="L223" title="All 2 branches missed.">        case node: JsonNode =&gt; Some(node.asLong)</span>
+      },
+<span class="nc" id="L225">      lifetime_bytes = tableRow.get(&quot;lifetime_bytes&quot;) match {</span>
+<span class="nc bnc" id="L226" title="All 6 branches missed.">        case _: NullNode | null =&gt; None</span>
+<span class="nc bnc" id="L227" title="All 2 branches missed.">        case node: JsonNode =&gt; Some(node.asLong)</span>
+      }
+    )
+  }
+
+  def queryTableSchema(
+    database: String,
+    table: String,
+<span class="nc" id="L235">    actionIfNoSuchTable: (String, String) =&gt; Unit = DEFAULT_ACTION_IF_NO_SUCH_TABLE</span>
+  )(implicit nodeClient: NodeClient): StructType = {
+<span class="nc" id="L237">    val columnOutput = nodeClient.syncQueryAndCheckOutputJSONEachRow(</span>
+<span class="nc" id="L238">      s&quot;&quot;&quot;SELECT</span>
+         |  `database`,                -- String
+         |  `table`,                   -- String
+         |  `name`,                    -- String
+         |  `type`,                    -- String
+         |  `position`,                -- UInt64
+         |  `default_kind`,            -- String
+         |  `default_expression`,      -- String
+         |  `data_compressed_bytes`,   -- UInt64
+         |  `data_uncompressed_bytes`, -- UInt64
+         |  `marks_bytes`,             -- UInt64
+         |  `comment`,                 -- String
+         |  `is_in_partition_key`,     -- UInt8
+         |  `is_in_sorting_key`,       -- UInt8
+         |  `is_in_primary_key`,       -- UInt8
+         |  `is_in_sampling_key`,      -- UInt8
+         |  `compression_codec`        -- String
+         |FROM `system`.`columns`
+<span class="nc" id="L256">         |WHERE `database`='$database' AND `table`='$table'</span>
+         |ORDER BY `position` ASC
+         |&quot;&quot;&quot;.stripMargin
+    )
+<span class="nc bnc" id="L260" title="All 2 branches missed.">    if (columnOutput.isEmpty) {</span>
+<span class="nc" id="L261">      actionIfNoSuchTable(database, table)</span>
+    }
+<span class="nc" id="L263">    SchemaUtils.fromClickHouseSchema(columnOutput.records.map { row =&gt;</span>
+<span class="nc" id="L264">      val fieldName = row.get(&quot;name&quot;).asText</span>
+<span class="nc" id="L265">      val ckType = row.get(&quot;type&quot;).asText</span>
+<span class="nc" id="L266">      (fieldName, ckType)</span>
+    })
+  }
+
+  def queryPartitionSpec(
+    database: String,
+    table: String
+  )(implicit nodeClient: NodeClient): Seq[PartitionSpec] = {
+<span class="nc" id="L274">    val partOutput = nodeClient.syncQueryAndCheckOutputJSONEachRow(</span>
+<span class="nc" id="L275">      s&quot;&quot;&quot;SELECT</span>
+         |  partition,                           -- String
+         |  partition_id,                        -- String
+         |  sum(rows)          AS row_count,     -- UInt64
+         |  sum(bytes_on_disk) AS size_in_bytes  -- UInt64
+         |FROM `system`.`parts`
+<span class="nc" id="L281">         |WHERE `database`='$database' AND `table`='$table' AND `active`=1</span>
+         |GROUP BY `partition`, `partition_id`
+         |ORDER BY `partition` ASC, partition_id ASC
+         |&quot;&quot;&quot;.stripMargin
+    )
+<span class="nc bnc" id="L286" title="All 10 branches missed.">    if (partOutput.isEmpty || partOutput.rows == 1 &amp;&amp; partOutput.records.head.get(&quot;partition&quot;).asText == &quot;tuple()&quot;) {</span>
+<span class="nc" id="L287">      return Array(NoPartitionSpec)</span>
+    }
+<span class="nc" id="L289">    partOutput.records.map { row =&gt;</span>
+<span class="nc" id="L290">      PartitionSpec(</span>
+<span class="nc" id="L291">        partition_value = row.get(&quot;partition&quot;).asText,</span>
+<span class="nc" id="L292">        partition_id = row.get(&quot;partition_id&quot;).asText,</span>
+<span class="nc" id="L293">        row_count = row.get(&quot;row_count&quot;).asLong,</span>
+<span class="nc" id="L294">        size_in_bytes = row.get(&quot;size_in_bytes&quot;).asLong</span>
+      )
+    }
+  }
+
+  /**
+   * This method is considered as lightweight. Typically `sql` should contains `where 1=0` to avoid running the query on
+   * ClickHouse.
+   */
+  def getQueryOutputSchema(sql: String)(implicit nodeClient: NodeClient): StructType = {
+<span class="nc" id="L304">    val namesAndTypes = nodeClient.syncQueryAndCheckOutputJSONCompactEachRowWithNamesAndTypes(sql).namesAndTypes</span>
+<span class="nc" id="L305">    SchemaUtils.fromClickHouseSchema(namesAndTypes.toSeq)</span>
+  }
+
+  def dropPartition(
+    database: String,
+    table: String,
+    partitionExpr: String,
+<span class="nc" id="L312">    cluster: Option[String] = None</span>
+  )(implicit
+    nodeClient: NodeClient
+  ): Boolean =
+<span class="nc" id="L316">    nodeClient.syncQueryOutputJSONEachRow(</span>
+<span class="nc" id="L317">      s&quot;ALTER TABLE `$database`.`$table` ${cluster.map(c =&gt; s&quot;ON CLUSTER $c&quot;).getOrElse(&quot;&quot;)} DROP PARTITION $partitionExpr&quot;</span>
+    ) match {
+<span class="nc bnc" id="L319" title="All 2 branches missed.">      case Right(_) =&gt; true</span>
+<span class="nc bnc" id="L320" title="All 4 branches missed.">      case Left(ex: CHException) =&gt;</span>
+<span class="nc" id="L321">        log.error(s&quot;[${ex.code}]: ${ex.getMessage}&quot;)</span>
+<span class="nc" id="L322">        false</span>
+    }
+
+  def delete(
+    database: String,
+    table: String,
+    deleteExpr: String,
+<span class="nc" id="L329">    cluster: Option[String] = None</span>
+  )(implicit
+    nodeClient: NodeClient
+  ): Boolean =
+<span class="nc" id="L333">    nodeClient.syncQueryOutputJSONEachRow(</span>
+<span class="nc" id="L334">      s&quot;ALTER TABLE `$database`.`$table` ${cluster.map(c =&gt; s&quot;ON CLUSTER $c&quot;).getOrElse(&quot;&quot;)} DELETE WHERE $deleteExpr&quot;,</span>
+      // https://clickhouse.com/docs/en/sql-reference/statements/alter/#synchronicity-of-alter-queries
+<span class="nc" id="L336">      Map(&quot;mutations_sync&quot; -&gt; &quot;2&quot;)</span>
+    ) match {
+<span class="nc bnc" id="L338" title="All 2 branches missed.">      case Right(_) =&gt; true</span>
+<span class="nc bnc" id="L339" title="All 4 branches missed.">      case Left(ex: CHException) =&gt;</span>
+<span class="nc" id="L340">        log.error(s&quot;[${ex.code}]: ${ex.getMessage}&quot;)</span>
+<span class="nc" id="L341">        false</span>
+    }
+
+  def truncateTable(
+    database: String,
+    table: String,
+<span class="nc" id="L347">    cluster: Option[String] = None</span>
+  )(implicit
+    nodeClient: NodeClient
+<span class="nc" id="L350">  ): Boolean = nodeClient.syncQueryOutputJSONEachRow(</span>
+<span class="nc" id="L351">    s&quot;TRUNCATE TABLE `$database`.`$table` ${cluster.map(c =&gt; s&quot;ON CLUSTER $c&quot;).getOrElse(&quot;&quot;)}&quot;</span>
+  ) match {
+<span class="nc bnc" id="L353" title="All 2 branches missed.">    case Right(_) =&gt; true</span>
+<span class="nc bnc" id="L354" title="All 4 branches missed.">    case Left(ex: CHException) =&gt;</span>
+<span class="nc" id="L355">      log.error(s&quot;[${ex.code}]: ${ex.getMessage}&quot;)</span>
+<span class="nc" id="L356">      false</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

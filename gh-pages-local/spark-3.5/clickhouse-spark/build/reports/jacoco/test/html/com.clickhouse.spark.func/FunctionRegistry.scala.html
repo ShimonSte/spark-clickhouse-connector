@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>FunctionRegistry.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-spark-3.5_2.12</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.func</a> &gt; <span class="el_source">FunctionRegistry.scala</span></div><h1>FunctionRegistry.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.func
+
+import org.apache.spark.sql.connector.catalog.functions.UnboundFunction
+
+import scala.collection.mutable
+
+trait FunctionRegistry extends Serializable {
+
+  def list: Array[String]
+
+  def load(name: String): Option[UnboundFunction]
+
+  def sparkToClickHouseFunc: Map[String, String]
+
+  def clickHouseToSparkFunc: Map[String, String]
+}
+
+trait ClickhouseEquivFunction {
+  val ckFuncNames: Array[String]
+}
+
+<span class="fc" id="L36">class CompositeFunctionRegistry(registries: Array[FunctionRegistry]) extends FunctionRegistry {</span>
+
+<span class="nc" id="L38">  override def list: Array[String] = registries.flatMap(_.list)</span>
+
+<span class="fc" id="L40">  override def load(name: String): Option[UnboundFunction] = registries.flatMap(_.load(name)).headOption</span>
+
+<span class="fc" id="L42">  override def sparkToClickHouseFunc: Map[String, String] = registries.flatMap(_.sparkToClickHouseFunc).toMap</span>
+
+<span class="fc" id="L44">  override def clickHouseToSparkFunc: Map[String, String] = registries.flatMap(_.clickHouseToSparkFunc).toMap</span>
+}
+
+<span class="pc" id="L47">object StaticFunctionRegistry extends FunctionRegistry {</span>
+
+<span class="fc" id="L49">  private val functions = Map[String, UnboundFunction](</span>
+<span class="fc" id="L50">    &quot;ck_xx_hash64&quot; -&gt; ClickHouseXxHash64, // for compatible</span>
+<span class="fc" id="L51">    &quot;clickhouse_xxHash64&quot; -&gt; ClickHouseXxHash64,</span>
+<span class="fc" id="L52">    &quot;clickhouse_murmurHash2_32&quot; -&gt; MurmurHash2_32,</span>
+<span class="fc" id="L53">    &quot;clickhouse_murmurHash2_64&quot; -&gt; MurmurHash2_64,</span>
+<span class="fc" id="L54">    &quot;clickhouse_murmurHash3_32&quot; -&gt; MurmurHash3_32,</span>
+<span class="fc" id="L55">    &quot;clickhouse_murmurHash3_64&quot; -&gt; MurmurHash3_64,</span>
+<span class="fc" id="L56">    &quot;clickhouse_cityHash64&quot; -&gt; CityHash64</span>
+  )
+
+<span class="nc" id="L59">  override def list: Array[String] = functions.keys.toArray</span>
+
+<span class="fc" id="L61">  override def load(name: String): Option[UnboundFunction] = functions.get(name)</span>
+
+<span class="fc" id="L63">  override val sparkToClickHouseFunc: Map[String, String] =</span>
+<span class="pc bpc" id="L64" title="1 of 2 branches missed.">    functions.filter(_._2.isInstanceOf[ClickhouseEquivFunction]).flatMap { case (k, v) =&gt;</span>
+<span class="fc" id="L65">      v.asInstanceOf[ClickhouseEquivFunction].ckFuncNames.map((k, _))</span>
+    }
+
+<span class="fc" id="L68">  override val clickHouseToSparkFunc: Map[String, String] =</span>
+<span class="pc bpc" id="L69" title="1 of 2 branches missed.">    functions.filter(_._2.isInstanceOf[ClickhouseEquivFunction]).flatMap { case (k, v) =&gt;</span>
+<span class="fc" id="L70">      v.asInstanceOf[ClickhouseEquivFunction].ckFuncNames.map((_, k))</span>
+    }
+}
+
+<span class="fc" id="L74">class DynamicFunctionRegistry extends FunctionRegistry {</span>
+
+<span class="fc" id="L76">  private val functions = mutable.Map[String, UnboundFunction]()</span>
+
+  def register(name: String, function: UnboundFunction): DynamicFunctionRegistry = {
+<span class="fc" id="L79">    functions += (name -&gt; function)</span>
+<span class="fc" id="L80">    this</span>
+  }
+
+<span class="nc" id="L83">  override def list: Array[String] = functions.keys.toArray</span>
+
+<span class="fc" id="L85">  override def load(name: String): Option[UnboundFunction] = functions.get(name)</span>
+
+  override def sparkToClickHouseFunc: Map[String, String] =
+<span class="pc bpc" id="L88" title="1 of 2 branches missed.">    functions.filter(_._2.isInstanceOf[ClickhouseEquivFunction]).toMap.flatMap { case (k, v) =&gt;</span>
+<span class="fc" id="L89">      v.asInstanceOf[ClickhouseEquivFunction].ckFuncNames.map((k, _))</span>
+    }
+
+  override def clickHouseToSparkFunc: Map[String, String] =
+<span class="pc bpc" id="L93" title="1 of 2 branches missed.">    functions.filter(_._2.isInstanceOf[ClickhouseEquivFunction]).toMap.flatMap { case (k, v) =&gt;</span>
+<span class="fc" id="L94">      v.asInstanceOf[ClickhouseEquivFunction].ckFuncNames.map((_, k))</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

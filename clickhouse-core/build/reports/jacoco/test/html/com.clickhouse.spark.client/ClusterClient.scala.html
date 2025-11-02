@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ClusterClient.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-core</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.client</a> &gt; <span class="el_source">ClusterClient.scala</span></div><h1>ClusterClient.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.client
+
+import com.clickhouse.spark.Logging
+import com.clickhouse.spark.exception.CHClientException
+import com.clickhouse.spark.spec.ClusterSpec
+
+import java.util.concurrent.ConcurrentHashMap
+import scala.collection.JavaConverters._
+import scala.util.Random._
+
+<span class="nc" id="L25">object ClusterClient {</span>
+<span class="nc" id="L26">  def apply(cluster: ClusterSpec) = new ClusterClient(cluster)</span>
+}
+
+<span class="nc bnc" id="L29" title="All 4 branches missed.">class ClusterClient(cluster: ClusterSpec) extends AutoCloseable with Logging {</span>
+
+<span class="nc bnc" id="L31" title="All 4 branches missed.">  @transient lazy val cache = new ConcurrentHashMap[(Int, Int), NodeClient]</span>
+
+<span class="nc" id="L33">  def node(shard: Option[Int] = None, replica: Option[Int] = None): NodeClient = {</span>
+<span class="nc bnc" id="L34" title="All 8 branches missed.">    val (_shard, _replica) = (shard, replica) match {</span>
+<span class="nc bnc" id="L35" title="All 4 branches missed.">      case (Some(s), Some(r)) =&gt; (s, r)</span>
+<span class="nc bnc" id="L36" title="All 4 branches missed.">      case (Some(s), None) =&gt;</span>
+<span class="nc bnc" id="L37" title="All 2 branches missed.">        val shardSpec = cluster.shards.filter(_.num == s).head</span>
+<span class="nc" id="L38">        val replicaSpec = shuffle(shardSpec.replicas.toSeq).head</span>
+<span class="nc" id="L39">        (s, replicaSpec.num)</span>
+<span class="nc bnc" id="L40" title="All 4 branches missed.">      case (None, None) =&gt;</span>
+<span class="nc" id="L41">        val shardSpec = shuffle(cluster.shards.toSeq).head</span>
+<span class="nc" id="L42">        val replicaSpec = shuffle(shardSpec.replicas.toSeq).head</span>
+<span class="nc" id="L43">        (shardSpec.num, replicaSpec.num)</span>
+<span class="nc" id="L44">      case _ =&gt; throw CHClientException(</span>
+<span class="nc" id="L45">          s&quot;Invalid shard[${shard.orNull}] replica[${replica.orNull}] of cluster ${cluster.name}&quot;</span>
+        )
+    }
+
+<span class="nc" id="L49">    cache.computeIfAbsent(</span>
+<span class="nc" id="L50">      (_shard, _replica),</span>
+<span class="nc bnc" id="L51" title="All 2 branches missed.">      { case (s, r) =&gt;</span>
+<span class="nc bnc" id="L52" title="All 2 branches missed.">        val shardSpec = cluster.shards.find(_.num == s).get</span>
+<span class="nc bnc" id="L53" title="All 2 branches missed.">        val replicaSpec = shardSpec.replicas.find(_.num == r).get</span>
+<span class="nc" id="L54">        val nodeSpec = replicaSpec.node</span>
+<span class="nc" id="L55">        log.info(s&quot;Create client to $nodeSpec, shard $s replica $r&quot;)</span>
+<span class="nc" id="L56">        new NodeClient(nodeSpec)</span>
+      }
+    )
+  }
+
+<span class="nc" id="L61">  override def close(): Unit = cache.asScala.values.foreach(_.close())</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

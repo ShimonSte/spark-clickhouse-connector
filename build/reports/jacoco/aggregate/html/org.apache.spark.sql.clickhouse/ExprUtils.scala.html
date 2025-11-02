@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ExprUtils.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">spark-clickhouse-connector</a> &gt; <a href="index.source.html" class="el_package">org.apache.spark.sql.clickhouse</a> &gt; <span class="el_source">ExprUtils.scala</span></div><h1>ExprUtils.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.spark.sql.clickhouse
+
+import com.clickhouse.spark.exception.CHClientException
+import com.clickhouse.spark.expr.{Expr, FieldRef, FuncExpr, OrderExpr, SQLExpr, StringLiteral}
+import com.clickhouse.spark.func.FunctionRegistry
+import com.clickhouse.spark.spec.ClusterSpec
+import org.apache.spark.sql.AnalysisException
+import org.apache.spark.sql.catalyst.analysis.{AnsiTypeCoercion, NoSuchFunctionException, TypeCoercion}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, BoundReference, Expression, ListQuery, Literal}
+import org.apache.spark.sql.catalyst.expressions.{TimeZoneAwareExpression, TransformExpression, V2ExpressionUtils}
+import org.apache.spark.sql.catalyst.plans.logical.{LeafNode, LogicalPlan}
+import org.apache.spark.sql.catalyst.rules.{Rule, RuleExecutor}
+import org.apache.spark.sql.catalyst.trees.TreePattern.{LIST_SUBQUERY, TIME_ZONE_AWARE_EXPRESSION}
+import org.apache.spark.sql.catalyst.{expressions, SQLConfHelper}
+import org.apache.spark.sql.clickhouse.ClickHouseSQLConf.IGNORE_UNSUPPORTED_TRANSFORM
+import org.apache.spark.sql.connector.catalog.Identifier
+import org.apache.spark.sql.connector.catalog.functions.{BoundFunction, ScalarFunction, UnboundFunction}
+import org.apache.spark.sql.connector.expressions.Expressions._
+import org.apache.spark.sql.connector.expressions.{Expression =&gt; V2Expression, SortOrder =&gt; V2SortOrder, _}
+import org.apache.spark.sql.types.{StructField, StructType}
+import com.clickhouse.spark.expr._
+
+import scala.util.{Failure, Success, Try}
+
+<span class="pc" id="L39">object ExprUtils extends SQLConfHelper with Serializable {</span>
+
+  def toSparkPartitions(
+    partitionKey: Option[List[Expr]],
+    functionRegistry: FunctionRegistry
+  ): Array[Transform] =
+<span class="fc" id="L45">    partitionKey.seq.flatten.flatten(toSparkTransformOpt(_, functionRegistry)).toArray</span>
+
+  def toSparkSplits(
+    shardingKey: Option[Expr],
+    partitionKey: Option[List[Expr]],
+    functionRegistry: FunctionRegistry
+  ): Array[Transform] =
+<span class="fc" id="L52">    (shardingKey.seq ++ partitionKey.seq.flatten).flatten(toSparkTransformOpt(_, functionRegistry)).toArray</span>
+
+  def toSparkSortOrders(
+    shardingKeyIgnoreRand: Option[Expr],
+    partitionKey: Option[List[Expr]],
+    sortingKey: Option[List[OrderExpr]],
+    cluster: Option[ClusterSpec],
+    functionRegistry: FunctionRegistry
+  ): Array[V2SortOrder] =
+<span class="fc" id="L61">    toSparkSplits(</span>
+<span class="fc" id="L62">      shardingKeyIgnoreRand,</span>
+<span class="fc" id="L63">      partitionKey,</span>
+<span class="fc" id="L64">      functionRegistry</span>
+<span class="fc" id="L65">    ).map(Expressions.sort(_, SortDirection.ASCENDING)) ++:</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">      sortingKey.seq.flatten.flatten { case OrderExpr(expr, asc, nullFirst) =&gt;</span>
+<span class="pc bpc" id="L67" title="1 of 2 branches missed.">        val direction = if (asc) SortDirection.ASCENDING else SortDirection.DESCENDING</span>
+<span class="pc bpc" id="L68" title="1 of 2 branches missed.">        val nullOrder = if (nullFirst) NullOrdering.NULLS_FIRST else NullOrdering.NULLS_LAST</span>
+<span class="fc" id="L69">        toSparkTransformOpt(expr, functionRegistry).map(trans =&gt;</span>
+<span class="fc" id="L70">          Expressions.sort(trans, direction, nullOrder)</span>
+        )
+<span class="fc" id="L72">      }.toArray</span>
+
+  private def loadV2FunctionOpt(
+    name: String,
+    args: Seq[Expression],
+    functionRegistry: FunctionRegistry
+  ): Option[BoundFunction] = {
+    def loadFunction(ident: Identifier): UnboundFunction =
+<span class="nc" id="L80">      functionRegistry.load(ident.name).getOrElse(throw new NoSuchFunctionException(ident))</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">    val inputType = StructType(args.zipWithIndex.map {</span>
+<span class="nc" id="L82">      case (exp, pos) =&gt; StructField(s&quot;_$pos&quot;, exp.dataType, exp.nullable)</span>
+    })
+<span class="nc" id="L84">    try {</span>
+<span class="nc" id="L85">      val unbound = loadFunction(Identifier.of(Array.empty, name))</span>
+<span class="nc" id="L86">      Some(unbound.bind(inputType))</span>
+    } catch {
+      case e: NoSuchFunctionException =&gt;
+<span class="nc" id="L89">        throw e</span>
+<span class="nc bnc" id="L90" title="All 2 branches missed.">      case _: UnsupportedOperationException if conf.getConf(IGNORE_UNSUPPORTED_TRANSFORM) =&gt;</span>
+<span class="nc" id="L91">        None</span>
+      case e: UnsupportedOperationException =&gt;
+<span class="nc" id="L93">        throw new AnalysisException(e.getMessage, cause = Some(e))</span>
+    }
+  }
+
+  def resolveTransformCatalyst(
+    catalystExpr: Expression,
+<span class="nc" id="L99">    timeZoneId: Option[String] = None</span>
+  ): Expression =
+<span class="nc" id="L101">    new TypeCoercionExecutor(timeZoneId)</span>
+<span class="nc" id="L102">      .execute(DummyLeafNode(resolveTransformExpression(catalystExpr)))</span>
+      .asInstanceOf[DummyLeafNode].expr
+
+<span class="nc bnc" id="L105" title="All 18 branches missed.">  private case class DummyLeafNode(expr: Expression) extends LeafNode {</span>
+<span class="nc" id="L106">    override def output: Seq[Attribute] = Nil</span>
+  }
+
+<span class="nc" id="L109">  private class CustomResolveTimeZone(timeZoneId: Option[String]) extends Rule[LogicalPlan] {</span>
+    override def apply(plan: LogicalPlan): LogicalPlan =
+<span class="nc bnc" id="L111" title="All 2 branches missed.">      plan.resolveExpressionsWithPruning(_.containsAnyPattern(LIST_SUBQUERY, TIME_ZONE_AWARE_EXPRESSION)) {</span>
+<span class="nc bnc" id="L112" title="All 8 branches missed.">        case e: TimeZoneAwareExpression if e.timeZoneId.isEmpty =&gt;</span>
+<span class="nc" id="L113">          e.withTimeZone(timeZoneId.getOrElse(conf.sessionLocalTimeZone))</span>
+        // Casts could be added in the subquery plan through the rule TypeCoercion while coercing
+        // the types between the value expression and list query expression of IN expression.
+        // We need to subject the subquery plan through ResolveTimeZone again to setup timezone
+        // information for time zone aware expressions.
+<span class="nc bnc" id="L118" title="All 4 branches missed.">        case e: ListQuery =&gt; e.withNewPlan(apply(e.plan))</span>
+      }
+  }
+
+<span class="nc" id="L122">  private class TypeCoercionExecutor(timeZoneId: Option[String]) extends RuleExecutor[LogicalPlan] {</span>
+    override val batches =
+<span class="nc" id="L124">      Batch(&quot;Resolve TypeCoercion&quot;, FixedPoint(1), typeCoercionRules: _*) ::</span>
+<span class="nc" id="L125">        Batch(&quot;Resolve TimeZone&quot;, FixedPoint(1), new CustomResolveTimeZone(timeZoneId)) :: Nil</span>
+  }
+
+<span class="nc" id="L128">  private def resolveTransformExpression(expr: Expression): Expression = expr.transform {</span>
+<span class="nc bnc" id="L129" title="All 12 branches missed.">    case TransformExpression(scalarFunc: ScalarFunction[_], arguments, Some(numBuckets)) =&gt;</span>
+<span class="nc" id="L130">      V2ExpressionUtils.resolveScalarFunction(scalarFunc, Seq(Literal(numBuckets)) ++ arguments)</span>
+<span class="nc bnc" id="L131" title="All 12 branches missed.">    case TransformExpression(scalarFunc: ScalarFunction[_], arguments, None) =&gt;</span>
+<span class="nc" id="L132">      V2ExpressionUtils.resolveScalarFunction(scalarFunc, arguments)</span>
+  }
+
+<span class="nc bnc" id="L135" title="All 2 branches missed.">  private def typeCoercionRules: List[Rule[LogicalPlan]] = if (conf.ansiEnabled) {</span>
+<span class="nc" id="L136">    AnsiTypeCoercion.typeCoercionRules</span>
+  } else {
+<span class="nc" id="L138">    TypeCoercion.typeCoercionRules</span>
+  }
+
+  def toCatalyst(
+    v2Expr: V2Expression,
+    fields: Array[StructField],
+    functionRegistry: FunctionRegistry
+  ): Expression =
+<span class="fc" id="L146">    v2Expr match {</span>
+<span class="fc bfc" id="L147" title="All 2 branches covered.">      case IdentityTransform(ref) =&gt; toCatalyst(ref, fields, functionRegistry)</span>
+<span class="pc bpc" id="L148" title="2 of 4 branches missed.">      case ref: NamedReference if ref.fieldNames.length == 1 =&gt;</span>
+<span class="fc" id="L149">        val (field, ordinal) = fields</span>
+<span class="fc" id="L150">          .zipWithIndex</span>
+<span class="pc bpc" id="L151" title="4 of 8 branches missed.">          .find { case (field, _) =&gt; field.name == ref.fieldNames.head }</span>
+<span class="pc bpc" id="L152" title="1 of 2 branches missed.">          .getOrElse(throw CHClientException(s&quot;Invalid field reference: $ref&quot;))</span>
+<span class="fc" id="L153">        BoundReference(ordinal, field.dataType, field.nullable)</span>
+<span class="nc bnc" id="L154" title="All 2 branches missed.">      case t: Transform =&gt;</span>
+<span class="nc" id="L155">        val catalystArgs = t.arguments().map(toCatalyst(_, fields, functionRegistry))</span>
+<span class="nc" id="L156">        loadV2FunctionOpt(t.name(), catalystArgs, functionRegistry)</span>
+<span class="nc" id="L157">          .map(bound =&gt; TransformExpression(bound, catalystArgs)).getOrElse {</span>
+<span class="nc" id="L158">            throw CHClientException(s&quot;Unsupported expression: $v2Expr&quot;)</span>
+          }
+<span class="nc bnc" id="L160" title="All 2 branches missed.">      case literal: LiteralValue[Any] =&gt; expressions.Literal(literal.value)</span>
+<span class="nc" id="L161">      case _ =&gt; throw CHClientException(</span>
+<span class="nc" id="L162">          s&quot;Unsupported expression: $v2Expr&quot;</span>
+        )
+    }
+
+  def toSparkTransformOpt(expr: Expr, functionRegistry: FunctionRegistry): Option[Transform] =
+<span class="pc" id="L167">    Try(toSparkExpression(expr, functionRegistry)) match {</span>
+      // need this function because spark `Table`'s `partitioning` field should be `Transform`
+<span class="pc bpc" id="L169" title="2 of 4 branches missed.">      case Success(t: Transform) =&gt; Some(t)</span>
+<span class="nc bnc" id="L170" title="All 2 branches missed.">      case Success(_) =&gt; None</span>
+<span class="nc bnc" id="L171" title="All 4 branches missed.">      case Failure(_) if conf.getConf(IGNORE_UNSUPPORTED_TRANSFORM) =&gt; None</span>
+<span class="nc bnc" id="L172" title="All 2 branches missed.">      case Failure(rethrow) =&gt; throw new AnalysisException(rethrow.getMessage, cause = Some(rethrow))</span>
+    }
+
+  def toSparkExpression(expr: Expr, functionRegistry: FunctionRegistry): V2Expression =
+<span class="fc" id="L176">    expr match {</span>
+<span class="fc bfc" id="L177" title="All 2 branches covered.">      case FieldRef(col) =&gt; identity(col)</span>
+<span class="pc bpc" id="L178" title="1 of 2 branches missed.">      case StringLiteral(value) =&gt; literal(value) // TODO LiteralTransform</span>
+<span class="pc bpc" id="L179" title="4 of 6 branches missed.">      case FuncExpr(&quot;rand&quot;, Nil) =&gt; apply(&quot;rand&quot;)</span>
+<span class="pc bpc" id="L180" title="20 of 22 branches missed.">      case FuncExpr(&quot;toYYYYMMDD&quot;, List(FuncExpr(&quot;toDate&quot;, List(FieldRef(col))))) =&gt; identity(col)</span>
+<span class="pc bpc" id="L181" title="2 of 4 branches missed.">      case FuncExpr(funName, args) if functionRegistry.clickHouseToSparkFunc.contains(funName) =&gt;</span>
+<span class="fc" id="L182">        apply(functionRegistry.clickHouseToSparkFunc(funName), args.map(toSparkExpression(_, functionRegistry)): _*)</span>
+<span class="nc" id="L183">      case unsupported =&gt; throw CHClientException(s&quot;Unsupported ClickHouse expression: $unsupported&quot;)</span>
+    }
+
+  def toClickHouse(
+    transform: Transform,
+    functionRegistry: FunctionRegistry
+<span class="pc" id="L189">  ): Expr = transform match {</span>
+<span class="pc bpc" id="L190" title="1 of 2 branches missed.">    case IdentityTransform(fieldRefs) =&gt; FieldRef(fieldRefs.describe)</span>
+<span class="nc bnc" id="L191" title="All 4 branches missed.">    case ApplyTransform(name, args) if functionRegistry.sparkToClickHouseFunc.contains(name) =&gt;</span>
+<span class="nc" id="L192">      FuncExpr(functionRegistry.sparkToClickHouseFunc(name), args.map(arg =&gt; SQLExpr(arg.describe)).toList)</span>
+<span class="nc bnc" id="L193" title="All 2 branches missed.">    case bucket: BucketTransform =&gt; throw CHClientException(s&quot;Bucket transform not support yet: $bucket&quot;)</span>
+<span class="nc bnc" id="L194" title="All 2 branches missed.">    case other: Transform =&gt; throw CHClientException(s&quot;Unsupported transform: $other&quot;)</span>
+  }
+
+  def inferTransformSchema(
+    primarySchema: StructType,
+    secondarySchema: StructType,
+    transform: Transform,
+    functionRegistry: FunctionRegistry
+<span class="pc" id="L202">  ): StructField = transform match {</span>
+<span class="pc bpc" id="L203" title="8 of 16 branches missed.">    case IdentityTransform(FieldReference(Seq(col))) =&gt; primarySchema.find(_.name == col)</span>
+<span class="pc bnc" id="L204" title="All 6 branches missed.">        .orElse(secondarySchema.find(_.name == col))</span>
+<span class="pc" id="L205">        .getOrElse(throw CHClientException(s&quot;Invalid partition column: $col&quot;))</span>
+<span class="nc bnc" id="L206" title="All 4 branches missed.">    case t @ ApplyTransform(transformName, _) if functionRegistry.load(transformName).isDefined =&gt;</span>
+<span class="nc" id="L207">      val resType = functionRegistry.load(transformName) match {</span>
+<span class="nc bnc" id="L208" title="All 4 branches missed.">        case Some(f: ScalarFunction[_]) =&gt; f.resultType</span>
+<span class="nc" id="L209">        case other =&gt; throw CHClientException(s&quot;Unsupported function: $other&quot;)</span>
+      }
+<span class="nc" id="L211">      StructField(t.toString, resType)</span>
+<span class="nc bnc" id="L212" title="All 2 branches missed.">    case bucket: BucketTransform =&gt; throw CHClientException(s&quot;Bucket transform not support yet: $bucket&quot;)</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">    case other: Transform =&gt; throw CHClientException(s&quot;Unsupported transform: $other&quot;)</span>
+  }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

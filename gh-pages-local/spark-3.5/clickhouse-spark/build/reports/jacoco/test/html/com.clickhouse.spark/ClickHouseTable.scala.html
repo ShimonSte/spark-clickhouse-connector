@@ -1,0 +1,311 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ClickHouseTable.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-spark-3.5_2.12</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark</a> &gt; <span class="el_source">ClickHouseTable.scala</span></div><h1>ClickHouseTable.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark
+
+import com.clickhouse.spark.client.NodeClient
+import com.clickhouse.spark.expr.{Expr, OrderExpr}
+import com.clickhouse.spark.func.FunctionRegistry
+import org.apache.spark.sql.catalyst.expressions.GenericInternalRow
+import org.apache.spark.sql.catalyst.{InternalRow, SQLConfHelper}
+import org.apache.spark.sql.clickhouse.ClickHouseSQLConf.{READ_DISTRIBUTED_CONVERT_LOCAL, USE_NULLABLE_QUERY_SCHEMA}
+import org.apache.spark.sql.clickhouse.{ExprUtils, ReadOptions, WriteOptions}
+import org.apache.spark.sql.connector.catalog.TableCapability._
+import org.apache.spark.sql.connector.catalog._
+import org.apache.spark.sql.connector.expressions.Transform
+import org.apache.spark.sql.connector.read.ScanBuilder
+import org.apache.spark.sql.connector.write.LogicalWriteInfo
+import org.apache.spark.sql.sources.{AlwaysTrue, Filter}
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.util.CaseInsensitiveStringMap
+import org.apache.spark.unsafe.types.UTF8String
+import Utils._
+import com.clickhouse.spark.read.{ClickHouseMetadataColumn, ClickHouseScanBuilder, ScanJobDescription}
+import com.clickhouse.spark.spec.{
+  ClusterSpec,
+  DistributedEngineSpec,
+  MergeTreeFamilyEngineSpec,
+  NodeSpec,
+  PartitionSpec,
+  TableEngineSpec,
+  TableEngineUtils,
+  TableSpec
+}
+import com.clickhouse.spark.write.{ClickHouseWriteBuilder, WriteJobDescription}
+import com.clickhouse.spark.spec._
+
+import java.lang.{Integer =&gt; JInt, Long =&gt; JLong}
+import java.time.{LocalDate, ZoneId}
+import java.util
+import scala.collection.JavaConverters._
+
+<span class="nc bnc" id="L53" title="All 65 branches missed.">case class ClickHouseTable(</span>
+<span class="nc" id="L54">  node: NodeSpec,</span>
+<span class="nc" id="L55">  cluster: Option[ClusterSpec],</span>
+<span class="nc" id="L56">  implicit val tz: ZoneId,</span>
+<span class="nc" id="L57">  spec: TableSpec,</span>
+<span class="nc" id="L58">  engineSpec: TableEngineSpec,</span>
+<span class="nc" id="L59">  functionRegistry: FunctionRegistry</span>
+<span class="nc" id="L60">) extends Table</span>
+    with SupportsRead
+    with SupportsWrite
+    with SupportsDelete
+    with TruncatableTable
+    with SupportsMetadataColumns
+    with SupportsPartitionManagement
+    with ClickHouseHelper
+    with SQLConfHelper
+    with SQLHelper
+    with Logging {
+
+<span class="nc" id="L72">  def database: String = spec.database</span>
+
+<span class="nc" id="L74">  def table: String = spec.name</span>
+
+<span class="nc" id="L76">  def isDistributed: Boolean = engineSpec.is_distributed</span>
+
+<span class="nc" id="L78">  val readDistributedConvertLocal: Boolean = conf.getConf(READ_DISTRIBUTED_CONVERT_LOCAL)</span>
+
+<span class="nc bnc" id="L80" title="All 10 branches missed.">  lazy val (localTableSpec, localTableEngineSpec): (Option[TableSpec], Option[MergeTreeFamilyEngineSpec]) =</span>
+<span class="nc bnc" id="L81" title="All 2 branches missed.">    engineSpec match {</span>
+<span class="nc bnc" id="L82" title="All 2 branches missed.">      case distSpec: DistributedEngineSpec =&gt; Utils.tryWithResource(NodeClient(node)) { implicit nodeClient =&gt;</span>
+<span class="nc" id="L83">          val _localTableSpec = queryTableSpec(distSpec.local_db, distSpec.local_table)</span>
+          val _localTableEngineSpec =
+<span class="nc" id="L85">            TableEngineUtils.resolveTableEngine(_localTableSpec).asInstanceOf[MergeTreeFamilyEngineSpec]</span>
+<span class="nc" id="L86">          (Some(_localTableSpec), Some(_localTableEngineSpec))</span>
+        }
+<span class="nc" id="L88">      case _ =&gt; (None, None)</span>
+    }
+
+<span class="nc" id="L91">  def shardingKey: Option[Expr] = engineSpec match {</span>
+<span class="nc bnc" id="L92" title="All 2 branches missed.">    case _spec: DistributedEngineSpec =&gt; _spec.sharding_key</span>
+<span class="nc" id="L93">    case _ =&gt; None</span>
+  }
+
+<span class="nc" id="L96">  def partitionKey: Option[List[Expr]] = engineSpec match {</span>
+<span class="nc bnc" id="L97" title="All 2 branches missed.">    case mergeTreeFamilySpec: MergeTreeFamilyEngineSpec =&gt; Some(mergeTreeFamilySpec.partition_key.exprList)</span>
+<span class="nc bnc" id="L98" title="All 2 branches missed.">    case _: DistributedEngineSpec =&gt; localTableEngineSpec.map(_.partition_key.exprList)</span>
+<span class="nc bnc" id="L99" title="All 2 branches missed.">    case _: TableEngineSpec =&gt; None</span>
+  }
+
+<span class="nc" id="L102">  def sortingKey: Option[List[OrderExpr]] = engineSpec match {</span>
+<span class="nc bnc" id="L103" title="All 2 branches missed.">    case mergeTreeFamilySpec: MergeTreeFamilyEngineSpec =&gt; Some(mergeTreeFamilySpec.order_by_expr).filter(_.nonEmpty)</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">    case _: DistributedEngineSpec =&gt; localTableEngineSpec.map(_.order_by_expr).filter(_.nonEmpty)</span>
+<span class="nc bnc" id="L105" title="All 2 branches missed.">    case _: TableEngineSpec =&gt; None</span>
+  }
+
+<span class="nc" id="L108">  override def name: String = s&quot;${wrapBackQuote(spec.database)}.${wrapBackQuote(spec.name)}&quot;</span>
+
+  // for SPARK-43390
+<span class="nc" id="L111">  def useNullableQuerySchema: Boolean = conf.getConf(USE_NULLABLE_QUERY_SCHEMA)</span>
+
+  override def capabilities(): util.Set[TableCapability] =
+<span class="nc" id="L114">    Set(</span>
+<span class="nc" id="L115">      BATCH_READ,</span>
+<span class="nc" id="L116">      BATCH_WRITE,</span>
+<span class="nc" id="L117">      TRUNCATE,</span>
+<span class="nc" id="L118">      ACCEPT_ANY_SCHEMA // TODO check schema and handle extra columns before writing</span>
+    ).asJava
+
+<span class="nc bnc" id="L121" title="All 4 branches missed.">  override lazy val schema: StructType = Utils.tryWithResource(NodeClient(node)) { implicit nodeClient =&gt;</span>
+<span class="nc" id="L122">    queryTableSchema(database, table)</span>
+  }
+
+  /**
+   * Only support `MergeTree` and `Distributed` table engine, for reference
+   * {{{NamesAndTypesList MergeTreeData::getVirtuals()}}} {{{NamesAndTypesList StorageDistributed::getVirtuals()}}}
+   */
+<span class="nc bnc" id="L129" title="All 4 branches missed.">  override lazy val metadataColumns: Array[MetadataColumn] = {</span>
+
+<span class="nc" id="L131">    def metadataCols(tableEngine: TableEngineSpec): Array[MetadataColumn] = tableEngine match {</span>
+<span class="nc bnc" id="L132" title="All 2 branches missed.">      case _: MergeTreeFamilyEngineSpec =&gt; ClickHouseMetadataColumn.mergeTreeMetadataCols</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">      case _: DistributedEngineSpec =&gt; ClickHouseMetadataColumn.distributeMetadataCols</span>
+<span class="nc" id="L134">      case _ =&gt; Array.empty</span>
+    }
+
+<span class="nc" id="L137">    engineSpec match {</span>
+<span class="nc bnc" id="L138" title="All 4 branches missed.">      case _: DistributedEngineSpec if readDistributedConvertLocal =&gt; metadataCols(localTableEngineSpec.get)</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">      case other: TableEngineSpec =&gt; metadataCols(other)</span>
+    }
+  }
+
+<span class="nc bnc" id="L143" title="All 4 branches missed.">  private lazy val metadataSchema: StructType =</span>
+<span class="nc" id="L144">    StructType(metadataColumns.map(_.asInstanceOf[ClickHouseMetadataColumn].toStructField))</span>
+
+<span class="nc bnc" id="L146" title="All 4 branches missed.">  override lazy val partitioning: Array[Transform] = ExprUtils.toSparkPartitions(partitionKey, functionRegistry)</span>
+
+<span class="nc bnc" id="L148" title="All 4 branches missed.">  override lazy val partitionSchema: StructType = StructType(</span>
+<span class="nc" id="L149">    partitioning.map { partTransform =&gt;</span>
+<span class="nc" id="L150">      ExprUtils.inferTransformSchema(schema, metadataSchema, partTransform, functionRegistry)</span>
+    }
+  )
+
+<span class="nc bnc" id="L154" title="All 4 branches missed.">  override lazy val properties: util.Map[String, String] = spec.toJavaMap</span>
+
+  override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = {
+<span class="nc" id="L157">    val scanJob = read.ScanJobDescription(</span>
+<span class="nc" id="L158">      node = node,</span>
+<span class="nc" id="L159">      tz = tz,</span>
+<span class="nc" id="L160">      tableSpec = spec,</span>
+<span class="nc" id="L161">      tableEngineSpec = engineSpec,</span>
+<span class="nc" id="L162">      cluster = cluster,</span>
+<span class="nc" id="L163">      localTableSpec = localTableSpec,</span>
+<span class="nc" id="L164">      localTableEngineSpec = localTableEngineSpec,</span>
+<span class="nc" id="L165">      readOptions = new ReadOptions(options.asCaseSensitiveMap())</span>
+    )
+    // TODO schema of partitions
+<span class="nc" id="L168">    val partTransforms = Array[Transform]()</span>
+<span class="nc" id="L169">    new ClickHouseScanBuilder(scanJob, schema, metadataSchema, partTransforms)</span>
+  }
+
+  override def newWriteBuilder(info: LogicalWriteInfo): ClickHouseWriteBuilder = {
+<span class="nc" id="L173">    val writeJob = write.WriteJobDescription(</span>
+<span class="nc" id="L174">      queryId = info.queryId,</span>
+<span class="nc" id="L175">      tableSchema = schema,</span>
+<span class="nc" id="L176">      metadataSchema = metadataSchema,</span>
+<span class="nc" id="L177">      dataSetSchema = info.schema,</span>
+<span class="nc" id="L178">      node = node,</span>
+<span class="nc" id="L179">      tz = tz,</span>
+<span class="nc" id="L180">      tableSpec = spec,</span>
+<span class="nc" id="L181">      tableEngineSpec = engineSpec,</span>
+<span class="nc" id="L182">      cluster = cluster,</span>
+<span class="nc" id="L183">      localTableSpec = localTableSpec,</span>
+<span class="nc" id="L184">      localTableEngineSpec = localTableEngineSpec,</span>
+<span class="nc" id="L185">      shardingKey = shardingKey,</span>
+<span class="nc" id="L186">      partitionKey = partitionKey,</span>
+<span class="nc" id="L187">      sortingKey = sortingKey,</span>
+<span class="nc" id="L188">      writeOptions = new WriteOptions(info.options.asCaseSensitiveMap()),</span>
+<span class="nc" id="L189">      functionRegistry = functionRegistry</span>
+    )
+
+<span class="nc" id="L192">    new ClickHouseWriteBuilder(writeJob)</span>
+  }
+
+  override def createPartition(ident: InternalRow, props: util.Map[String, String]): Unit =
+<span class="nc" id="L196">    log.info(&quot;Do nothing on ClickHouse for creating partition action&quot;)</span>
+
+  override def dropPartition(ident: InternalRow): Boolean = {
+<span class="nc" id="L199">    val partitionExpr = (0 until ident.numFields).map { i =&gt;</span>
+<span class="nc" id="L200">      partitionSchema.fields(i).dataType match {</span>
+<span class="nc bnc" id="L201" title="All 2 branches missed.">        case IntegerType =&gt; compileValue(ident.getInt(i))</span>
+<span class="nc bnc" id="L202" title="All 2 branches missed.">        case LongType =&gt; compileValue(ident.getLong(i))</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">        case StringType =&gt; compileValue(ident.getUTF8String(i))</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">        case DateType =&gt; compileValue(LocalDate.ofEpochDay(ident.getInt(i)))</span>
+<span class="nc" id="L205">        case illegal =&gt; throw new IllegalArgumentException(s&quot;Illegal partition data type: $illegal&quot;)</span>
+      }
+<span class="nc" id="L207">    }.mkString(&quot;(&quot;, &quot;,&quot;, &quot;)&quot;)</span>
+
+<span class="nc" id="L209">    Utils.tryWithResource(NodeClient(node)) { implicit nodeClient =&gt;</span>
+<span class="nc" id="L210">      engineSpec match {</span>
+<span class="nc bnc" id="L211" title="All 2 branches missed.">        case DistributedEngineSpec(_, cluster, local_db, local_table, _, _) =&gt;</span>
+<span class="nc" id="L212">          dropPartition(local_db, local_table, partitionExpr, Some(cluster))</span>
+        case _ =&gt;
+<span class="nc" id="L214">          dropPartition(database, table, partitionExpr)</span>
+      }
+    }
+  }
+
+<span class="nc" id="L219">  override def purgePartition(ident: InternalRow): Boolean = dropPartition(ident)</span>
+
+<span class="nc" id="L221">  override def truncatePartition(ident: InternalRow): Boolean = dropPartition(ident)</span>
+
+  override def replacePartitionMetadata(ident: InternalRow, props: util.Map[String, String]): Unit =
+<span class="nc" id="L224">    throw new UnsupportedOperationException(&quot;Unsupported operation: replacePartitionMetadata&quot;)</span>
+
+  override def loadPartitionMetadata(ident: InternalRow): util.Map[String, String] =
+<span class="nc" id="L227">    throw new UnsupportedOperationException(&quot;Unsupported operation: loadPartitionMetadata&quot;)</span>
+
+  override def listPartitionIdentifiers(names: Array[String], ident: InternalRow): Array[InternalRow] = {
+<span class="nc" id="L230">    assert(</span>
+<span class="nc bnc" id="L231" title="All 2 branches missed.">      names.length == ident.numFields,</span>
+<span class="nc" id="L232">      s&quot;Number of partition names (${names.length}) must be equal to &quot; +</span>
+<span class="nc" id="L233">        s&quot;the number of partition values (${ident.numFields}).&quot;</span>
+    )
+<span class="nc" id="L235">    assert(</span>
+<span class="nc" id="L236">      names.forall(fieldName =&gt; partitionSchema.fieldNames.contains(fieldName)),</span>
+<span class="nc" id="L237">      s&quot;Some partition names ${names.mkString(&quot;[&quot;, &quot;, &quot;, &quot;]&quot;)} don't belong to &quot; +</span>
+<span class="nc" id="L238">        s&quot;the partition schema '${partitionSchema.sql}'.&quot;</span>
+    )
+
+<span class="nc" id="L241">    def strToSparkValue(str: String, dataType: DataType): Any = dataType match {</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">      case StringType =&gt; UTF8String.fromString(str.stripPrefix(&quot;'&quot;).stripSuffix(&quot;'&quot;))</span>
+<span class="nc bnc" id="L243" title="All 2 branches missed.">      case IntegerType =&gt; JInt.parseInt(str)</span>
+<span class="nc bnc" id="L244" title="All 2 branches missed.">      case LongType =&gt; JLong.parseLong(str)</span>
+<span class="nc bnc" id="L245" title="All 2 branches missed.">      case DateType =&gt; LocalDate.parse(str.stripPrefix(&quot;'&quot;).stripSuffix(&quot;'&quot;), dateFmt).toEpochDay.toInt</span>
+<span class="nc" id="L246">      case unsupported =&gt; throw new UnsupportedOperationException(s&quot;$unsupported&quot;)</span>
+    }
+
+<span class="nc" id="L249">    val partitionSpecs: Seq[PartitionSpec] = engineSpec match {</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">      case DistributedEngineSpec(_, _, local_db, local_table, _, _) =&gt;</span>
+<span class="nc" id="L251">        cluster.get.shards.flatMap { shardSpec =&gt;</span>
+<span class="nc" id="L252">          Utils.tryWithResource(NodeClient(shardSpec.nodes.head)) { implicit nodeClient: NodeClient =&gt;</span>
+<span class="nc" id="L253">            queryPartitionSpec(local_db, local_table)</span>
+          }
+        }
+      case _ =&gt;
+<span class="nc" id="L257">        Utils.tryWithResource(NodeClient(node)) { implicit nodeClient =&gt;</span>
+<span class="nc" id="L258">          queryPartitionSpec(database, table)</span>
+        }
+    }
+<span class="nc" id="L261">    partitionSpecs.map(_.partition_value)</span>
+      .distinct
+<span class="nc" id="L263">      .filterNot(_.isEmpty) // represent partitioned table w/o records</span>
+<span class="nc bnc" id="L264" title="All 6 branches missed.">      .filterNot(_ == &quot;tuple()&quot;) // represent the root partition of un-partitioned table</span>
+<span class="nc" id="L265">      .map {</span>
+<span class="nc bnc" id="L266" title="All 4 branches missed.">        case tuple if tuple.startsWith(&quot;(&quot;) &amp;&amp; tuple.endsWith(&quot;)&quot;) =&gt;</span>
+<span class="nc" id="L267">          tuple.stripPrefix(&quot;(&quot;).stripSuffix(&quot;)&quot;).split(&quot;,&quot;)</span>
+        case partColStrValue =&gt;
+<span class="nc" id="L269">          Array(partColStrValue)</span>
+      }
+<span class="nc" id="L271">      .map { partColStrValues =&gt;</span>
+<span class="nc" id="L272">        new GenericInternalRow(</span>
+<span class="nc" id="L273">          (partColStrValues zip partitionSchema.fields.map(_.dataType))</span>
+<span class="nc bnc" id="L274" title="All 2 branches missed.">            .map { case (partColStrValue, dataType) =&gt; strToSparkValue(partColStrValue, dataType) }</span>
+        )
+      }
+<span class="nc" id="L277">      .filter { partRow =&gt;</span>
+<span class="nc bnc" id="L278" title="All 2 branches missed.">        names.zipWithIndex.forall { case (name, queryIndex) =&gt;</span>
+<span class="nc" id="L279">          val partRowIndex = partitionSchema.fieldIndex(name)</span>
+<span class="nc" id="L280">          val dataType = partitionSchema.fields(partRowIndex).dataType</span>
+<span class="nc bnc" id="L281" title="All 2 branches missed.">          partRow.get(partRowIndex, dataType) == ident.get(queryIndex, dataType)</span>
+        }
+      }
+<span class="nc" id="L284">      .toArray</span>
+  }
+
+<span class="nc" id="L287">  override def canDeleteWhere(filters: Array[Filter]): Boolean = filters.forall(f =&gt; compileFilter(f).isDefined)</span>
+
+  override def deleteWhere(filters: Array[Filter]): Unit = {
+<span class="nc" id="L290">    val deleteExpr = compileFilters(AlwaysTrue :: filters.toList)</span>
+<span class="nc" id="L291">    Utils.tryWithResource(NodeClient(node)) { implicit nodeClient =&gt;</span>
+<span class="nc" id="L292">      engineSpec match {</span>
+<span class="nc bnc" id="L293" title="All 2 branches missed.">        case DistributedEngineSpec(_, cluster, local_db, local_table, _, _) =&gt;</span>
+<span class="nc" id="L294">          delete(local_db, local_table, deleteExpr, Some(cluster))</span>
+        case _ =&gt;
+<span class="nc" id="L296">          delete(database, table, deleteExpr)</span>
+      }
+    }
+  }
+
+  override def truncateTable(): Boolean =
+<span class="nc" id="L302">    Utils.tryWithResource(NodeClient(node)) { implicit nodeClient =&gt;</span>
+<span class="nc" id="L303">      engineSpec match {</span>
+<span class="nc bnc" id="L304" title="All 2 branches missed.">        case DistributedEngineSpec(_, cluster, local_db, local_table, _, _) =&gt;</span>
+<span class="nc" id="L305">          truncateTable(local_db, local_table, Some(cluster))</span>
+        case _ =&gt;
+<span class="nc" id="L307">          truncateTable(database, table)</span>
+      }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

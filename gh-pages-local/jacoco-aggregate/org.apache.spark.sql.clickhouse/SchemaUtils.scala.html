@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SchemaUtils.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">spark-clickhouse-connector</a> &gt; <a href="index.source.html" class="el_package">org.apache.spark.sql.clickhouse</a> &gt; <span class="el_source">SchemaUtils.scala</span></div><h1>SchemaUtils.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.spark.sql.clickhouse
+
+import com.clickhouse.data.ClickHouseDataType._
+import com.clickhouse.data.{ClickHouseColumn, ClickHouseDataType}
+import com.clickhouse.spark.exception.CHClientException
+import org.apache.spark.sql.types._
+import org.apache.spark.sql.catalyst.SQLConfHelper
+import org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_FIXED_STRING_AS
+
+<span class="fc" id="L24">object SchemaUtils extends SQLConfHelper {</span>
+
+  def fromClickHouseType(chColumn: ClickHouseColumn): (DataType, Boolean) = {
+<span class="pc" id="L27">    val catalystType = chColumn.getDataType match {</span>
+<span class="pc bpc" id="L28" title="1 of 2 branches missed.">      case Nothing =&gt; NullType</span>
+<span class="pc bpc" id="L29" title="1 of 2 branches missed.">      case Bool =&gt; BooleanType</span>
+<span class="pc bpc" id="L30" title="6 of 16 branches missed.">      case String | JSON | UUID | Enum8 | Enum16 | IPv4 | IPv6 =&gt; StringType</span>
+<span class="fc bfc" id="L31" title="All 2 branches covered.">      case FixedString =&gt;</span>
+<span class="fc" id="L32">        conf.getConf(READ_FIXED_STRING_AS) match {</span>
+<span class="pc bpc" id="L33" title="1 of 2 branches missed.">          case &quot;binary&quot; =&gt; BinaryType</span>
+<span class="nc bnc" id="L34" title="All 2 branches missed.">          case &quot;string&quot; =&gt; StringType</span>
+<span class="nc" id="L35">          case unsupported =&gt; throw CHClientException(s&quot;Unsupported fixed string read format mapping: $unsupported&quot;)</span>
+        }
+<span class="fc bfc" id="L37" title="All 2 branches covered.">      case Int8 =&gt; ByteType</span>
+<span class="fc bfc" id="L38" title="All 6 branches covered.">      case UInt8 | Int16 =&gt; ShortType</span>
+<span class="fc bfc" id="L39" title="All 6 branches covered.">      case UInt16 | Int32 =&gt; IntegerType</span>
+<span class="fc bfc" id="L40" title="All 8 branches covered.">      case UInt32 | Int64 | UInt64 =&gt; LongType</span>
+<span class="fc bfc" id="L41" title="All 10 branches covered.">      case Int128 | UInt128 | Int256 | UInt256 =&gt; DecimalType(38, 0)</span>
+<span class="pc bpc" id="L42" title="1 of 2 branches missed.">      case Float32 =&gt; FloatType</span>
+<span class="pc bpc" id="L43" title="1 of 2 branches missed.">      case Float64 =&gt; DoubleType</span>
+<span class="pc bpc" id="L44" title="1 of 6 branches missed.">      case Date | Date32 =&gt; DateType</span>
+<span class="pc bpc" id="L45" title="1 of 8 branches missed.">      case DateTime | DateTime32 | DateTime64 =&gt; TimestampType</span>
+<span class="pc bpc" id="L46" title="1 of 4 branches missed.">      case ClickHouseDataType.Decimal if chColumn.getScale &lt;= 38 =&gt;</span>
+<span class="fc" id="L47">        DecimalType(chColumn.getPrecision, chColumn.getScale)</span>
+<span class="fc bfc" id="L48" title="All 2 branches covered.">      case Decimal32 =&gt; DecimalType(9, chColumn.getScale)</span>
+<span class="fc bfc" id="L49" title="All 2 branches covered.">      case Decimal64 =&gt; DecimalType(18, chColumn.getScale)</span>
+<span class="fc bfc" id="L50" title="All 2 branches covered.">      case Decimal128 =&gt; DecimalType(38, chColumn.getScale)</span>
+<span class="pc bpc" id="L51" title="1 of 2 branches missed.">      case IntervalYear =&gt; YearMonthIntervalType(YearMonthIntervalType.YEAR)</span>
+<span class="pc bpc" id="L52" title="1 of 2 branches missed.">      case IntervalMonth =&gt; YearMonthIntervalType(YearMonthIntervalType.MONTH)</span>
+<span class="pc bpc" id="L53" title="1 of 2 branches missed.">      case IntervalDay =&gt; DayTimeIntervalType(DayTimeIntervalType.DAY)</span>
+<span class="pc bpc" id="L54" title="1 of 2 branches missed.">      case IntervalHour =&gt; DayTimeIntervalType(DayTimeIntervalType.HOUR)</span>
+<span class="pc bpc" id="L55" title="1 of 2 branches missed.">      case IntervalMinute =&gt; DayTimeIntervalType(DayTimeIntervalType.MINUTE)</span>
+<span class="pc bpc" id="L56" title="1 of 2 branches missed.">      case IntervalSecond =&gt; DayTimeIntervalType(DayTimeIntervalType.SECOND)</span>
+<span class="fc bfc" id="L57" title="All 2 branches covered.">      case Array =&gt;</span>
+<span class="fc" id="L58">        val elementChCols = chColumn.getNestedColumns</span>
+<span class="pc bpc" id="L59" title="1 of 2 branches missed.">        assert(elementChCols.size == 1)</span>
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">        val (elementType, elementNullable) = fromClickHouseType(elementChCols.get(0))</span>
+<span class="fc" id="L61">        ArrayType(elementType, elementNullable)</span>
+<span class="fc bfc" id="L62" title="All 2 branches covered.">      case Map =&gt;</span>
+<span class="fc" id="L63">        val kvChCols = chColumn.getNestedColumns</span>
+<span class="pc bpc" id="L64" title="1 of 2 branches missed.">        assert(kvChCols.size == 2)</span>
+<span class="pc bpc" id="L65" title="1 of 2 branches missed.">        val (keyChType, valueChType) = (kvChCols.get(0), kvChCols.get(1))</span>
+<span class="pc bpc" id="L66" title="1 of 2 branches missed.">        val (keyType, keyNullable) = fromClickHouseType(keyChType)</span>
+<span class="fc" id="L67">        require(</span>
+<span class="pc bpc" id="L68" title="1 of 2 branches missed.">          !keyNullable,</span>
+<span class="pc" id="L69">          s&quot;Illegal type: ${keyChType.getOriginalTypeName}, the key type of Map should not be nullable&quot;</span>
+        )
+<span class="pc bpc" id="L71" title="1 of 2 branches missed.">        val (valueType, valueNullable) = fromClickHouseType(valueChType)</span>
+<span class="fc" id="L72">        MapType(keyType, valueType, valueNullable)</span>
+<span class="pc bpc" id="L73" title="10 of 20 branches missed.">      case Object | Nested | Tuple | Point | Polygon | MultiPolygon | Ring | IntervalQuarter | IntervalWeek |</span>
+<span class="pc bpc" id="L74" title="5 of 6 branches missed.">          Decimal256 | AggregateFunction | SimpleAggregateFunction =&gt;</span>
+<span class="fc" id="L75">        throw CHClientException(s&quot;Unsupported type: ${chColumn.getOriginalTypeName}&quot;)</span>
+    }
+<span class="fc" id="L77">    (catalystType, chColumn.isNullable)</span>
+  }
+
+  def toClickHouseType(catalystType: DataType, nullable: Boolean): String =
+<span class="fc" id="L81">    catalystType match {</span>
+<span class="pc bpc" id="L82" title="1 of 2 branches missed.">      case BooleanType =&gt; maybeNullable(&quot;UInt8&quot;, nullable)</span>
+<span class="pc bpc" id="L83" title="1 of 2 branches missed.">      case ByteType =&gt; maybeNullable(&quot;Int8&quot;, nullable)</span>
+<span class="pc bpc" id="L84" title="1 of 2 branches missed.">      case ShortType =&gt; maybeNullable(&quot;Int16&quot;, nullable)</span>
+<span class="fc bfc" id="L85" title="All 2 branches covered.">      case IntegerType =&gt; maybeNullable(&quot;Int32&quot;, nullable)</span>
+<span class="fc bfc" id="L86" title="All 2 branches covered.">      case LongType =&gt; maybeNullable(&quot;Int64&quot;, nullable)</span>
+<span class="pc bpc" id="L87" title="1 of 2 branches missed.">      case FloatType =&gt; maybeNullable(&quot;Float32&quot;, nullable)</span>
+<span class="pc bpc" id="L88" title="1 of 2 branches missed.">      case DoubleType =&gt; maybeNullable(&quot;Float64&quot;, nullable)</span>
+<span class="fc bfc" id="L89" title="All 2 branches covered.">      case StringType =&gt; maybeNullable(&quot;String&quot;, nullable)</span>
+<span class="pc bpc" id="L90" title="1 of 2 branches missed.">      case VarcharType(_) =&gt; maybeNullable(&quot;String&quot;, nullable)</span>
+<span class="pc bpc" id="L91" title="1 of 2 branches missed.">      case CharType(_) =&gt; maybeNullable(&quot;String&quot;, nullable) // TODO: maybe FixString?</span>
+<span class="fc bfc" id="L92" title="All 2 branches covered.">      case DateType =&gt; maybeNullable(&quot;Date&quot;, nullable)</span>
+<span class="fc bfc" id="L93" title="All 2 branches covered.">      case TimestampType =&gt; maybeNullable(&quot;DateTime&quot;, nullable)</span>
+<span class="pc bpc" id="L94" title="1 of 4 branches missed.">      case DecimalType.Fixed(p, s) =&gt; maybeNullable(s&quot;Decimal($p, $s)&quot;, nullable)</span>
+<span class="fc bfc" id="L95" title="All 2 branches covered.">      case ArrayType(elemType, containsNull) =&gt; s&quot;Array(${toClickHouseType(elemType, containsNull)})&quot;</span>
+      // TODO currently only support String as key
+<span class="pc bpc" id="L97" title="2 of 4 branches missed.">      case MapType(keyType, valueType, valueContainsNull) if keyType.isInstanceOf[StringType] =&gt;</span>
+<span class="fc" id="L98">        s&quot;Map(${toClickHouseType(keyType, nullable = false)}, ${toClickHouseType(valueType, valueContainsNull)})&quot;</span>
+<span class="nc" id="L99">      case _ =&gt; throw CHClientException(s&quot;Unsupported type: $catalystType&quot;)</span>
+    }
+
+  def fromClickHouseSchema(chSchema: Seq[(String, String)]): StructType = {
+<span class="pc bpc" id="L103" title="1 of 2 branches missed.">    val structFields = chSchema.map { case (name, maybeNullableType) =&gt;</span>
+<span class="fc" id="L104">      val chCols = ClickHouseColumn.parse(s&quot;`$name` $maybeNullableType&quot;)</span>
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">      assert(chCols.size == 1)</span>
+<span class="pc bpc" id="L106" title="1 of 2 branches missed.">      val (sparkType, nullable) = fromClickHouseType(chCols.get(0))</span>
+<span class="fc" id="L107">      StructField(name, sparkType, nullable)</span>
+    }
+<span class="fc" id="L109">    StructType(structFields)</span>
+  }
+
+  def toClickHouseSchema(catalystSchema: StructType): Seq[(String, String, String)] =
+<span class="fc" id="L113">    catalystSchema.fields</span>
+<span class="fc" id="L114">      .map { field =&gt;</span>
+<span class="fc" id="L115">        val chType = toClickHouseType(field.dataType, field.nullable)</span>
+<span class="fc" id="L116">        (field.name, chType, field.getComment().map(c =&gt; s&quot; COMMENT '$c'&quot;).getOrElse(&quot;&quot;))</span>
+      }
+
+  private[clickhouse] def maybeNullable(chType: String, nullable: Boolean): String =
+<span class="fc bfc" id="L120" title="All 2 branches covered.">    if (nullable) wrapNullable(chType) else chType</span>
+
+<span class="fc" id="L122">  private[clickhouse] def wrapNullable(chType: String): String = s&quot;Nullable($chType)&quot;</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

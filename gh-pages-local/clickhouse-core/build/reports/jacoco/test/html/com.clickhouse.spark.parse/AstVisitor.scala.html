@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AstVisitor.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-core</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.parse</a> &gt; <span class="el_source">AstVisitor.scala</span></div><h1>AstVisitor.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.parse
+
+import com.clickhouse.spark.ClickHouseSQLParser.{
+  ColumnExprContext,
+  ColumnExprFunctionContext,
+  ColumnExprIdentifierContext,
+  ColumnExprListContext,
+  ColumnExprLiteralContext,
+  ColumnExprParensContext,
+  ColumnExprPrecedence1Context,
+  ColumnExprPrecedence2Context,
+  ColumnExprTupleContext,
+  ColumnsExprColumnContext,
+  ColumnsExprContext,
+  EngineClauseContext,
+  OrderByClauseContext,
+  OrderExprContext,
+  SettingsClauseContext
+}
+import com.clickhouse.spark.expr.{Expr, FieldRef, FuncExpr, OrderExpr, StringLiteral, TupleExpr}
+import com.clickhouse.spark.spec.{
+  DistributedEngineSpec,
+  MergeTreeEngineSpec,
+  ReplacingMergeTreeEngineSpec,
+  ReplicatedMergeTreeEngineSpec,
+  ReplicatedReplacingMergeTreeEngineSpec,
+  TableEngineSpec,
+  UnknownTableEngineSpec
+}
+import com.clickhouse.spark.{ClickHouseSQLBaseVisitor, Logging, Utils}
+
+import scala.collection.JavaConverters._
+import org.antlr.v4.runtime.tree.ParseTree
+import com.clickhouse.spark.expr._
+import com.clickhouse.spark.spec._
+import com.clickhouse.spark.ClickHouseSQLParser._
+
+<span class="pc bnc" id="L52" title="All 4 branches missed.">class AstVisitor extends ClickHouseSQLBaseVisitor[AnyRef] with Logging {</span>
+  import ParseUtils._
+
+  protected def typedVisit[T](ctx: ParseTree): T =
+<span class="nc" id="L56">    ctx.accept(this).asInstanceOf[T]</span>
+
+<span class="pc" id="L58">  protected def tupleIfNeeded(maybeSingleTupleExpr: List[Expr]): TupleExpr = maybeSingleTupleExpr match {</span>
+<span class="pc bpc" id="L59" title="2 of 8 branches missed.">    case List(tupleExpr: TupleExpr) =&gt; tupleExpr</span>
+<span class="pc bpc" id="L60" title="1 of 2 branches missed.">    case exprList: List[Expr] =&gt; TupleExpr(exprList)</span>
+  }
+
+  override def visitEngineClause(ctx: EngineClauseContext): TableEngineSpec = {
+<span class="fc" id="L64">    val engineExpr = source(ctx.engineExpr)</span>
+<span class="fc" id="L65">    val engine = source(ctx.engineExpr.identifierOrNull)</span>
+
+    val engineArgs: Seq[Expr] =
+<span class="fc" id="L68">      Option(ctx.engineExpr.columnExprList)</span>
+<span class="fc" id="L69">        .map(_.columnsExpr.asScala)</span>
+<span class="fc" id="L70">        .getOrElse(List.empty)</span>
+<span class="fc" id="L71">        .map(visitColumnsExpr)</span>
+        .toSeq
+
+<span class="fc" id="L74">    val orderByOpt = listToOption(ctx.orderByClause)</span>
+<span class="fc" id="L75">      .map(visitOrderByClause)</span>
+<span class="fc" id="L76">      .map(orderByList =&gt; tupleIfNeeded(orderByList.map(_.expr)))</span>
+<span class="fc" id="L77">    val pkOpt = listToOption(ctx.primaryKeyClause)</span>
+<span class="pc" id="L78">      .map(_.columnExpr)</span>
+<span class="pc" id="L79">      .map(visitColumnExpr)</span>
+<span class="fc" id="L80">    val partOpt = listToOption(ctx.partitionByClause)</span>
+<span class="fc" id="L81">      .map(_.columnExpr)</span>
+<span class="fc" id="L82">      .map(visitColumnExpr)</span>
+<span class="fc" id="L83">    val sampleByOpt = listToOption(ctx.sampleByClause)</span>
+<span class="pc" id="L84">      .map(_.columnExpr)</span>
+<span class="pc" id="L85">      .map(visitColumnExpr)</span>
+<span class="pc" id="L86">    val ttlOpt = listToOption(ctx.ttlClause).map(source) // we don't care about ttl now</span>
+<span class="fc" id="L87">    val settings = listToOption(ctx.settingsClause)</span>
+<span class="fc" id="L88">      .map(visitSettingsClause)</span>
+<span class="fc" id="L89">      .getOrElse(Map.empty)</span>
+
+<span class="fc" id="L91">    engine match {</span>
+<span class="pc bpc" id="L92" title="1 of 4 branches missed.">      case eg: String if &quot;MergeTree&quot; equalsIgnoreCase eg =&gt;</span>
+<span class="fc" id="L93">        MergeTreeEngineSpec(</span>
+<span class="fc" id="L94">          engine_clause = engineExpr,</span>
+<span class="fc" id="L95">          _sorting_key = tupleIfNeeded(orderByOpt.toList),</span>
+<span class="fc" id="L96">          _primary_key = tupleIfNeeded(pkOpt.toList),</span>
+<span class="fc" id="L97">          _partition_key = tupleIfNeeded(partOpt.toList),</span>
+<span class="fc" id="L98">          _sampling_key = tupleIfNeeded(sampleByOpt.toList),</span>
+<span class="fc" id="L99">          _ttl = ttlOpt,</span>
+<span class="fc" id="L100">          _settings = settings</span>
+        )
+<span class="pc bpc" id="L102" title="1 of 4 branches missed.">      case eg: String if &quot;ReplacingMergeTree&quot; equalsIgnoreCase eg =&gt;</span>
+<span class="fc" id="L103">        ReplacingMergeTreeEngineSpec(</span>
+<span class="fc" id="L104">          engine_clause = engineExpr,</span>
+<span class="fc" id="L105">          version_column = engineArgs.lift(0).map(_.asInstanceOf[FieldRef]),</span>
+<span class="fc" id="L106">          is_deleted_column = engineArgs.lift(1).map(_.asInstanceOf[FieldRef]),</span>
+<span class="fc" id="L107">          _sorting_key = tupleIfNeeded(orderByOpt.toList),</span>
+<span class="fc" id="L108">          _primary_key = tupleIfNeeded(pkOpt.toList),</span>
+<span class="fc" id="L109">          _partition_key = tupleIfNeeded(partOpt.toList),</span>
+<span class="fc" id="L110">          _sampling_key = tupleIfNeeded(sampleByOpt.toList),</span>
+<span class="fc" id="L111">          _ttl = ttlOpt,</span>
+<span class="fc" id="L112">          _settings = settings</span>
+        )
+<span class="pc bpc" id="L114" title="1 of 4 branches missed.">      case eg: String if &quot;ReplicatedMergeTree&quot; equalsIgnoreCase eg =&gt;</span>
+<span class="fc" id="L115">        ReplicatedMergeTreeEngineSpec(</span>
+<span class="fc" id="L116">          engine_clause = engineExpr,</span>
+<span class="fc" id="L117">          zk_path = engineArgs.head.asInstanceOf[StringLiteral].value,</span>
+<span class="fc" id="L118">          replica_name = engineArgs(1).asInstanceOf[StringLiteral].value,</span>
+<span class="fc" id="L119">          _sorting_key = tupleIfNeeded(orderByOpt.toList),</span>
+<span class="fc" id="L120">          _primary_key = tupleIfNeeded(pkOpt.toList),</span>
+<span class="fc" id="L121">          _partition_key = tupleIfNeeded(partOpt.toList),</span>
+<span class="fc" id="L122">          _sampling_key = tupleIfNeeded(sampleByOpt.toList),</span>
+<span class="fc" id="L123">          _ttl = ttlOpt,</span>
+<span class="fc" id="L124">          _settings = settings</span>
+        )
+<span class="pc bpc" id="L126" title="1 of 4 branches missed.">      case eg: String if &quot;ReplicatedReplacingMergeTree&quot; equalsIgnoreCase eg =&gt;</span>
+<span class="fc" id="L127">        ReplicatedReplacingMergeTreeEngineSpec(</span>
+<span class="fc" id="L128">          engine_clause = engineExpr,</span>
+<span class="fc" id="L129">          zk_path = engineArgs.head.asInstanceOf[StringLiteral].value,</span>
+<span class="fc" id="L130">          replica_name = engineArgs(1).asInstanceOf[StringLiteral].value,</span>
+<span class="fc" id="L131">          version_column = engineArgs.lift(2).map(_.asInstanceOf[FieldRef]),</span>
+<span class="fc" id="L132">          is_deleted_column = engineArgs.lift(3).map(_.asInstanceOf[FieldRef]),</span>
+<span class="fc" id="L133">          _sorting_key = tupleIfNeeded(orderByOpt.toList),</span>
+<span class="fc" id="L134">          _primary_key = tupleIfNeeded(pkOpt.toList),</span>
+<span class="fc" id="L135">          _partition_key = tupleIfNeeded(partOpt.toList),</span>
+<span class="fc" id="L136">          _sampling_key = tupleIfNeeded(sampleByOpt.toList),</span>
+<span class="fc" id="L137">          _ttl = ttlOpt,</span>
+<span class="fc" id="L138">          _settings = settings</span>
+        )
+<span class="pc bpc" id="L140" title="2 of 4 branches missed.">      case eg: String if &quot;Distributed&quot; equalsIgnoreCase eg =&gt;</span>
+<span class="fc" id="L141">        DistributedEngineSpec(</span>
+<span class="fc" id="L142">          engine_clause = engineExpr,</span>
+<span class="fc" id="L143">          cluster = engineArgs.head.asInstanceOf[StringLiteral].value,</span>
+<span class="fc" id="L144">          local_db = engineArgs(1).asInstanceOf[StringLiteral].value,</span>
+<span class="fc" id="L145">          local_table = engineArgs(2).asInstanceOf[StringLiteral].value,</span>
+<span class="fc" id="L146">          sharding_key = engineArgs.drop(3).headOption,</span>
+<span class="fc" id="L147">          _settings = settings</span>
+        )
+<span class="nc" id="L149">      case _ =&gt; UnknownTableEngineSpec(engineExpr)</span>
+    }
+  }
+
+  // //////////////////////////////////////////////
+  // ///////////// visit ColumnExpr ///////////////
+  // //////////////////////////////////////////////
+<span class="pc" id="L156">  def visitColumnExpr(ctx: ColumnExprContext): Expr = ctx match {</span>
+<span class="fc bfc" id="L157" title="All 2 branches covered.">    case fieldCtx: ColumnExprIdentifierContext =&gt; visitColumnExprIdentifier(fieldCtx)</span>
+<span class="fc bfc" id="L158" title="All 2 branches covered.">    case literalCtx: ColumnExprLiteralContext =&gt; visitColumnExprLiteral(literalCtx)</span>
+<span class="fc bfc" id="L159" title="All 2 branches covered.">    case funcCtx: ColumnExprFunctionContext =&gt; visitColumnExprFunction(funcCtx)</span>
+<span class="fc bfc" id="L160" title="All 2 branches covered.">    case singleColCtx: ColumnExprParensContext =&gt; visitColumnExpr(singleColCtx.columnExpr)</span>
+<span class="fc bfc" id="L161" title="All 2 branches covered.">    case tupleCtx: ColumnExprTupleContext =&gt; visitColumnExprTuple(tupleCtx)</span>
+<span class="pc bpc" id="L162" title="1 of 2 branches missed.">    case precedence1Ctx: ColumnExprPrecedence1Context =&gt; visitColumnExprPrecedence1(precedence1Ctx)</span>
+<span class="nc bnc" id="L163" title="All 2 branches missed.">    case precedence2Ctx: ColumnExprPrecedence2Context =&gt; visitColumnExprPrecedence2(precedence2Ctx)</span>
+<span class="nc bnc" id="L164" title="All 2 branches missed.">    case other: ColumnExprContext =&gt; throw new IllegalArgumentException(</span>
+<span class="nc" id="L165">        s&quot;Unsupported ColumnExpr: [${other.getClass.getSimpleName}] ${other.getText}&quot;</span>
+      )
+  }
+
+  override def visitColumnExprIdentifier(ctx: ColumnExprIdentifierContext): FieldRef =
+<span class="fc" id="L170">    FieldRef(source(ctx.columnIdentifier))</span>
+
+  override def visitColumnExprLiteral(ctx: ColumnExprLiteralContext): StringLiteral =
+<span class="fc" id="L173">    StringLiteral(Utils.stripSingleQuote(source(ctx.literal)))</span>
+
+  override def visitColumnExprFunction(ctx: ColumnExprFunctionContext): FuncExpr = {
+<span class="fc" id="L176">    require(</span>
+<span class="pc bpc" id="L177" title="1 of 2 branches missed.">      ctx.columnExprList == null,</span>
+<span class="pc" id="L178">      s&quot;Unsupported ColumnExprFunction with columnExprList: [${ctx.getClass.getSimpleName}] ${ctx.getText}&quot;</span>
+    )
+<span class="fc" id="L180">    require(</span>
+<span class="pc bpc" id="L181" title="1 of 2 branches missed.">      ctx.DISTINCT == null,</span>
+<span class="pc" id="L182">      s&quot;Unsupported ColumnExprFunction with DISTINCT: [${ctx.getClass.getSimpleName}] ${ctx.getText}&quot;</span>
+    )
+
+<span class="fc" id="L185">    val funcName = ctx.identifier.getText</span>
+<span class="fc" id="L186">    val funArgs = Option(ctx.columnArgList).map(_.columnArgExpr.asScala.toList.map { columnArgExprCtx =&gt;</span>
+<span class="fc" id="L187">      require(</span>
+<span class="pc bpc" id="L188" title="1 of 2 branches missed.">        columnArgExprCtx.columnLambdaExpr == null,</span>
+<span class="pc" id="L189">        s&quot;Unsupported ColumnLambdaExpr: ${source(columnArgExprCtx)}&quot;</span>
+      )
+      // recursive visit, but not sure if spark support the nested transform
+<span class="fc" id="L192">      visitColumnExpr(columnArgExprCtx.columnExpr)</span>
+<span class="pc" id="L193">    }).getOrElse(Nil)</span>
+<span class="fc" id="L194">    FuncExpr(funcName, funArgs)</span>
+  }
+
+  override def visitColumnExprTuple(ctx: ColumnExprTupleContext): TupleExpr =
+<span class="fc" id="L198">    TupleExpr(visitColumnExprList(ctx.columnExprList))</span>
+
+  override def visitColumnExprPrecedence1(ctx: ColumnExprPrecedence1Context): FuncExpr = {
+    val funcName =
+<span class="pc bpc" id="L202" title="1 of 2 branches missed.">      if (ctx.PERCENT != null) &quot;remainder&quot;</span>
+<span class="nc bnc" id="L203" title="All 2 branches missed.">      else if (ctx.SLASH != null) &quot;divide&quot;</span>
+<span class="nc bnc" id="L204" title="All 2 branches missed.">      else if (ctx.ASTERISK != null) &quot;multiply&quot;</span>
+<span class="pc" id="L205">      else throw new IllegalArgumentException(s&quot;Invalid [ColumnExprPrecedence1] ${ctx.getText}&quot;)</span>
+<span class="fc" id="L206">    val funArgs = List(visitColumnExpr(ctx.columnExpr(0)), visitColumnExpr(ctx.columnExpr(1)))</span>
+<span class="fc" id="L207">    FuncExpr(funcName, funArgs)</span>
+  }
+
+  override def visitColumnExprPrecedence2(ctx: ColumnExprPrecedence2Context): FuncExpr = {
+    val funcName =
+<span class="nc bnc" id="L212" title="All 2 branches missed.">      if (ctx.PLUS != null) &quot;add&quot;</span>
+<span class="nc bnc" id="L213" title="All 2 branches missed.">      else if (ctx.DASH != null) &quot;subtract&quot;</span>
+<span class="nc bnc" id="L214" title="All 2 branches missed.">      else if (ctx.CONCAT != null) &quot;concat&quot;</span>
+<span class="nc" id="L215">      else throw new IllegalArgumentException(s&quot;Invalid [ColumnExprPrecedence2] ${ctx.getText}&quot;)</span>
+<span class="nc" id="L216">    val funArgs = List(visitColumnExpr(ctx.columnExpr(0)), visitColumnExpr(ctx.columnExpr(1)))</span>
+<span class="nc" id="L217">    FuncExpr(funcName, funArgs)</span>
+  }
+
+  // //////////////////////////////////////////////
+  // ////////////// visit order by ////////////////
+  // //////////////////////////////////////////////
+
+  override def visitOrderByClause(ctx: OrderByClauseContext): List[OrderExpr] =
+<span class="fc" id="L225">    ctx.orderExprList.orderExpr.asScala.toList.map(visitOrderExpr)</span>
+
+  override def visitOrderExpr(ctx: OrderExprContext): OrderExpr = {
+<span class="pc bpc" id="L228" title="1 of 2 branches missed.">    val desc = Seq(ctx.DESC, ctx.DESCENDING).exists(_ != null)</span>
+<span class="fc" id="L229">    val nullLast = Option(ctx.LAST).nonEmpty</span>
+<span class="pc bpc" id="L230" title="2 of 4 branches missed.">    OrderExpr(visitColumnExpr(ctx.columnExpr()), !desc, !nullLast)</span>
+  }
+
+  // //////////////////////////////////////////////
+  // /////////////// visit others /////////////////
+  // //////////////////////////////////////////////
+
+  override def visitColumnExprList(ctx: ColumnExprListContext): List[Expr] =
+<span class="fc" id="L238">    ctx.columnsExpr.asScala.toList.map(visitColumnsExpr)</span>
+
+<span class="pc" id="L240">  def visitColumnsExpr(ctx: ColumnsExprContext): Expr = ctx match {</span>
+<span class="pc bpc" id="L241" title="1 of 2 branches missed.">    case field: ColumnsExprColumnContext =&gt; visitColumnExpr(field.columnExpr)</span>
+<span class="nc bnc" id="L242" title="All 2 branches missed.">    case other: ColumnsExprContext =&gt; throw new IllegalArgumentException(</span>
+<span class="nc" id="L243">        s&quot;Unsupported ColumnsExprContext: ${source(other)}&quot;</span>
+      )
+  }
+
+  override def visitSettingsClause(ctx: SettingsClauseContext): Map[String, String] =
+<span class="fc" id="L248">    ctx.settingExprList.settingExpr.asScala.map(se =&gt; se.identifier.getText -&gt; source(se.literal)).toMap</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

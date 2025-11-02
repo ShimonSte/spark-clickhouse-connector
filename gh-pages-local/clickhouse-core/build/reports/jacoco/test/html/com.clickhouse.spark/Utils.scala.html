@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>Utils.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-core</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark</a> &gt; <span class="el_source">Utils.scala</span></div><h1>Utils.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark
+
+import org.apache.commons.lang3.time.FastDateFormat
+
+import java.io.{File, InputStream}
+import java.math.{MathContext, RoundingMode}
+import java.net.URI
+import java.nio.file.{Files, Path, StandardCopyOption}
+import java.time.Duration
+import java.time.chrono.IsoChronology
+import java.time.format.{DateTimeFormatter, DateTimeFormatterBuilder, ResolverStyle}
+import java.time.temporal.ChronoField
+import java.util.Locale
+import java.util.concurrent.TimeUnit.NANOSECONDS
+import java.util.concurrent.locks.LockSupport
+import scala.annotation.tailrec
+import scala.collection.mutable
+import scala.reflect.ClassTag
+import scala.util.{Failure, Success, Try}
+
+<span class="pc bpc" id="L35" title="1 of 4 branches missed.">object Utils extends Logging {</span>
+
+<span class="nc bnc" id="L37" title="All 4 branches missed.">  @transient lazy val dateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern(&quot;yyyy-MM-dd&quot;)</span>
+<span class="pc bpc" id="L38" title="2 of 4 branches missed.">  @transient lazy val dateTimeFmt: DateTimeFormatter = new DateTimeFormatterBuilder()</span>
+    .parseCaseInsensitive()
+<span class="fc" id="L40">    .append(DateTimeFormatter.ISO_LOCAL_DATE)</span>
+<span class="fc" id="L41">    .appendLiteral(' ')</span>
+<span class="fc" id="L42">    .appendValue(ChronoField.HOUR_OF_DAY, 2).appendLiteral(':')</span>
+<span class="fc" id="L43">    .appendValue(ChronoField.MINUTE_OF_HOUR, 2).appendLiteral(':')</span>
+<span class="fc" id="L44">    .appendValue(ChronoField.SECOND_OF_MINUTE, 2)</span>
+<span class="fc" id="L45">    .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)</span>
+<span class="fc" id="L46">    .toFormatter(Locale.US)</span>
+<span class="fc" id="L47">    .withChronology(IsoChronology.INSTANCE)</span>
+<span class="fc" id="L48">    .withResolverStyle(ResolverStyle.STRICT)</span>
+
+<span class="nc bnc" id="L50" title="All 4 branches missed.">  @transient lazy val legacyDateFmt: FastDateFormat = FastDateFormat.getInstance(&quot;yyyy-MM-dd&quot;)</span>
+<span class="nc bnc" id="L51" title="All 4 branches missed.">  @transient lazy val legacyDateTimeFmt: FastDateFormat = FastDateFormat.getInstance(&quot;yyyy-MM-dd HH:mm:ss&quot;)</span>
+
+  def defaultClassLoader: ClassLoader =
+<span class="nc" id="L54">    Try(Thread.currentThread.getContextClassLoader) // fail if cannot access thread context ClassLoader</span>
+<span class="nc" id="L55">      .orElse(Try(getClass.getClassLoader)) // fail indicates the bootstrap ClassLoader</span>
+<span class="nc" id="L56">      .orElse(Try(ClassLoader.getSystemClassLoader)) // fail if cannot access system ClassLoader</span>
+      .get
+
+<span class="nc" id="L59">  def classpathResource(name: String): URI = defaultClassLoader.getResource(name).toURI</span>
+
+<span class="nc" id="L61">  def classpathResourceAsStream(name: String): InputStream = defaultClassLoader.getResourceAsStream(name)</span>
+
+  def getCodeSourceLocation(clazz: Class[_]): String =
+<span class="nc" id="L64">    new File(clazz.getProtectionDomain.getCodeSource.getLocation.toURI).getPath</span>
+
+<span class="nc bnc" id="L66" title="All 4 branches missed.">  @transient lazy val tmpDirPath: Path = Files.createTempDirectory(&quot;classpath_res_&quot;)</span>
+
+  def copyFileFromClasspath(name: String): File = {
+<span class="nc" id="L69">    val copyPath = tmpDirPath.resolve(name)</span>
+<span class="nc" id="L70">    Files.createDirectories(copyPath.getParent)</span>
+<span class="nc" id="L71">    tryWithResource(classpathResourceAsStream(name)) { input =&gt;</span>
+<span class="nc" id="L72">      Files.copy(input, copyPath, StandardCopyOption.REPLACE_EXISTING)</span>
+    }
+<span class="nc" id="L74">    copyPath.toFile</span>
+  }
+
+<span class="nc" id="L77">  def load(key: String, defValue: String = &quot;&quot;): String = sys.props.getOrElse(key, sys.env.getOrElse(key, defValue))</span>
+
+  def stripSingleQuote(maybeQuoted: String): String = {
+<span class="fc" id="L80">    var start = 0</span>
+<span class="fc" id="L81">    var until = maybeQuoted.length</span>
+<span class="fc bfc" id="L82" title="All 2 branches covered.">    if (maybeQuoted.startsWith(&quot;'&quot;)) start = 1</span>
+<span class="fc bfc" id="L83" title="All 4 branches covered.">    if (maybeQuoted.endsWith(&quot;'&quot;) &amp;&amp; !maybeQuoted.endsWith(&quot;\\'&quot;)) until = until - 1</span>
+<span class="fc bfc" id="L84" title="All 2 branches covered.">    if (start &gt; until) until = start</span>
+<span class="fc" id="L85">    maybeQuoted.substring(start, until)</span>
+  }
+
+  def wrapBackQuote(identifier: String): String = {
+<span class="fc" id="L89">    val sb = new mutable.StringBuilder(identifier.length + 2)</span>
+<span class="fc bfc" id="L90" title="All 2 branches covered.">    if (!identifier.startsWith(&quot;`&quot;)) sb.append('`')</span>
+<span class="fc" id="L91">    sb.append(identifier)</span>
+<span class="pc bpc" id="L92" title="4 of 10 branches missed.">    if (identifier == &quot;`&quot; || !identifier.endsWith(&quot;`&quot;) || identifier.endsWith(&quot;\\`&quot;)) sb.append('`')</span>
+<span class="fc" id="L93">    sb.mkString</span>
+  }
+
+  @tailrec
+  def retry[R, T &lt;: Throwable: ClassTag](retryTimes: Int, interval: Duration)(f: =&gt; R): Try[R] = {
+<span class="pc bpc" id="L98" title="1 of 2 branches missed.">    assert(retryTimes &gt;= 0)</span>
+<span class="fc" id="L99">    val result = Try(f)</span>
+<span class="pc bpc" id="L100" title="1 of 2 branches missed.">    result match {</span>
+<span class="fc bfc" id="L101" title="All 2 branches covered.">      case Success(result) =&gt; Success(result)</span>
+<span class="pc bpc" id="L102" title="2 of 6 branches missed.">      case Failure(exception: T) if retryTimes &gt; 0 =&gt;</span>
+<span class="fc" id="L103">        log.warn(s&quot;Execution failed caused by: &quot;, exception)</span>
+<span class="fc" id="L104">        log.warn(s&quot;$retryTimes times retry remaining, the next will be in ${interval.toMillis}ms&quot;)</span>
+<span class="fc" id="L105">        LockSupport.parkNanos(interval.toNanos)</span>
+<span class="fc" id="L106">        retry(retryTimes - 1, interval)(f)</span>
+<span class="pc bpc" id="L107" title="1 of 2 branches missed.">      case Failure(exception) =&gt; Failure(exception)</span>
+    }
+  }
+
+  /**
+   * Convert a quantity in bytes to a human-readable string such as &quot;4.0 MiB&quot;.
+   */
+<span class="nc" id="L114">  def bytesToString(size: Long): String = bytesToString(BigInt(size))</span>
+
+  def bytesToString(size: BigInt): String = {
+<span class="nc" id="L117">    val EiB = 1L &lt;&lt; 60</span>
+<span class="nc" id="L118">    val PiB = 1L &lt;&lt; 50</span>
+<span class="nc" id="L119">    val TiB = 1L &lt;&lt; 40</span>
+<span class="nc" id="L120">    val GiB = 1L &lt;&lt; 30</span>
+<span class="nc" id="L121">    val MiB = 1L &lt;&lt; 20</span>
+<span class="nc" id="L122">    val KiB = 1L &lt;&lt; 10</span>
+
+<span class="nc bnc" id="L124" title="All 2 branches missed.">    if (size &gt;= BigInt(1L &lt;&lt; 11) * EiB) {</span>
+      // The number is too large, show it in scientific notation.
+<span class="nc" id="L126">      BigDecimal(size, new MathContext(3, RoundingMode.HALF_UP)).toString() + &quot; B&quot;</span>
+    } else {
+<span class="nc" id="L128">      val (value, unit) =</span>
+<span class="nc bnc" id="L129" title="All 4 branches missed.">        if (size &gt;= 2 * EiB) {</span>
+<span class="nc" id="L130">          (BigDecimal(size) / EiB, &quot;EiB&quot;)</span>
+<span class="nc bnc" id="L131" title="All 2 branches missed.">        } else if (size &gt;= 2 * PiB) {</span>
+<span class="nc" id="L132">          (BigDecimal(size) / PiB, &quot;PiB&quot;)</span>
+<span class="nc bnc" id="L133" title="All 2 branches missed.">        } else if (size &gt;= 2 * TiB) {</span>
+<span class="nc" id="L134">          (BigDecimal(size) / TiB, &quot;TiB&quot;)</span>
+<span class="nc bnc" id="L135" title="All 2 branches missed.">        } else if (size &gt;= 2 * GiB) {</span>
+<span class="nc" id="L136">          (BigDecimal(size) / GiB, &quot;GiB&quot;)</span>
+<span class="nc bnc" id="L137" title="All 2 branches missed.">        } else if (size &gt;= 2 * MiB) {</span>
+<span class="nc" id="L138">          (BigDecimal(size) / MiB, &quot;MiB&quot;)</span>
+<span class="nc bnc" id="L139" title="All 2 branches missed.">        } else if (size &gt;= 2 * KiB) {</span>
+<span class="nc" id="L140">          (BigDecimal(size) / KiB, &quot;KiB&quot;)</span>
+        } else {
+<span class="nc" id="L142">          (BigDecimal(size), &quot;B&quot;)</span>
+        }
+<span class="nc" id="L144">      &quot;%.1f %s&quot;.formatLocal(Locale.US, value, unit)</span>
+    }
+  }
+
+  /**
+   * Returns a human-readable string representing a duration such as &quot;35ms&quot;
+   */
+  def msDurationToString(ms: Long): String = {
+<span class="nc" id="L152">    val second = 1000</span>
+<span class="nc" id="L153">    val minute = 60 * second</span>
+<span class="nc" id="L154">    val hour = 60 * minute</span>
+<span class="nc" id="L155">    val locale = Locale.US</span>
+
+<span class="nc" id="L157">    ms match {</span>
+<span class="nc bnc" id="L158" title="All 2 branches missed.">      case t if t &lt; second =&gt;</span>
+<span class="nc" id="L159">        &quot;%d ms&quot;.formatLocal(locale, t)</span>
+<span class="nc bnc" id="L160" title="All 2 branches missed.">      case t if t &lt; minute =&gt;</span>
+<span class="nc" id="L161">        &quot;%.1f s&quot;.formatLocal(locale, t.toFloat / second)</span>
+<span class="nc bnc" id="L162" title="All 2 branches missed.">      case t if t &lt; hour =&gt;</span>
+<span class="nc" id="L163">        &quot;%.1f m&quot;.formatLocal(locale, t.toFloat / minute)</span>
+      case t =&gt;
+<span class="nc" id="L165">        &quot;%.2f h&quot;.formatLocal(locale, t.toFloat / hour)</span>
+    }
+  }
+
+  def tryWithResource[R &lt;: AutoCloseable, T](createResource: =&gt; R)(f: R =&gt; T): T = {
+<span class="nc" id="L170">    val resource = createResource</span>
+<span class="nc" id="L171">    try f.apply(resource)</span>
+<span class="nc" id="L172">    finally resource.close()</span>
+  }
+
+  /** Records the duration of running `body`. */
+  def timeTakenMs[T](body: =&gt; T): (T, Long) = {
+<span class="nc" id="L177">    val startTime = System.nanoTime()</span>
+<span class="nc" id="L178">    val result = body</span>
+<span class="nc" id="L179">    val endTime = System.nanoTime()</span>
+<span class="nc" id="L180">    (result, math.max(NANOSECONDS.toMillis(endTime - startTime), 0))</span>
+  }
+
+<span class="fc" id="L183">  val IS_TESTING = &quot;spark.testing&quot;</span>
+<span class="pc" id="L184">  val PREFIX = &quot;SPARK_ON_CLICKHOUSE&quot;</span>
+
+<span class="nc" id="L186">  def setTesting(): Unit = System.setProperty(IS_TESTING, &quot;true&quot;)</span>
+
+<span class="pc bpc" id="L188" title="4 of 6 branches missed.">  def isTesting: Boolean = System.getProperty(IS_TESTING) == &quot;true&quot;</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

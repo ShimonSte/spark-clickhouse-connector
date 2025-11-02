@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TableSpec.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-core</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.spec</a> &gt; <span class="el_source">TableSpec.scala</span></div><h1>TableSpec.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.spec
+
+import com.clickhouse.spark.ToJson
+
+import java.time.LocalDateTime
+import java.util
+import scala.collection.JavaConverters._
+
+<span class="nc bnc" id="L23" title="All 156 branches missed.">case class TableSpec(</span>
+<span class="nc" id="L24">  database: String,</span>
+<span class="nc" id="L25">  name: String,</span>
+<span class="nc" id="L26">  uuid: String,</span>
+<span class="nc" id="L27">  engine: String,</span>
+<span class="nc" id="L28">  is_temporary: Boolean,</span>
+<span class="nc" id="L29">  data_paths: List[String],</span>
+<span class="nc" id="L30">  metadata_path: String,</span>
+<span class="nc" id="L31">  metadata_modification_time: LocalDateTime,</span>
+<span class="nc" id="L32">  dependencies_database: List[String],</span>
+<span class="nc" id="L33">  dependencies_table: List[String],</span>
+<span class="nc" id="L34">  create_table_query: String,</span>
+<span class="nc" id="L35">  engine_full: String,</span>
+<span class="nc" id="L36">  partition_key: String,</span>
+<span class="nc" id="L37">  sorting_key: String,</span>
+<span class="nc" id="L38">  primary_key: String,</span>
+<span class="nc" id="L39">  sampling_key: String,</span>
+<span class="nc" id="L40">  storage_policy: String,</span>
+<span class="nc" id="L41">  total_rows: Option[Long],</span>
+<span class="nc" id="L42">  total_bytes: Option[Long],</span>
+<span class="nc" id="L43">  lifetime_rows: Option[Long],</span>
+<span class="nc" id="L44">  lifetime_bytes: Option[Long]</span>
+<span class="nc" id="L45">) extends ToJson {</span>
+<span class="nc" id="L46">  def toMap: Map[String, String] = Map(</span>
+<span class="nc" id="L47">    &quot;database&quot; -&gt; database,</span>
+<span class="nc" id="L48">    &quot;name&quot; -&gt; name,</span>
+<span class="nc" id="L49">    &quot;uuid&quot; -&gt; uuid,</span>
+<span class="nc" id="L50">    &quot;engine&quot; -&gt; engine,</span>
+<span class="nc" id="L51">    &quot;is_temporary&quot; -&gt; is_temporary.toString,</span>
+<span class="nc" id="L52">    &quot;data_paths&quot; -&gt; data_paths.mkString(&quot;,&quot;),</span>
+<span class="nc" id="L53">    &quot;metadata_path&quot; -&gt; metadata_path,</span>
+<span class="nc" id="L54">    &quot;metadata_modification_time&quot; -&gt; metadata_modification_time.toString,</span>
+<span class="nc" id="L55">    &quot;dependencies_database&quot; -&gt; dependencies_database.mkString(&quot;,&quot;),</span>
+<span class="nc" id="L56">    &quot;dependencies_table&quot; -&gt; dependencies_table.mkString(&quot;,&quot;),</span>
+<span class="nc" id="L57">    &quot;create_table_query&quot; -&gt; create_table_query,</span>
+<span class="nc" id="L58">    &quot;engine_full&quot; -&gt; engine_full,</span>
+<span class="nc" id="L59">    &quot;partition_key&quot; -&gt; partition_key,</span>
+<span class="nc" id="L60">    &quot;sorting_key&quot; -&gt; sorting_key,</span>
+<span class="nc" id="L61">    &quot;primary_key&quot; -&gt; primary_key,</span>
+<span class="nc" id="L62">    &quot;sampling_key&quot; -&gt; sampling_key,</span>
+<span class="nc" id="L63">    &quot;storage_policy&quot; -&gt; storage_policy,</span>
+<span class="nc" id="L64">    &quot;total_rows&quot; -&gt; total_rows.map(_.toString).getOrElse(&quot;&quot;),</span>
+<span class="nc" id="L65">    &quot;total_bytes&quot; -&gt; total_bytes.map(_.toString).getOrElse(&quot;&quot;),</span>
+<span class="nc" id="L66">    &quot;lifetime_rows&quot; -&gt; lifetime_rows.map(_.toString).getOrElse(&quot;&quot;),</span>
+<span class="nc" id="L67">    &quot;lifetime_bytes&quot; -&gt; lifetime_bytes.map(_.toString).getOrElse(&quot;&quot;)</span>
+  )
+
+<span class="nc" id="L70">  def toJavaMap: util.Map[String, String] = toMap.asJava</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

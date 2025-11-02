@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SQLParser.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-core</a> &gt; <a href="index.source.html" class="el_package">com.clickhouse.spark.parse</a> &gt; <span class="el_source">SQLParser.scala</span></div><h1>SQLParser.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.clickhouse.spark.parse
+
+import com.clickhouse.spark.{ClickHouseSQLLexer, ClickHouseSQLParser, Logging}
+import com.clickhouse.spark.expr.Expr
+import com.clickhouse.spark.spec.TableEngineSpec
+import org.antlr.v4.runtime._
+import org.antlr.v4.runtime.atn.PredictionMode
+import org.antlr.v4.runtime.misc.ParseCancellationException
+import com.clickhouse.spark._
+
+<span class="pc bpc" id="L25" title="1 of 4 branches missed.">class SQLParser(astVisitor: AstVisitor) extends Logging {</span>
+
+  def parseColumnExpr(sql: String): Expr =
+<span class="nc" id="L28">    parse(sql)(parser =&gt; astVisitor.visitColumnExpr(parser.columnExpr))</span>
+
+  def parseEngineClause(sql: String): TableEngineSpec =
+<span class="fc" id="L31">    parse(sql)(parser =&gt; astVisitor.visitEngineClause(parser.engineClause))</span>
+
+  private def parse[T](sql: String)(toResult: ClickHouseSQLParser =&gt; T): T = {
+
+<span class="fc" id="L35">    log.debug(s&quot;Parsing SQL: $sql&quot;)</span>
+
+<span class="fc" id="L37">    val lexer = new ClickHouseSQLLexer(CharStreams.fromString(sql))</span>
+<span class="fc" id="L38">    lexer.removeErrorListeners()</span>
+<span class="fc" id="L39">    lexer.addErrorListener(ParseErrorListener)</span>
+
+<span class="fc" id="L41">    val tokenStream = new CommonTokenStream(lexer)</span>
+<span class="fc" id="L42">    val parser = new ClickHouseSQLParser(tokenStream)</span>
+<span class="fc" id="L43">    parser.removeErrorListeners()</span>
+<span class="fc" id="L44">    parser.addErrorListener(ParseErrorListener)</span>
+
+    try
+      try {
+        // first, try parsing with potentially faster SLL mode
+<span class="fc" id="L49">        parser.getInterpreter.setPredictionMode(PredictionMode.SLL)</span>
+<span class="pc" id="L50">        toResult(parser)</span>
+      } catch {
+        case _: ParseCancellationException =&gt;
+          // if we fail, parse with LL mode
+<span class="nc" id="L54">          tokenStream.seek(0) // rewind input stream</span>
+<span class="nc" id="L55">          parser.reset()</span>
+
+          // Try Again.
+<span class="nc" id="L58">          parser.getInterpreter.setPredictionMode(PredictionMode.LL)</span>
+<span class="pc" id="L59">          toResult(parser)</span>
+      }
+    catch {
+<span class="pc" id="L62">      case rethrow: ParseException =&gt; throw rethrow</span>
+    }
+  }
+}
+
+<span class="fc" id="L67">object ParseErrorListener extends BaseErrorListener {</span>
+  override def syntaxError(
+    recognizer: Recognizer[_, _],
+    offendingSymbol: scala.Any,
+    line: Int,
+    charPositionInLine: Int,
+    msg: String,
+    e: RecognitionException
+  ): Unit = {
+<span class="nc bnc" id="L76" title="All 2 branches missed.">    val (start, stop) = offendingSymbol match {</span>
+<span class="nc bnc" id="L77" title="All 2 branches missed.">      case token: CommonToken =&gt;</span>
+<span class="nc" id="L78">        val start = Origin(Some(line), Some(token.getCharPositionInLine))</span>
+<span class="nc" id="L79">        val length = token.getStopIndex - token.getStartIndex + 1</span>
+<span class="nc" id="L80">        val stop = Origin(Some(line), Some(token.getCharPositionInLine + length))</span>
+<span class="nc" id="L81">        (start, stop)</span>
+      case _ =&gt;
+<span class="nc" id="L83">        val start = Origin(Some(line), Some(charPositionInLine))</span>
+<span class="nc" id="L84">        (start, start)</span>
+    }
+<span class="nc" id="L86">    throw ParseException(msg, start, stop)</span>
+  }
+}
+
+<span class="nc bnc" id="L90" title="All 32 branches missed.">case class ParseException(</span>
+<span class="nc" id="L91">  message: String,</span>
+<span class="nc" id="L92">  start: Origin,</span>
+<span class="nc" id="L93">  stop: Origin</span>
+<span class="nc" id="L94">) extends RuntimeException(message) {</span>
+
+  def this(message: String, ctx: ParserRuleContext) =
+<span class="nc" id="L97">    this(</span>
+<span class="nc" id="L98">      message,</span>
+<span class="nc" id="L99">      ParseUtils.position(ctx.getStart),</span>
+<span class="nc" id="L100">      ParseUtils.position(ctx.getStop)</span>
+    )
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

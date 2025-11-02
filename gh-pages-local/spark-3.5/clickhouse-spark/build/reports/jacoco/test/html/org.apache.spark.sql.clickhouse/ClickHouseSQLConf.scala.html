@@ -1,0 +1,222 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>ClickHouseSQLConf.scala</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">clickhouse-spark-3.5_2.12</a> &gt; <a href="index.source.html" class="el_package">org.apache.spark.sql.clickhouse</a> &gt; <span class="el_source">ClickHouseSQLConf.scala</span></div><h1>ClickHouseSQLConf.scala</h1><pre class="source lang-java linenums">/*
+ * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.spark.sql.clickhouse
+
+import org.apache.spark.internal.config.{ConfigEntry, OptionalConfigEntry}
+import org.apache.spark.sql.internal.SQLConf._
+import com.clickhouse.spark.exception.ClickHouseErrCode._
+
+import java.util.concurrent.TimeUnit
+
+/**
+ * Run the following command to update the configuration docs.
+ *   UPDATE=1 ./gradlew test --tests=ConfigurationSuite
+ */
+<span class="fc" id="L27">object ClickHouseSQLConf {</span>
+
+<span class="pc" id="L29">  val WRITE_BATCH_SIZE: ConfigEntry[Int] =</span>
+<span class="fc" id="L30">    buildConf(&quot;spark.clickhouse.write.batchSize&quot;)</span>
+<span class="fc" id="L31">      .doc(&quot;The number of records per batch on writing to ClickHouse.&quot;)</span>
+<span class="fc" id="L32">      .version(&quot;0.1.0&quot;)</span>
+      .intConf
+<span class="pc bpc" id="L34" title="1 of 2 branches missed.">      .checkValue(v =&gt; v &gt; 0, &quot;`spark.clickhouse.write.batchSize` should be positive.&quot;)</span>
+<span class="fc" id="L35">      .createWithDefault(10000)</span>
+
+<span class="pc" id="L37">  val WRITE_MAX_RETRY: ConfigEntry[Int] =</span>
+<span class="fc" id="L38">    buildConf(&quot;spark.clickhouse.write.maxRetry&quot;)</span>
+<span class="fc" id="L39">      .doc(&quot;The maximum number of write we will retry for a single batch write failed with retryable codes.&quot;)</span>
+<span class="fc" id="L40">      .version(&quot;0.1.0&quot;)</span>
+      .intConf
+<span class="pc bpc" id="L42" title="1 of 2 branches missed.">      .checkValue(_ &gt;= 0, &quot;Should be 0 or positive. 0 means disable retry.&quot;)</span>
+<span class="fc" id="L43">      .createWithDefault(3)</span>
+
+<span class="pc" id="L45">  val WRITE_RETRY_INTERVAL: ConfigEntry[Long] =</span>
+<span class="fc" id="L46">    buildConf(&quot;spark.clickhouse.write.retryInterval&quot;)</span>
+<span class="fc" id="L47">      .doc(&quot;The interval in seconds between write retry.&quot;)</span>
+<span class="fc" id="L48">      .version(&quot;0.1.0&quot;)</span>
+<span class="fc" id="L49">      .timeConf(TimeUnit.SECONDS)</span>
+<span class="fc" id="L50">      .createWithDefaultString(&quot;10s&quot;)</span>
+
+<span class="pc" id="L52">  val WRITE_RETRYABLE_ERROR_CODES: ConfigEntry[Seq[Int]] =</span>
+<span class="fc" id="L53">    buildConf(&quot;spark.clickhouse.write.retryableErrorCodes&quot;)</span>
+<span class="fc" id="L54">      .doc(&quot;The retryable error codes returned by ClickHouse server when write failing.&quot;)</span>
+<span class="fc" id="L55">      .version(&quot;0.1.0&quot;)</span>
+      .intConf
+      .toSequence
+<span class="pc bpc" id="L58" title="2 of 4 branches missed.">      .checkValue(codes =&gt; !codes.exists(_ &lt;= OK.code), &quot;Error code should be positive.&quot;)</span>
+<span class="fc" id="L59">      .createWithDefault(MEMORY_LIMIT_EXCEEDED.code :: Nil)</span>
+
+<span class="pc" id="L61">  val WRITE_REPARTITION_NUM: ConfigEntry[Int] =</span>
+<span class="fc" id="L62">    buildConf(&quot;spark.clickhouse.write.repartitionNum&quot;)</span>
+<span class="fc" id="L63">      .doc(&quot;Repartition data to meet the distributions of ClickHouse table is required before writing, &quot; +</span>
+        &quot;use this conf to specific the repartition number, value less than 1 mean no requirement.&quot;)
+<span class="fc" id="L65">      .version(&quot;0.1.0&quot;)</span>
+      .intConf
+<span class="fc" id="L67">      .createWithDefault(0)</span>
+
+<span class="fc" id="L69">  val WRITE_REPARTITION_BY_PARTITION: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L70">    buildConf(&quot;spark.clickhouse.write.repartitionByPartition&quot;)</span>
+<span class="fc" id="L71">      .doc(&quot;Whether to repartition data by ClickHouse partition keys to meet the distributions of &quot; +</span>
+        &quot;ClickHouse table before writing.&quot;)
+<span class="fc" id="L73">      .version(&quot;0.3.0&quot;)</span>
+      .booleanConf
+<span class="fc" id="L75">      .createWithDefault(true)</span>
+
+<span class="pc" id="L77">  val WRITE_REPARTITION_STRICTLY: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L78">    buildConf(&quot;spark.clickhouse.write.repartitionStrictly&quot;)</span>
+      .doc(&quot;If `true`, Spark will strictly distribute incoming records across partitions to satisfy &quot; +
+        &quot;the required distribution before passing the records to the data source table on write. &quot; +
+        &quot;Otherwise, Spark may apply certain optimizations to speed up the query but break the &quot; +
+<span class="fc" id="L82">        &quot;distribution requirement. Note, this configuration requires SPARK-37523(available in &quot; +</span>
+        &quot;Spark 3.4), w/o this patch, it always acts as `true`.&quot;)
+<span class="fc" id="L84">      .version(&quot;0.3.0&quot;)</span>
+      .booleanConf
+<span class="fc" id="L86">      .createWithDefault(false)</span>
+
+<span class="pc" id="L88">  val WRITE_DISTRIBUTED_USE_CLUSTER_NODES: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L89">    buildConf(&quot;spark.clickhouse.write.distributed.useClusterNodes&quot;)</span>
+<span class="fc" id="L90">      .doc(&quot;Write to all nodes of cluster when writing Distributed table.&quot;)</span>
+<span class="fc" id="L91">      .version(&quot;0.1.0&quot;)</span>
+      .booleanConf
+<span class="fc" id="L93">      .createWithDefault(true)</span>
+
+<span class="fc" id="L95">  val READ_DISTRIBUTED_USE_CLUSTER_NODES: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L96">    buildConf(&quot;spark.clickhouse.read.distributed.useClusterNodes&quot;)</span>
+<span class="fc" id="L97">      .doc(&quot;Read from all nodes of cluster when reading Distributed table.&quot;)</span>
+      .internal
+<span class="fc" id="L99">      .version(&quot;0.1.0&quot;)</span>
+      .booleanConf
+<span class="pc bpc" id="L101" title="1 of 2 branches missed.">      .checkValue(_ == false, s&quot;`spark.clickhouse.read.distributed.useClusterNodes` is not support yet.&quot;)</span>
+<span class="fc" id="L102">      .createWithDefault(false)</span>
+
+<span class="fc" id="L104">  val WRITE_DISTRIBUTED_CONVERT_LOCAL: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L105">    buildConf(&quot;spark.clickhouse.write.distributed.convertLocal&quot;)</span>
+<span class="fc" id="L106">      .doc(&quot;When writing Distributed table, write local table instead of itself. &quot; +</span>
+        &quot;If `true`, ignore `spark.clickhouse.write.distributed.useClusterNodes`.&quot;)
+<span class="fc" id="L108">      .version(&quot;0.1.0&quot;)</span>
+      .booleanConf
+<span class="fc" id="L110">      .createWithDefault(false)</span>
+
+<span class="pc" id="L112">  val READ_DISTRIBUTED_CONVERT_LOCAL: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L113">    buildConf(&quot;spark.clickhouse.read.distributed.convertLocal&quot;)</span>
+<span class="fc" id="L114">      .doc(&quot;When reading Distributed table, read local table instead of itself. &quot; +</span>
+<span class="fc" id="L115">        s&quot;If `true`, ignore `${READ_DISTRIBUTED_USE_CLUSTER_NODES.key}`.&quot;)</span>
+<span class="fc" id="L116">      .version(&quot;0.1.0&quot;)</span>
+      .booleanConf
+<span class="fc" id="L118">      .createWithDefault(true)</span>
+
+<span class="pc" id="L120">  val READ_SPLIT_BY_PARTITION_ID: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L121">    buildConf(&quot;spark.clickhouse.read.splitByPartitionId&quot;)</span>
+      .doc(&quot;If `true`, construct input partition filter by virtual column `_partition_id`, &quot; +
+<span class="fc" id="L123">        &quot;instead of partition value. There are known bugs to assemble SQL predication by &quot; +</span>
+        &quot;partition value. This feature requires ClickHouse Server v21.6+&quot;)
+<span class="fc" id="L125">      .version(&quot;0.4.0&quot;)</span>
+      .booleanConf
+<span class="fc" id="L127">      .createWithDefault(true)</span>
+
+<span class="pc" id="L129">  val WRITE_LOCAL_SORT_BY_PARTITION: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L130">    buildConf(&quot;spark.clickhouse.write.localSortByPartition&quot;)</span>
+<span class="fc" id="L131">      .doc(s&quot;If `true`, do local sort by partition before writing. If not set, it equals to &quot; +</span>
+<span class="fc" id="L132">        s&quot;`${WRITE_REPARTITION_BY_PARTITION.key}`.&quot;)</span>
+<span class="fc" id="L133">      .version(&quot;0.3.0&quot;)</span>
+<span class="fc" id="L134">      .fallbackConf(WRITE_REPARTITION_BY_PARTITION)</span>
+
+<span class="pc" id="L136">  val WRITE_LOCAL_SORT_BY_KEY: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L137">    buildConf(&quot;spark.clickhouse.write.localSortByKey&quot;)</span>
+<span class="fc" id="L138">      .doc(&quot;If `true`, do local sort by sort keys before writing.&quot;)</span>
+<span class="fc" id="L139">      .version(&quot;0.3.0&quot;)</span>
+      .booleanConf
+<span class="fc" id="L141">      .createWithDefault(true)</span>
+
+<span class="pc" id="L143">  val IGNORE_UNSUPPORTED_TRANSFORM: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L144">    buildConf(&quot;spark.clickhouse.ignoreUnsupportedTransform&quot;)</span>
+      .doc(&quot;ClickHouse supports using complex expressions as sharding keys or partition values, &quot; +
+<span class="fc" id="L146">        &quot;e.g. `cityHash64(col_1, col_2)`, and those can not be supported by Spark now. If `true`, &quot; +</span>
+        &quot;ignore the unsupported expressions, otherwise fail fast w/ an exception. Note, when &quot; +
+<span class="fc" id="L148">        s&quot;`${WRITE_DISTRIBUTED_CONVERT_LOCAL.key}` is enabled, ignore unsupported sharding keys &quot; +</span>
+<span class="fc" id="L149">        &quot;may corrupt the data.&quot;)</span>
+<span class="fc" id="L150">      .version(&quot;0.4.0&quot;)</span>
+      .booleanConf
+<span class="fc" id="L152">      .createWithDefault(false)</span>
+
+<span class="pc" id="L154">  val READ_COMPRESSION_CODEC: ConfigEntry[String] =</span>
+<span class="fc" id="L155">    buildConf(&quot;spark.clickhouse.read.compression.codec&quot;)</span>
+<span class="fc" id="L156">      .doc(&quot;The codec used to decompress data for reading. Supported codecs: none, lz4.&quot;)</span>
+<span class="fc" id="L157">      .version(&quot;0.5.0&quot;)</span>
+      .stringConf
+<span class="fc" id="L159">      .createWithDefault(&quot;lz4&quot;)</span>
+
+<span class="pc" id="L161">  val WRITE_COMPRESSION_CODEC: ConfigEntry[String] =</span>
+<span class="fc" id="L162">    buildConf(&quot;spark.clickhouse.write.compression.codec&quot;)</span>
+<span class="fc" id="L163">      .doc(&quot;The codec used to compress data for writing. Supported codecs: none, lz4.&quot;)</span>
+<span class="fc" id="L164">      .version(&quot;0.3.0&quot;)</span>
+      .stringConf
+<span class="fc" id="L166">      .createWithDefault(&quot;lz4&quot;)</span>
+
+<span class="pc" id="L168">  val READ_FORMAT: ConfigEntry[String] =</span>
+<span class="fc" id="L169">    buildConf(&quot;spark.clickhouse.read.format&quot;)</span>
+<span class="fc" id="L170">      .doc(&quot;Serialize format for reading. Supported formats: json, binary&quot;)</span>
+<span class="fc" id="L171">      .version(&quot;0.6.0&quot;)</span>
+      .stringConf
+<span class="pc" id="L173">      .transform(_.toLowerCase)</span>
+<span class="fc" id="L174">      .createWithDefault(&quot;json&quot;)</span>
+
+<span class="pc" id="L176">  val RUNTIME_FILTER_ENABLED: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L177">    buildConf(&quot;spark.clickhouse.read.runtimeFilter.enabled&quot;)</span>
+<span class="fc" id="L178">      .doc(&quot;Enable runtime filter for reading.&quot;)</span>
+<span class="fc" id="L179">      .version(&quot;0.8.0&quot;)</span>
+      .booleanConf
+<span class="fc" id="L181">      .createWithDefault(false)</span>
+
+<span class="pc" id="L183">  val WRITE_FORMAT: ConfigEntry[String] =</span>
+<span class="fc" id="L184">    buildConf(&quot;spark.clickhouse.write.format&quot;)</span>
+<span class="fc" id="L185">      .doc(&quot;Serialize format for writing. Supported formats: json, arrow&quot;)</span>
+<span class="fc" id="L186">      .version(&quot;0.4.0&quot;)</span>
+      .stringConf
+<span class="pc" id="L188">      .transform {</span>
+<span class="nc bnc" id="L189" title="All 2 branches missed.">        case s if s equalsIgnoreCase &quot;JSONEachRow&quot; =&gt; &quot;json&quot;</span>
+<span class="nc bnc" id="L190" title="All 2 branches missed.">        case s if s equalsIgnoreCase &quot;ArrowStream&quot; =&gt; &quot;arrow&quot;</span>
+<span class="nc" id="L191">        case s =&gt; s.toLowerCase</span>
+      }
+<span class="fc" id="L193">      .createWithDefault(&quot;arrow&quot;)</span>
+
+<span class="pc" id="L195">  val USE_NULLABLE_QUERY_SCHEMA: ConfigEntry[Boolean] =</span>
+<span class="fc" id="L196">    buildConf(&quot;spark.clickhouse.useNullableQuerySchema&quot;)</span>
+      .doc(&quot;If `true`, mark all the fields of the query schema as nullable when executing &quot; +
+        &quot;`CREATE/REPLACE TABLE ... AS SELECT ...` on creating the table. Note, this &quot; +
+<span class="fc" id="L199">        &quot;configuration requires SPARK-43390(available in Spark 3.5), w/o this patch, &quot; +</span>
+        &quot;it always acts as `true`.&quot;)
+<span class="fc" id="L201">      .version(&quot;0.8.0&quot;)</span>
+      .booleanConf
+<span class="fc" id="L203">      .createWithDefault(false)</span>
+
+<span class="fc" id="L205">  val READ_FIXED_STRING_AS: ConfigEntry[String] =</span>
+<span class="fc" id="L206">    buildConf(&quot;spark.clickhouse.read.fixedStringAs&quot;)</span>
+<span class="fc" id="L207">      .doc(&quot;Read ClickHouse FixedString type as the specified Spark data type. Supported types: binary, string&quot;)</span>
+<span class="fc" id="L208">      .version(&quot;0.8.0&quot;)</span>
+      .stringConf
+<span class="fc" id="L210">      .transform(_.toLowerCase)</span>
+<span class="fc" id="L211">      .createWithDefault(&quot;binary&quot;)</span>
+
+<span class="pc" id="L213">  val READ_SETTINGS: OptionalConfigEntry[String] =</span>
+<span class="fc" id="L214">    buildConf(&quot;spark.clickhouse.read.settings&quot;)</span>
+<span class="fc" id="L215">      .doc(&quot;Settings when read from ClickHouse. e.g. `final=1, max_execution_time=5`&quot;)</span>
+<span class="fc" id="L216">      .version(&quot;0.9.0&quot;)</span>
+      .stringConf
+<span class="pc" id="L218">      .transform(_.toLowerCase)</span>
+      .createOptional
+
+<span class="fc" id="L221">}</span>
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>
