@@ -1,0 +1,1359 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/spec/TableEngineSpec.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.spec
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.expr.{Expr, FieldRef, OrderExpr, TupleExpr}
+</span>18 <span style=''>import com.clickhouse.spark.expr._
+</span>19 <span style=''>
+</span>20 <span style=''>sealed trait TableEngineSpec extends Serializable {
+</span>21 <span style=''>  def engine_clause: String
+</span>22 <span style=''>  def engine: String
+</span>23 <span style=''>  def args: List[Expr] = List.empty
+</span>24 <span style=''>  def sorting_key: TupleExpr = TupleExpr(List.empty)
+</span>25 <span style=''>  def primary_key: TupleExpr = TupleExpr(List.empty)
+</span>26 <span style=''>  def partition_key: TupleExpr = TupleExpr(List.empty)
+</span>27 <span style=''>  def sampling_key: TupleExpr = TupleExpr(List.empty)
+</span>28 <span style=''>  def ttl: Option[String] = None // don't care about it now
+</span>29 <span style=''>  def settings: Map[String, String]
+</span>30 <span style=''>  def is_distributed: Boolean = false
+</span>31 <span style=''>  def is_replicated: Boolean = false
+</span>32 <span style=''>  def order_by_expr: List[OrderExpr] = sorting_key.exprList.map(OrderExpr(_))
+</span>33 <span style=''>}
+</span>34 <span style=''>
+</span>35 <span style=''>trait MergeTreeFamilyEngineSpec extends TableEngineSpec
+</span>36 <span style=''>
+</span>37 <span style=''>trait ReplicatedEngineSpec extends MergeTreeFamilyEngineSpec {
+</span>38 <span style=''>  def zk_path: String
+</span>39 <span style=''>  def replica_name: String
+</span>40 <span style=''>  override def is_replicated: Boolean = true
+</span>41 <span style=''>}
+</span>42 <span style=''>
+</span>43 <span style=''>case class UnknownTableEngineSpec(
+</span>44 <span style=''>  engine_clause: String
+</span>45 <span style=''>) extends TableEngineSpec {
+</span>46 <span style=''>  def engine: String = &quot;Unknown&quot;
+</span>47 <span style=''>  def settings: Map[String, String] = Map.empty
+</span>48 <span style=''>}
+</span>49 <span style=''>
+</span>50 <span style=''>case class MergeTreeEngineSpec(
+</span>51 <span style=''>  engine_clause: String,
+</span>52 <span style=''>  var _sorting_key: TupleExpr = TupleExpr(List.empty),
+</span>53 <span style=''>  var _primary_key: TupleExpr = TupleExpr(List.empty),
+</span>54 <span style=''>  var _partition_key: TupleExpr = TupleExpr(List.empty),
+</span>55 <span style=''>  var _sampling_key: TupleExpr = TupleExpr(List.empty),
+</span>56 <span style=''>  var _ttl: Option[String] = None,
+</span>57 <span style=''>  var _settings: Map[String, String] = Map.empty
+</span>58 <span style=''>) extends MergeTreeFamilyEngineSpec {
+</span>59 <span style=''>  override def engine: String = &quot;MergeTree&quot;
+</span>60 <span style=''>  override def sorting_key: TupleExpr = _sorting_key
+</span>61 <span style=''>  override def primary_key: TupleExpr = _primary_key
+</span>62 <span style=''>  override def partition_key: TupleExpr = _partition_key
+</span>63 <span style=''>  override def sampling_key: TupleExpr = _sampling_key
+</span>64 <span style=''>  override def ttl: Option[String] = _ttl
+</span>65 <span style=''>  override def settings: Map[String, String] = _settings
+</span>66 <span style=''>}
+</span>67 <span style=''>
+</span>68 <span style=''>case class ReplicatedMergeTreeEngineSpec(
+</span>69 <span style=''>  engine_clause: String,
+</span>70 <span style=''>  zk_path: String,
+</span>71 <span style=''>  replica_name: String,
+</span>72 <span style=''>  var _sorting_key: TupleExpr = TupleExpr(List.empty),
+</span>73 <span style=''>  var _primary_key: TupleExpr = TupleExpr(List.empty),
+</span>74 <span style=''>  var _partition_key: TupleExpr = TupleExpr(List.empty),
+</span>75 <span style=''>  var _sampling_key: TupleExpr = TupleExpr(List.empty),
+</span>76 <span style=''>  var _ttl: Option[String] = None,
+</span>77 <span style=''>  var _settings: Map[String, String] = Map.empty
+</span>78 <span style=''>) extends MergeTreeFamilyEngineSpec with ReplicatedEngineSpec {
+</span>79 <span style=''>  def engine: String = &quot;ReplicatedMergeTree&quot;
+</span>80 <span style=''>  override def sorting_key: TupleExpr = _sorting_key
+</span>81 <span style=''>  override def primary_key: TupleExpr = _primary_key
+</span>82 <span style=''>  override def partition_key: TupleExpr = _partition_key
+</span>83 <span style=''>  override def sampling_key: TupleExpr = _sampling_key
+</span>84 <span style=''>  override def ttl: Option[String] = _ttl
+</span>85 <span style=''>  override def settings: Map[String, String] = _settings
+</span>86 <span style=''>}
+</span>87 <span style=''>
+</span>88 <span style=''>case class ReplacingMergeTreeEngineSpec(
+</span>89 <span style=''>  engine_clause: String,
+</span>90 <span style=''>  version_column: Option[FieldRef] = None,
+</span>91 <span style=''>  is_deleted_column: Option[FieldRef] = None,
+</span>92 <span style=''>  var _sorting_key: TupleExpr = TupleExpr(List.empty),
+</span>93 <span style=''>  var _primary_key: TupleExpr = TupleExpr(List.empty),
+</span>94 <span style=''>  var _partition_key: TupleExpr = TupleExpr(List.empty),
+</span>95 <span style=''>  var _sampling_key: TupleExpr = TupleExpr(List.empty),
+</span>96 <span style=''>  var _ttl: Option[String] = None,
+</span>97 <span style=''>  var _settings: Map[String, String] = Map.empty
+</span>98 <span style=''>) extends MergeTreeFamilyEngineSpec {
+</span>99 <span style=''>  override def engine: String = &quot;ReplacingMergeTree&quot;
+</span>100 <span style=''>  override def sorting_key: TupleExpr = _sorting_key
+</span>101 <span style=''>  override def primary_key: TupleExpr = _primary_key
+</span>102 <span style=''>  override def partition_key: TupleExpr = _partition_key
+</span>103 <span style=''>  override def sampling_key: TupleExpr = _sampling_key
+</span>104 <span style=''>  override def ttl: Option[String] = _ttl
+</span>105 <span style=''>  override def settings: Map[String, String] = _settings
+</span>106 <span style=''>}
+</span>107 <span style=''>
+</span>108 <span style=''>case class ReplicatedReplacingMergeTreeEngineSpec(
+</span>109 <span style=''>  engine_clause: String,
+</span>110 <span style=''>  zk_path: String,
+</span>111 <span style=''>  replica_name: String,
+</span>112 <span style=''>  version_column: Option[FieldRef] = None,
+</span>113 <span style=''>  is_deleted_column: Option[FieldRef] = None,
+</span>114 <span style=''>  var _sorting_key: TupleExpr = TupleExpr(List.empty),
+</span>115 <span style=''>  var _primary_key: TupleExpr = TupleExpr(List.empty),
+</span>116 <span style=''>  var _partition_key: TupleExpr = TupleExpr(List.empty),
+</span>117 <span style=''>  var _sampling_key: TupleExpr = TupleExpr(List.empty),
+</span>118 <span style=''>  var _ttl: Option[String] = None,
+</span>119 <span style=''>  var _settings: Map[String, String] = Map.empty
+</span>120 <span style=''>) extends MergeTreeFamilyEngineSpec with ReplicatedEngineSpec {
+</span>121 <span style=''>  override def engine: String = &quot;ReplicatedReplacingMergeTree&quot;
+</span>122 <span style=''>  override def sorting_key: TupleExpr = _sorting_key
+</span>123 <span style=''>  override def primary_key: TupleExpr = _primary_key
+</span>124 <span style=''>  override def partition_key: TupleExpr = _partition_key
+</span>125 <span style=''>  override def sampling_key: TupleExpr = _sampling_key
+</span>126 <span style=''>  override def ttl: Option[String] = _ttl
+</span>127 <span style=''>  override def settings: Map[String, String] = _settings
+</span>128 <span style=''>}
+</span>129 <span style=''>
+</span>130 <span style=''>case class DistributedEngineSpec(
+</span>131 <span style=''>  engine_clause: String,
+</span>132 <span style=''>  cluster: String,
+</span>133 <span style=''>  local_db: String,
+</span>134 <span style=''>  local_table: String,
+</span>135 <span style=''>  sharding_key: Option[Expr] = None,
+</span>136 <span style=''>  var _settings: Map[String, String] = Map.empty
+</span>137 <span style=''>) extends TableEngineSpec {
+</span>138 <span style=''>  override def engine: String = &quot;Distributed&quot;
+</span>139 <span style=''>  override def settings: Map[String, String] = _settings
+</span>140 <span style=''>  override def is_distributed: Boolean = true
+</span>141 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          207
+        </td>
+        <td>
+          838
+          -
+          838
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.List.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          651
+        </td>
+        <td>
+          884
+          -
+          884
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.TupleExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.expr.TupleExpr.apply(scala.collection.immutable.List.empty[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          834
+        </td>
+        <td>
+          890
+          -
+          890
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.List.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          942
+        </td>
+        <td>
+          937
+          -
+          937
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.TupleExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.expr.TupleExpr.apply(scala.collection.immutable.List.empty[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          269
+        </td>
+        <td>
+          943
+          -
+          943
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.List.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          546
+        </td>
+        <td>
+          998
+          -
+          998
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.List.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          312
+        </td>
+        <td>
+          992
+          -
+          992
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.TupleExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.expr.TupleExpr.apply(scala.collection.immutable.List.empty[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1018
+        </td>
+        <td>
+          1052
+          -
+          1052
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.List.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          620
+        </td>
+        <td>
+          1046
+          -
+          1046
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.TupleExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.expr.TupleExpr.apply(scala.collection.immutable.List.empty[Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          186
+        </td>
+        <td>
+          1087
+          -
+          1087
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          887
+        </td>
+        <td>
+          1187
+          -
+          1187
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          653
+        </td>
+        <td>
+          1224
+          -
+          1224
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          271
+        </td>
+        <td>
+          1303
+          -
+          1303
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.OrderExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.expr.OrderExpr.apply(x$1, com.clickhouse.spark.expr.OrderExpr.apply$default$2, com.clickhouse.spark.expr.OrderExpr.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          518
+        </td>
+        <td>
+          1293
+          -
+          1293
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.immutable.List.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableEngineSpec.this.sorting_key.exprList.map[com.clickhouse.spark.expr.OrderExpr, List[com.clickhouse.spark.expr.OrderExpr]](((x$1: com.clickhouse.spark.expr.Expr) =&gt; com.clickhouse.spark.expr.OrderExpr.apply(x$1, com.clickhouse.spark.expr.OrderExpr.apply$default$2, com.clickhouse.spark.expr.OrderExpr.apply$default$3)))(immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.OrderExpr])
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          924
+        </td>
+        <td>
+          1293
+          -
+          1293
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.OrderExpr]
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          308
+        </td>
+        <td>
+          1520
+          -
+          1520
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          998
+        </td>
+        <td>
+          1638
+          -
+          1638
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Unknown&quot;
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          575
+        </td>
+        <td>
+          1690
+          -
+          1690
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Map.empty[String, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          172
+        </td>
+        <td>
+          2133
+          -
+          2133
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;MergeTree&quot;
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          833
+        </td>
+        <td>
+          2185
+          -
+          2185
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.MergeTreeEngineSpec._sorting_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          MergeTreeEngineSpec.this._sorting_key
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          656
+        </td>
+        <td>
+          2238
+          -
+          2238
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.MergeTreeEngineSpec._primary_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          MergeTreeEngineSpec.this._primary_key
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          254
+        </td>
+        <td>
+          2293
+          -
+          2293
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.MergeTreeEngineSpec._partition_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          MergeTreeEngineSpec.this._partition_key
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          926
+        </td>
+        <td>
+          2349
+          -
+          2349
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.MergeTreeEngineSpec._sampling_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          MergeTreeEngineSpec.this._sampling_key
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          510
+        </td>
+        <td>
+          2400
+          -
+          2400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.MergeTreeEngineSpec._ttl
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          MergeTreeEngineSpec.this._ttl
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          2452
+          -
+          2452
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.MergeTreeEngineSpec._settings
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          MergeTreeEngineSpec.this._settings
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1003
+        </td>
+        <td>
+          2969
+          -
+          2969
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ReplicatedMergeTree&quot;
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          562
+        </td>
+        <td>
+          3031
+          -
+          3031
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedMergeTreeEngineSpec._sorting_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedMergeTreeEngineSpec.this._sorting_key
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          174
+        </td>
+        <td>
+          3084
+          -
+          3084
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedMergeTreeEngineSpec._primary_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedMergeTreeEngineSpec.this._primary_key
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          885
+        </td>
+        <td>
+          3139
+          -
+          3139
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedMergeTreeEngineSpec._partition_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedMergeTreeEngineSpec.this._partition_key
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          688
+        </td>
+        <td>
+          3195
+          -
+          3195
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedMergeTreeEngineSpec._sampling_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedMergeTreeEngineSpec.this._sampling_key
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          218
+        </td>
+        <td>
+          3246
+          -
+          3246
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedMergeTreeEngineSpec._ttl
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedMergeTreeEngineSpec.this._ttl
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          906
+        </td>
+        <td>
+          3298
+          -
+          3298
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedMergeTreeEngineSpec._settings
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedMergeTreeEngineSpec.this._settings
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          545
+        </td>
+        <td>
+          3843
+          -
+          3843
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ReplacingMergeTree&quot;
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          77
+        </td>
+        <td>
+          3904
+          -
+          3904
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplacingMergeTreeEngineSpec._sorting_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplacingMergeTreeEngineSpec.this._sorting_key
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          1033
+        </td>
+        <td>
+          3957
+          -
+          3957
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplacingMergeTreeEngineSpec._primary_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplacingMergeTreeEngineSpec.this._primary_key
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          563
+        </td>
+        <td>
+          4012
+          -
+          4012
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplacingMergeTreeEngineSpec._partition_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplacingMergeTreeEngineSpec.this._partition_key
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          4068
+          -
+          4068
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplacingMergeTreeEngineSpec._sampling_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplacingMergeTreeEngineSpec.this._sampling_key
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          886
+        </td>
+        <td>
+          4119
+          -
+          4119
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplacingMergeTreeEngineSpec._ttl
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplacingMergeTreeEngineSpec.this._ttl
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          413
+        </td>
+        <td>
+          4171
+          -
+          4171
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplacingMergeTreeEngineSpec._settings
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplacingMergeTreeEngineSpec.this._settings
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          249
+        </td>
+        <td>
+          4795
+          -
+          4795
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ReplicatedReplacingMergeTree&quot;
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          909
+        </td>
+        <td>
+          4866
+          -
+          4866
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedReplacingMergeTreeEngineSpec._sorting_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedReplacingMergeTreeEngineSpec.this._sorting_key
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          550
+        </td>
+        <td>
+          4919
+          -
+          4919
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedReplacingMergeTreeEngineSpec._primary_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedReplacingMergeTreeEngineSpec.this._primary_key
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          130
+        </td>
+        <td>
+          4974
+          -
+          4974
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedReplacingMergeTreeEngineSpec._partition_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedReplacingMergeTreeEngineSpec.this._partition_key
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          997
+        </td>
+        <td>
+          5030
+          -
+          5030
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedReplacingMergeTreeEngineSpec._sampling_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedReplacingMergeTreeEngineSpec.this._sampling_key
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          599
+        </td>
+        <td>
+          5081
+          -
+          5081
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedReplacingMergeTreeEngineSpec._ttl
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedReplacingMergeTreeEngineSpec.this._ttl
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          5133
+          -
+          5133
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedReplacingMergeTreeEngineSpec._settings
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ReplicatedReplacingMergeTreeEngineSpec.this._settings
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          889
+        </td>
+        <td>
+          5413
+          -
+          5413
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Distributed&quot;
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          476
+        </td>
+        <td>
+          5474
+          -
+          5474
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec._settings
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DistributedEngineSpec.this._settings
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          253
+        </td>
+        <td>
+          5525
+          -
+          5525
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

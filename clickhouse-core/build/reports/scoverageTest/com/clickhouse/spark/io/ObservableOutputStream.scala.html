@@ -1,0 +1,1330 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/io/ObservableOutputStream.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.io
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.Utils
+</span>18 <span style=''>import java.io.OutputStream
+</span>19 <span style=''>import java.util.concurrent.atomic.LongAdder
+</span>20 <span style=''>
+</span>21 <span style=''>class ObservableOutputStream(
+</span>22 <span style=''>  out: OutputStream,
+</span>23 <span style=''>  writeBytesCounter: Option[LongAdder] = None,
+</span>24 <span style=''>  totalWriteByteCounter: Option[LongAdder] = None,
+</span>25 <span style=''>  writeTimeCounter: Option[LongAdder] = None,
+</span>26 <span style=''>  totalWriteTimeCounter: Option[LongAdder] = None
+</span>27 <span style=''>) extends OutputStream {
+</span>28 <span style=''>
+</span>29 <span style=''>  override def write(b: Int): Unit = {
+</span>30 <span style=''>    val (_, duration) = Utils.timeTakenMs(out.write(b))
+</span>31 <span style=''>    writeBytesCounter.foreach(_.add(1L))
+</span>32 <span style=''>    totalWriteByteCounter.foreach(_.add(1L))
+</span>33 <span style=''>    writeTimeCounter.foreach(_.add(duration))
+</span>34 <span style=''>    totalWriteTimeCounter.foreach(_.add(duration))
+</span>35 <span style=''>  }
+</span>36 <span style=''>
+</span>37 <span style=''>  override def write(b: Array[Byte]): Unit = {
+</span>38 <span style=''>    val (_, duration) = Utils.timeTakenMs(out.write(b))
+</span>39 <span style=''>    writeBytesCounter.foreach(_.add(b.length))
+</span>40 <span style=''>    totalWriteByteCounter.foreach(_.add(b.length))
+</span>41 <span style=''>    writeTimeCounter.foreach(_.add(duration))
+</span>42 <span style=''>    totalWriteTimeCounter.foreach(_.add(duration))
+</span>43 <span style=''>  }
+</span>44 <span style=''>
+</span>45 <span style=''>  override def write(b: Array[Byte], off: Int, len: Int): Unit = {
+</span>46 <span style=''>    val (_, duration) = Utils.timeTakenMs(out.write(b, off, len))
+</span>47 <span style=''>    writeBytesCounter.foreach(_.add(len))
+</span>48 <span style=''>    totalWriteByteCounter.foreach(_.add(len))
+</span>49 <span style=''>    writeTimeCounter.foreach(_.add(duration))
+</span>50 <span style=''>    totalWriteTimeCounter.foreach(_.add(duration))
+</span>51 <span style=''>  }
+</span>52 <span style=''>
+</span>53 <span style=''>  override def flush(): Unit = {
+</span>54 <span style=''>    val (_, duration) = Utils.timeTakenMs(out.flush())
+</span>55 <span style=''>    writeTimeCounter.foreach(_.add(duration))
+</span>56 <span style=''>    totalWriteTimeCounter.foreach(_.add(duration))
+</span>57 <span style=''>  }
+</span>58 <span style=''>
+</span>59 <span style=''>  override def close(): Unit = {
+</span>60 <span style=''>    val (_, duration) = Utils.timeTakenMs(out.close())
+</span>61 <span style=''>    writeTimeCounter.foreach(_.add(duration))
+</span>62 <span style=''>    totalWriteTimeCounter.foreach(_.add(duration))
+</span>63 <span style=''>  }
+</span>64 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          418
+        </td>
+        <td>
+          1056
+          -
+          1056
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.timeTakenMs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.timeTakenMs[Unit](ObservableOutputStream.this.out.write(b))
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          41
+        </td>
+        <td>
+          1023
+          -
+          1023
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.io.ObservableOutputStream.duration
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          duration
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          881
+        </td>
+        <td>
+          1066
+          -
+          1066
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.OutputStream.write
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.out.write(b)
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          723
+        </td>
+        <td>
+          1106
+          -
+          1106
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.add(1L)
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          304
+        </td>
+        <td>
+          1100
+          -
+          1100
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.writeBytesCounter.foreach[Unit](((x$1: java.util.concurrent.atomic.LongAdder) =&gt; x$1.add(1L)))
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          1151
+          -
+          1151
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$2.add(1L)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          766
+        </td>
+        <td>
+          1145
+          -
+          1145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.totalWriteByteCounter.foreach[Unit](((x$2: java.util.concurrent.atomic.LongAdder) =&gt; x$2.add(1L)))
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          349
+        </td>
+        <td>
+          1191
+          -
+          1191
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$3.add(duration)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1060
+        </td>
+        <td>
+          1185
+          -
+          1185
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.writeTimeCounter.foreach[Unit](((x$3: java.util.concurrent.atomic.LongAdder) =&gt; x$3.add(duration)))
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          860
+        </td>
+        <td>
+          1242
+          -
+          1242
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$4.add(duration)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          471
+        </td>
+        <td>
+          1236
+          -
+          1236
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.totalWriteTimeCounter.foreach[Unit](((x$4: java.util.concurrent.atomic.LongAdder) =&gt; x$4.add(duration)))
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          64
+        </td>
+        <td>
+          1357
+          -
+          1357
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.OutputStream.write
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.out.write(b)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          698
+        </td>
+        <td>
+          1347
+          -
+          1347
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.timeTakenMs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.timeTakenMs[Unit](ObservableOutputStream.this.out.write(b))
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          329
+        </td>
+        <td>
+          1314
+          -
+          1314
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.io.ObservableOutputStream.duration
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          duration
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          1400
+          -
+          1400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          b.length.toLong
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          817
+        </td>
+        <td>
+          1397
+          -
+          1397
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$5.add(b.length.toLong)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          353
+        </td>
+        <td>
+          1391
+          -
+          1391
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.writeBytesCounter.foreach[Unit](((x$5: java.util.concurrent.atomic.LongAdder) =&gt; x$5.add(b.length.toLong)))
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          447
+        </td>
+        <td>
+          1442
+          -
+          1442
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.totalWriteByteCounter.foreach[Unit](((x$6: java.util.concurrent.atomic.LongAdder) =&gt; x$6.add(b.length.toLong)))
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1044
+        </td>
+        <td>
+          1451
+          -
+          1451
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          b.length.toLong
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          861
+        </td>
+        <td>
+          1448
+          -
+          1448
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$6.add(b.length.toLong)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          702
+        </td>
+        <td>
+          1488
+          -
+          1488
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.writeTimeCounter.foreach[Unit](((x$7: java.util.concurrent.atomic.LongAdder) =&gt; x$7.add(duration)))
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          1494
+          -
+          1494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$7.add(duration)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          1539
+          -
+          1539
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.totalWriteTimeCounter.foreach[Unit](((x$8: java.util.concurrent.atomic.LongAdder) =&gt; x$8.add(duration)))
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          318
+        </td>
+        <td>
+          1545
+          -
+          1545
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$8.add(duration)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1049
+        </td>
+        <td>
+          1637
+          -
+          1637
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.io.ObservableOutputStream.duration
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          duration
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          779
+        </td>
+        <td>
+          1680
+          -
+          1680
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.OutputStream.write
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.out.write(b, off, len)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          389
+        </td>
+        <td>
+          1670
+          -
+          1670
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.timeTakenMs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.timeTakenMs[Unit](ObservableOutputStream.this.out.write(b, off, len))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          453
+        </td>
+        <td>
+          1730
+          -
+          1730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$9.add(len.toLong)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          42
+        </td>
+        <td>
+          1724
+          -
+          1724
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.writeBytesCounter.foreach[Unit](((x$9: java.util.concurrent.atomic.LongAdder) =&gt; x$9.add(len.toLong)))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          661
+        </td>
+        <td>
+          1731
+          -
+          1731
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          len.toLong
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          738
+        </td>
+        <td>
+          1777
+          -
+          1777
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          len.toLong
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          1770
+          -
+          1770
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.totalWriteByteCounter.foreach[Unit](((x$10: java.util.concurrent.atomic.LongAdder) =&gt; x$10.add(len.toLong)))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          320
+        </td>
+        <td>
+          1776
+          -
+          1776
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$10.add(len.toLong)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          764
+        </td>
+        <td>
+          1817
+          -
+          1817
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$11.add(duration)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          392
+        </td>
+        <td>
+          1811
+          -
+          1811
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.writeTimeCounter.foreach[Unit](((x$11: java.util.concurrent.atomic.LongAdder) =&gt; x$11.add(duration)))
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1038
+        </td>
+        <td>
+          1868
+          -
+          1868
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$12.add(duration)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          640
+        </td>
+        <td>
+          1862
+          -
+          1862
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.totalWriteTimeCounter.foreach[Unit](((x$12: java.util.concurrent.atomic.LongAdder) =&gt; x$12.add(duration)))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          20
+        </td>
+        <td>
+          1959
+          -
+          1959
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.timeTakenMs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.timeTakenMs[Unit](ObservableOutputStream.this.out.flush())
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          420
+        </td>
+        <td>
+          1969
+          -
+          1969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.OutputStream.flush
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.out.flush()
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          740
+        </td>
+        <td>
+          1926
+          -
+          1926
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.io.ObservableOutputStream.duration
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          duration
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          2001
+          -
+          2001
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.writeTimeCounter.foreach[Unit](((x$13: java.util.concurrent.atomic.LongAdder) =&gt; x$13.add(duration)))
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          287
+        </td>
+        <td>
+          2007
+          -
+          2007
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$13.add(duration)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          768
+        </td>
+        <td>
+          2058
+          -
+          2058
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$14.add(duration)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          375
+        </td>
+        <td>
+          2052
+          -
+          2052
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.totalWriteTimeCounter.foreach[Unit](((x$14: java.util.concurrent.atomic.LongAdder) =&gt; x$14.add(duration)))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          448
+        </td>
+        <td>
+          2116
+          -
+          2116
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.io.ObservableOutputStream.duration
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          duration
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1040
+        </td>
+        <td>
+          2159
+          -
+          2159
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.OutputStream.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.out.close()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          630
+        </td>
+        <td>
+          2149
+          -
+          2149
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.timeTakenMs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.timeTakenMs[Unit](ObservableOutputStream.this.out.close())
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          746
+        </td>
+        <td>
+          2191
+          -
+          2191
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.writeTimeCounter.foreach[Unit](((x$15: java.util.concurrent.atomic.LongAdder) =&gt; x$15.add(duration)))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          2197
+          -
+          2197
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$15.add(duration)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1024
+        </td>
+        <td>
+          2242
+          -
+          2242
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ObservableOutputStream.this.totalWriteTimeCounter.foreach[Unit](((x$16: java.util.concurrent.atomic.LongAdder) =&gt; x$16.add(duration)))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          291
+        </td>
+        <td>
+          2248
+          -
+          2248
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$16.add(duration)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

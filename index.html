@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Test Coverage Reports - Spark ClickHouse Connector</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 20px; }
+    h1 { color: #333; border-bottom: 2px solid #e1e4e8; padding-bottom: 10px; }
+    h2 { color: #0366d6; margin-top: 30px; }
+    .module-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin: 20px 0; }
+    .module-card { border: 1px solid #e1e4e8; border-radius: 6px; padding: 20px; background: #f6f8fa; }
+    .module-card h3 { margin-top: 0; color: #0366d6; }
+    .module-card a { color: #0366d6; text-decoration: none; display: block; margin: 8px 0; }
+    .module-card a:hover { text-decoration: underline; }
+    .info { background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 15px; margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <h1>📊 Test Coverage Reports</h1>
+  <div class="info">
+    <strong>Last Updated:</strong> $(date -u '+%Y-%m-%d %H:%M:%S UTC')<br>
+    <strong>Configuration:</strong> Java $JAVA_VERSION, Spark $SPARK_VERSION, Scala $SCALA_VERSION
+  </div>
+  
+  <h2>Core Modules</h2>
+  <div class="module-grid">
+    <div class="module-card">
+      <h3>clickhouse-core</h3>
+      <a href="clickhouse-core/build/reports/scoverageTest/index.html">📈 View Coverage Report</a>
+    </div>
+  </div>
+  
+  <h2>Spark Modules</h2>
+  <div class="module-grid">
+    <div class="module-card">
+      <h3>Spark 3.5</h3>
+      <a href="spark-3.5/clickhouse-spark/build/reports/scoverageTest/index.html">📈 clickhouse-spark Coverage</a>
+      <a href="spark-3.5/clickhouse-spark-it/build/reports/scoverageTest/index.html">📈 clickhouse-spark-it Coverage</a>
+    </div>
+  </div>
+  
+  <p style="color: #586069; font-size: 14px; margin-top: 30px;">
+    Reports generated locally for testing.<br>
+    View the <a href="https://github.com/ClickHouse/spark-clickhouse-connector">source repository</a>.
+  </p>
+</body>
+</html>

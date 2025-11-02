@@ -1,0 +1,1091 @@
+25/11/02 13:46:17.562 ScalaTest-main INFO PullPolicy: Image pull policy will be performed by: DefaultPullPolicy()
+25/11/02 13:46:17.563 ScalaTest-main INFO ImageNameSubstitutor: Image name substitution will be performed by: DefaultImageNameSubstitutor (composite of 'ConfigurationFileImageNameSubstitutor' and 'PrefixingImageNameSubstitutor')
+25/11/02 13:46:17.652 ScalaTest-1 INFO DockerClientProviderStrategy: Loaded org.testcontainers.dockerclient.UnixSocketClientProviderStrategy from ~/.testcontainers.properties, will try it first
+25/11/02 13:46:17.744 ScalaTest-1 INFO DockerClientProviderStrategy: Found Docker environment with local Unix socket (unix:///var/run/docker.sock)
+25/11/02 13:46:17.745 ScalaTest-1 INFO DockerClientFactory: Docker host IP address is localhost
+25/11/02 13:46:17.749 ScalaTest-1 INFO DockerClientFactory: Connected to docker: 
+  Server Version: 28.5.1
+  API Version: 1.51
+  Operating System: Docker Desktop
+  Total Memory: 7836 MB
+25/11/02 13:46:17.758 ScalaTest-1 INFO 1: Creating container for image: testcontainers/ryuk:0.5.1
+25/11/02 13:46:17.965 ScalaTest-1 INFO RegistryAuthLocator: Credential helper/store (docker-credential-desktop) does not have credentials for https://index.docker.io/v1/
+25/11/02 13:46:19.535 ScalaTest-1 INFO 1: Container testcontainers/ryuk:0.5.1 is starting: e09184993f673bab938671bb89b06e7cd4fd124364e771fffba7be32eaa37dda
+25/11/02 13:46:19.678 ScalaTest-1 INFO 1: Container testcontainers/ryuk:0.5.1 started in PT1.919529S
+25/11/02 13:46:19.681 ScalaTest-1 INFO RyukResourceReaper: Ryuk started - will monitor and terminate Testcontainers containers on JVM exit
+25/11/02 13:46:19.681 ScalaTest-1 INFO DockerClientFactory: Checking the system...
+25/11/02 13:46:19.681 ScalaTest-1 INFO DockerClientFactory: ✔︎ Docker server version should be at least 1.6.0
+25/11/02 13:46:19.681 ScalaTest-1 INFO 8: Creating container for image: clickhouse/clickhouse-server:23.8
+25/11/02 13:46:19.883 ScalaTest-1 INFO 8: Container clickhouse/clickhouse-server:23.8 is starting: 0c0ef03b8bd71e48eaa75dba4fcd8478036ecbddc22d8f16d9c0ce0617772d5a
+25/11/02 13:46:19.966 ScalaTest-1 INFO 8: Waiting for database connection to become available at jdbc:clickhouse://localhost:57617/default using query 'SELECT 1'
+25/11/02 13:46:25.079 ScalaTest-1 INFO 8: Container clickhouse/clickhouse-server:23.8 started in PT5.397675S
+25/11/02 13:46:25.079 ScalaTest-1 INFO 8: Container is started (JDBC URL: jdbc:clickhouse://localhost:57617/default)
+25/11/02 13:46:25.088 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [dc0a055f-7eec-424e-b836-aa7dcfd67c63]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector'))
+
+25/11/02 13:46:25.181 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [f3136382-908c-40b0-9083-2327a941f722]:
+SELECT toInt64(cityHash64('Apache Spark'))
+
+25/11/02 13:46:25.188 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [698bbd5a-a0e8-437e-af0a-8015d5312633]:
+SELECT toInt64(cityHash64('ClickHouse'))
+
+25/11/02 13:46:25.191 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [90b76dcc-fea5-4def-ac5b-98fa216dcb66]:
+SELECT toInt64(cityHash64('Yandex'))
+
+25/11/02 13:46:25.194 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3bdac9e9-deed-4913-9acd-ecf218f8984c]:
+SELECT toInt64(cityHash64('热爱'))
+
+25/11/02 13:46:25.197 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [1692657d-850e-4374-808a-ade8ef979323]:
+SELECT toInt64(cityHash64('🇨🇳'))
+
+25/11/02 13:46:25.200 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [616599a6-ffdf-4536-8fee-6bbf07ac6571]:
+SELECT toInt64(cityHash64('This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.203 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [9eb57075-52bd-4af7-a26e-0be26ae803b0]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'Apache Spark'))
+
+25/11/02 13:46:25.207 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0fa42bbb-fba7-4c94-92ff-f53fdc30457c]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'ClickHouse'))
+
+25/11/02 13:46:25.210 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [ab8a589e-1414-4833-aa14-cc89538a179f]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'Yandex'))
+
+25/11/02 13:46:25.212 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [a95065a1-94fe-4ce8-9ea9-b555c2da350b]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', '热爱'))
+
+25/11/02 13:46:25.215 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2abc4639-0f11-4644-b52e-ded6efd64c5c]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', '🇨🇳'))
+
+25/11/02 13:46:25.217 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0065f68b-4a86-4ab8-bdac-844e12ce9b5c]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.220 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [79049efc-8b1f-4fdc-a4fb-4c2bb17f2703]:
+SELECT toInt64(cityHash64('Apache Spark', 'ClickHouse'))
+
+25/11/02 13:46:25.222 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b2eb51e7-4801-4aa0-aa5d-36b448145bf5]:
+SELECT toInt64(cityHash64('Apache Spark', 'Yandex'))
+
+25/11/02 13:46:25.224 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [be2219af-779d-4e00-900e-9d5ec8c0d96c]:
+SELECT toInt64(cityHash64('Apache Spark', '热爱'))
+
+25/11/02 13:46:25.226 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [d1e05f0b-98a1-42f5-a510-0c2ee14aa4f9]:
+SELECT toInt64(cityHash64('Apache Spark', '🇨🇳'))
+
+25/11/02 13:46:25.229 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2fc524e2-bf99-4f73-aa05-258f4d04322c]:
+SELECT toInt64(cityHash64('Apache Spark', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.231 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [29601e9c-7958-44c0-880f-ff79c17e901c]:
+SELECT toInt64(cityHash64('ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.233 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3b47f8f2-668b-4aef-bc2c-88dbdd2e9c55]:
+SELECT toInt64(cityHash64('ClickHouse', '热爱'))
+
+25/11/02 13:46:25.235 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [5a615f75-ab0c-48af-bd02-11c171642e90]:
+SELECT toInt64(cityHash64('ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.237 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [1f370f6c-f54d-496f-9c6e-20b97987a7a2]:
+SELECT toInt64(cityHash64('ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.239 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [ee6039bc-6fe4-4cd2-925d-4e5a7e623079]:
+SELECT toInt64(cityHash64('Yandex', '热爱'))
+
+25/11/02 13:46:25.242 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6ae9a3e2-cac2-4b0b-a8e0-0717ec2ac4e4]:
+SELECT toInt64(cityHash64('Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.245 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [cb85f650-758a-4c4d-8943-1b28d4507072]:
+SELECT toInt64(cityHash64('Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.247 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [cc25392e-9a72-40d4-b731-769e7d71c9b4]:
+SELECT toInt64(cityHash64('热爱', '🇨🇳'))
+
+25/11/02 13:46:25.249 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6af4a5e7-1a1b-4e43-9cd5-c1805c28c7c3]:
+SELECT toInt64(cityHash64('热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.251 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [752f43d4-045a-4261-bf06-b6be1e967f71]:
+SELECT toInt64(cityHash64('🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.253 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [c1ed9c8f-38d5-4406-a0b4-7767ba27649d]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'Apache Spark', 'ClickHouse'))
+
+25/11/02 13:46:25.260 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [985a2627-dc30-405d-9288-e254614295e4]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'Apache Spark', 'Yandex'))
+
+25/11/02 13:46:25.262 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3457f74c-4641-4039-b5b8-3f171f9a3402]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'Apache Spark', '热爱'))
+
+25/11/02 13:46:25.265 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0ebaf2ee-a73a-4dc3-a398-07a8dbc78da3]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'Apache Spark', '🇨🇳'))
+
+25/11/02 13:46:25.267 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b778f14c-3d70-4555-8cc8-4fd3e237f3e2]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'Apache Spark', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.270 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [780b7b30-9baf-4210-a8ff-263dc683b71d]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.272 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [185d586b-c2eb-4c93-9c02-de65279269d7]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'ClickHouse', '热爱'))
+
+25/11/02 13:46:25.273 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [26371234-0bcb-485b-abb9-f8b36b365196]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.275 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b2de9553-48bc-4290-a6d9-188606543753]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.277 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8a9c6d56-66b9-4eae-aad9-c4c72849fabf]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.279 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [1666bf3d-0367-4d9f-8e78-ce3c54417bd1]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.281 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e540953a-db78-4172-9ebf-8357d967f9d1]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.283 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [773b8dfd-75b8-413a-957a-b057db337e86]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.285 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [c527fb46-a0ff-4ddd-8f6e-01b10b19a965]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.287 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [ec905eab-0a96-4819-b988-01ebe0616f9e]:
+SELECT toInt64(cityHash64('spark-clickhouse-connector', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.289 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [1b082a58-ae4e-4e46-b82c-8b337fadd65a]:
+SELECT toInt64(cityHash64('Apache Spark', 'ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.291 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [4082f334-7ce0-4eff-b948-a0520c19cc4b]:
+SELECT toInt64(cityHash64('Apache Spark', 'ClickHouse', '热爱'))
+
+25/11/02 13:46:25.292 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6eba06df-0bfc-45ca-a2f6-4c478d54a146]:
+SELECT toInt64(cityHash64('Apache Spark', 'ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.294 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [63d34538-b55c-4765-869b-8b4a0ccc9627]:
+SELECT toInt64(cityHash64('Apache Spark', 'ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.296 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [fd7e13eb-c71a-44bf-af84-1f61ab77b375]:
+SELECT toInt64(cityHash64('Apache Spark', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.298 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [5cb59650-4b54-411c-8726-08bacbb64ea1]:
+SELECT toInt64(cityHash64('Apache Spark', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.300 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [76dab709-bd9f-4e14-9e18-6c2f7beabc2b]:
+SELECT toInt64(cityHash64('Apache Spark', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.302 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b5313e46-c7e9-4f57-9028-e095bb5c617b]:
+SELECT toInt64(cityHash64('Apache Spark', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.304 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [356c44b7-44cd-49ad-bd7d-8f5ae0838de7]:
+SELECT toInt64(cityHash64('Apache Spark', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.306 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [628b0218-e99c-4c48-9743-436991eb1461]:
+SELECT toInt64(cityHash64('Apache Spark', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.309 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [7a09efef-4049-494f-8d29-08ff5071629d]:
+SELECT toInt64(cityHash64('ClickHouse', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.312 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [504c680e-9500-4b8f-8ed8-c4467170616c]:
+SELECT toInt64(cityHash64('ClickHouse', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.314 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [c5a3e5ed-1816-4abb-87e4-b64173cf56a8]:
+SELECT toInt64(cityHash64('ClickHouse', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.316 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2901bdf1-83db-4e0c-a926-313ef35d2a6f]:
+SELECT toInt64(cityHash64('ClickHouse', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.317 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3c7ceb5e-4509-4f1c-be3d-b12284f67ae1]:
+SELECT toInt64(cityHash64('ClickHouse', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.319 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [eb1d35db-d4c5-4a6e-8f32-8e4ef4d05950]:
+SELECT toInt64(cityHash64('ClickHouse', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.322 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0267ca7f-59ca-4cd9-b25f-978be80b2370]:
+SELECT toInt64(cityHash64('Yandex', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.324 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [36109b7b-41b3-4ebd-856e-5ceb6f94c9f2]:
+SELECT toInt64(cityHash64('Yandex', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.325 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2cac204c-67b8-40fb-8cd6-3d2b982ba5cb]:
+SELECT toInt64(cityHash64('Yandex', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.328 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [bd201883-6eaf-4381-9a1f-a485a14014b9]:
+SELECT toInt64(cityHash64('热爱', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.333 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [4df43876-2644-493d-824f-f9af22fa4539]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector'))
+
+25/11/02 13:46:25.337 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8230d988-15c5-477d-b681-98355a04848c]:
+SELECT toInt64(murmurHash2_32('Apache Spark'))
+
+25/11/02 13:46:25.339 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [50c77409-68f0-4328-9d64-2e84d4856ff4]:
+SELECT toInt64(murmurHash2_32('ClickHouse'))
+
+25/11/02 13:46:25.342 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [ebaf9ae6-e5d2-401e-914a-276eded8a1d5]:
+SELECT toInt64(murmurHash2_32('Yandex'))
+
+25/11/02 13:46:25.344 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0e6da84c-febf-4cdb-9512-2d0599344277]:
+SELECT toInt64(murmurHash2_32('热爱'))
+
+25/11/02 13:46:25.346 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [485ec447-c1f5-46b0-9604-75e04881a2a0]:
+SELECT toInt64(murmurHash2_32('🇨🇳'))
+
+25/11/02 13:46:25.348 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b34a2087-90e5-4c14-b348-66153f713d80]:
+SELECT toInt64(murmurHash2_32('This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.351 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [39e165e4-44db-46fe-a8d4-ac826f66dfcc]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'Apache Spark'))
+
+25/11/02 13:46:25.355 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0c6c824b-91f4-4878-946a-c5baebedb135]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'ClickHouse'))
+
+25/11/02 13:46:25.357 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3d7de53d-3eeb-4b6b-bc2e-bd452cc5fd77]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'Yandex'))
+
+25/11/02 13:46:25.359 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b2d43583-8c67-4f86-a634-27c5aa835adf]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', '热爱'))
+
+25/11/02 13:46:25.361 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e5908ec5-29a8-477a-91f2-0409340c9ecd]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', '🇨🇳'))
+
+25/11/02 13:46:25.362 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [097e6c22-c231-41e6-b63b-d5346266d49c]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.364 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [7988fc92-e49f-4fee-9d42-f0d8957c3d74]:
+SELECT toInt64(murmurHash2_32('Apache Spark', 'ClickHouse'))
+
+25/11/02 13:46:25.366 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [4c876c5c-478f-45f1-bd2f-01912967c55b]:
+SELECT toInt64(murmurHash2_32('Apache Spark', 'Yandex'))
+
+25/11/02 13:46:25.368 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [dacf7965-ac32-45ba-b33e-4da942ae476e]:
+SELECT toInt64(murmurHash2_32('Apache Spark', '热爱'))
+
+25/11/02 13:46:25.371 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [574a20c6-81b9-4857-a787-b88047c00acb]:
+SELECT toInt64(murmurHash2_32('Apache Spark', '🇨🇳'))
+
+25/11/02 13:46:25.373 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [bac6db28-ed73-4198-830f-cd29b7e088ea]:
+SELECT toInt64(murmurHash2_32('Apache Spark', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.375 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [414c1258-f0e4-491b-993b-f805e434965f]:
+SELECT toInt64(murmurHash2_32('ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.377 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [34e599f3-98b5-4b03-9899-02b51a131af3]:
+SELECT toInt64(murmurHash2_32('ClickHouse', '热爱'))
+
+25/11/02 13:46:25.379 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [bddc4a65-e72e-4720-a3f1-4bb105657756]:
+SELECT toInt64(murmurHash2_32('ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.381 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [91770e01-e383-46a2-9a72-46765aa65d8c]:
+SELECT toInt64(murmurHash2_32('ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.383 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b8bce00f-951a-438c-afed-fafa550af47f]:
+SELECT toInt64(murmurHash2_32('Yandex', '热爱'))
+
+25/11/02 13:46:25.385 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [48c5e751-2bf2-4c92-8936-2cbb918fe748]:
+SELECT toInt64(murmurHash2_32('Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.387 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [989ec596-111c-47fb-8fa9-6e8c2863d7a5]:
+SELECT toInt64(murmurHash2_32('Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.388 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2857a940-48d5-427a-a255-7fd5fd932299]:
+SELECT toInt64(murmurHash2_32('热爱', '🇨🇳'))
+
+25/11/02 13:46:25.390 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [9242f460-9271-4958-b7d9-ce1aeac11491]:
+SELECT toInt64(murmurHash2_32('热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.392 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [054b4579-27b6-4b24-89e1-72fb260e0eb2]:
+SELECT toInt64(murmurHash2_32('🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.394 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [351413d9-e61d-4819-ac55-bed3f25e2735]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'Apache Spark', 'ClickHouse'))
+
+25/11/02 13:46:25.396 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [73c8f6a0-7007-40d3-a30f-d12eb7cd85d7]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'Apache Spark', 'Yandex'))
+
+25/11/02 13:46:25.398 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0151f81f-fde9-4aec-b3d5-da045cd186c6]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'Apache Spark', '热爱'))
+
+25/11/02 13:46:25.400 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6def4ef6-1e07-4eab-a36d-afaa215be589]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'Apache Spark', '🇨🇳'))
+
+25/11/02 13:46:25.402 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [9325c274-9f6a-4582-885d-36127d43e1a4]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'Apache Spark', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.404 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [dcc2f254-9de2-441c-8fb2-6c2168d28769]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.407 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [cf586f19-25d5-41c0-b987-ca0eff4f6ad3]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'ClickHouse', '热爱'))
+
+25/11/02 13:46:25.409 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8da9f839-b7b0-403d-9c84-759a00d69755]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.412 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [59b4de56-af45-40c7-82dd-257633976cfe]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.414 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [d4629ec3-8618-408c-ab6c-909a659b0668]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.416 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8dce06e4-52eb-45fa-b06f-da640af27da9]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.418 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e6fda762-c4ed-4ca0-94fc-38b9f1d0cee0]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.420 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [4d7a44b1-4153-4103-aea7-ef3e009b89b1]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.422 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [9fe6bdb5-b33c-45c6-8f0a-4772cd517071]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.424 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2d8de546-5153-42fd-8489-7c850977a856]:
+SELECT toInt64(murmurHash2_32('spark-clickhouse-connector', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.426 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [de4242f8-e50a-4e06-aa50-a17d029e3984]:
+SELECT toInt64(murmurHash2_32('Apache Spark', 'ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.428 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6f5452b3-c947-4a20-8426-5272088e110f]:
+SELECT toInt64(murmurHash2_32('Apache Spark', 'ClickHouse', '热爱'))
+
+25/11/02 13:46:25.430 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [50047d23-6c0c-4567-a8c9-9d31397ce887]:
+SELECT toInt64(murmurHash2_32('Apache Spark', 'ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.432 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [552613aa-45e5-4fec-827b-3758c18e8a7c]:
+SELECT toInt64(murmurHash2_32('Apache Spark', 'ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.434 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e6b2cf40-9389-4b2e-a30a-d4760cf3ea72]:
+SELECT toInt64(murmurHash2_32('Apache Spark', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.436 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [f0f0e247-7e4d-44a3-9de4-6d2b97a1fa5c]:
+SELECT toInt64(murmurHash2_32('Apache Spark', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.437 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6b1ebde2-318b-4c5d-9da6-37d68847a925]:
+SELECT toInt64(murmurHash2_32('Apache Spark', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.440 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6c5ad88f-eb88-4283-ba37-3b1c0f0f19ba]:
+SELECT toInt64(murmurHash2_32('Apache Spark', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.441 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [905ac098-1830-4fb9-a3c5-e8358d71d43a]:
+SELECT toInt64(murmurHash2_32('Apache Spark', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.443 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b1ddb8a9-4c48-402d-9b96-3ceab6ff30b4]:
+SELECT toInt64(murmurHash2_32('Apache Spark', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.445 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [c8d3e9ba-ff7f-40cb-9407-93e5b23cb89e]:
+SELECT toInt64(murmurHash2_32('ClickHouse', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.447 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [19e3a8fa-3cd1-418f-b42a-48a112ce7d7e]:
+SELECT toInt64(murmurHash2_32('ClickHouse', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.449 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2e05433b-8593-430f-92e9-fe32d0471bd1]:
+SELECT toInt64(murmurHash2_32('ClickHouse', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.451 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2264336f-ae2e-411a-937b-f471e275bed6]:
+SELECT toInt64(murmurHash2_32('ClickHouse', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.453 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [1ebd6589-a71e-490c-9cc0-a0b1e4a6855a]:
+SELECT toInt64(murmurHash2_32('ClickHouse', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.455 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [aadfb515-35a7-457e-9a63-d73b2c8b715f]:
+SELECT toInt64(murmurHash2_32('ClickHouse', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.457 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [99dd1f1e-b32e-4555-9e6e-2d8e3c83fcf4]:
+SELECT toInt64(murmurHash2_32('Yandex', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.458 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [5f3b4a16-b4d4-4b08-8329-53af805fb572]:
+SELECT toInt64(murmurHash2_32('Yandex', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.460 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [a17f5900-de51-4df8-99fe-73decf984582]:
+SELECT toInt64(murmurHash2_32('Yandex', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.462 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [60d18b5f-fe65-4499-a2c8-e90473d81d9c]:
+SELECT toInt64(murmurHash2_32('热爱', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.465 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2616d85b-a409-433b-b0c4-086471e9461f]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector'))
+
+25/11/02 13:46:25.468 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [cd403862-6821-4663-a1ac-e2cd4aa5f141]:
+SELECT toInt64(murmurHash2_64('Apache Spark'))
+
+25/11/02 13:46:25.470 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [f0dd057a-52f5-4445-8110-6bae3d44ccfd]:
+SELECT toInt64(murmurHash2_64('ClickHouse'))
+
+25/11/02 13:46:25.472 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8ea7fc6d-057e-4f15-bed2-c8967948abda]:
+SELECT toInt64(murmurHash2_64('Yandex'))
+
+25/11/02 13:46:25.474 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [218cc384-7082-4b8e-ab48-71c5eb98abf3]:
+SELECT toInt64(murmurHash2_64('热爱'))
+
+25/11/02 13:46:25.476 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [660b8b8d-2f6d-47d0-8e3a-c7fd50468286]:
+SELECT toInt64(murmurHash2_64('🇨🇳'))
+
+25/11/02 13:46:25.478 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0f2ea650-8c22-4187-bb1d-3389e7679b17]:
+SELECT toInt64(murmurHash2_64('This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.479 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [d19474e3-2228-4f5e-8978-154c972229d1]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'Apache Spark'))
+
+25/11/02 13:46:25.481 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [a0c3c0b1-9580-4a23-ba54-0e3635e2e0da]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'ClickHouse'))
+
+25/11/02 13:46:25.483 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [7eac0a26-74ac-4ddd-b1b1-bad8287d0a16]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'Yandex'))
+
+25/11/02 13:46:25.485 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [79c9197c-ec9f-4552-bbc3-36b7e1d0d27d]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', '热爱'))
+
+25/11/02 13:46:25.486 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6b7a4b5c-8016-4738-9cdf-a1e11f81d3b6]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', '🇨🇳'))
+
+25/11/02 13:46:25.488 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2bf7008b-fd0a-4828-8c5d-b48145bf88e1]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.490 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [fd213beb-5292-443a-bca4-f2d0c7ccc31a]:
+SELECT toInt64(murmurHash2_64('Apache Spark', 'ClickHouse'))
+
+25/11/02 13:46:25.491 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [993b4d7c-c680-4c33-98c2-eaa8275a5a80]:
+SELECT toInt64(murmurHash2_64('Apache Spark', 'Yandex'))
+
+25/11/02 13:46:25.493 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6ce5e4dd-ebc9-4ee6-b08e-833737c301db]:
+SELECT toInt64(murmurHash2_64('Apache Spark', '热爱'))
+
+25/11/02 13:46:25.495 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [40a5df28-4cef-46ad-ac0e-03893b40ccff]:
+SELECT toInt64(murmurHash2_64('Apache Spark', '🇨🇳'))
+
+25/11/02 13:46:25.497 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [86d5e55f-8ed1-4dd9-9966-64ee42d9f796]:
+SELECT toInt64(murmurHash2_64('Apache Spark', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.499 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8b99a7ea-0ede-497e-8bd6-410247b08935]:
+SELECT toInt64(murmurHash2_64('ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.501 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [583e2728-d58e-4e30-ace6-03228659505f]:
+SELECT toInt64(murmurHash2_64('ClickHouse', '热爱'))
+
+25/11/02 13:46:25.502 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2017f038-fd1d-4b01-8151-4765bd5f5df5]:
+SELECT toInt64(murmurHash2_64('ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.504 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [cf77982a-32cf-45bf-aad4-b3edbd4cd1cb]:
+SELECT toInt64(murmurHash2_64('ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.506 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e95ebbb0-990f-40cf-be4f-5f2dc1ddc8e0]:
+SELECT toInt64(murmurHash2_64('Yandex', '热爱'))
+
+25/11/02 13:46:25.508 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [fcc4f923-b037-440a-aab7-a591db583b36]:
+SELECT toInt64(murmurHash2_64('Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.509 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [d4e70c00-1982-4f2d-88a1-7dfc5a015830]:
+SELECT toInt64(murmurHash2_64('Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.511 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [1a1e0dda-de3f-417c-8667-7af0b01ae271]:
+SELECT toInt64(murmurHash2_64('热爱', '🇨🇳'))
+
+25/11/02 13:46:25.513 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [c21d9f1b-be5c-4e08-bfb2-065cfbc6bc6c]:
+SELECT toInt64(murmurHash2_64('热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.515 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [4705dd4b-f887-43de-9078-3eb55fb4f274]:
+SELECT toInt64(murmurHash2_64('🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.516 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [f2f1315f-ed9f-4630-b209-91082450f6f8]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'Apache Spark', 'ClickHouse'))
+
+25/11/02 13:46:25.518 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [176c3a8d-622a-4bf5-b3e8-4b7c7df7734a]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'Apache Spark', 'Yandex'))
+
+25/11/02 13:46:25.520 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [1f0d9570-640e-4f53-b204-b715176e3e52]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'Apache Spark', '热爱'))
+
+25/11/02 13:46:25.522 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [ec17f470-f9f4-4267-a5db-d14c5d5ec827]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'Apache Spark', '🇨🇳'))
+
+25/11/02 13:46:25.523 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0073805c-b0a8-4c87-9f46-57558bd4c4e5]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'Apache Spark', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.525 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0da03508-5f32-4002-b78e-9e293de6d49b]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.527 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [ad5f1f18-8db0-426f-86b8-67b112fd95f0]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'ClickHouse', '热爱'))
+
+25/11/02 13:46:25.529 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [579d2026-4587-4808-9d09-495e21694d0e]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.531 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3812fc16-4aec-40d2-b866-5c964e06ce76]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.532 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [5275a047-8e3c-4c48-b291-8a0dc162bb33]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.534 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6f35cb7d-eaa6-49c3-8991-9200ca04aff3]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.536 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [5b4299d9-d44b-4566-8f12-6f7d702effb5]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.538 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [74cf7728-33cd-4d6f-b38c-c34eac8bec91]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.539 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b2fe0d84-fb1d-4659-8576-709038996e36]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.541 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [bcbff0f7-a50d-472b-afd6-0886c1bc0fe7]:
+SELECT toInt64(murmurHash2_64('spark-clickhouse-connector', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.543 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [68436c65-b22a-4149-9ffd-606bbd17dfac]:
+SELECT toInt64(murmurHash2_64('Apache Spark', 'ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.545 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3e6c44a0-b740-4677-8f84-37c5d423713d]:
+SELECT toInt64(murmurHash2_64('Apache Spark', 'ClickHouse', '热爱'))
+
+25/11/02 13:46:25.547 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [708611f0-2a93-4c0c-a598-48f8a6a1c44f]:
+SELECT toInt64(murmurHash2_64('Apache Spark', 'ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.549 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b05c6b03-7cad-4792-b0f0-bd80e4712620]:
+SELECT toInt64(murmurHash2_64('Apache Spark', 'ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.551 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8caf226d-1c4b-424a-8818-3c5287afe7ad]:
+SELECT toInt64(murmurHash2_64('Apache Spark', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.552 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [9818299c-4b00-4d69-ab1b-7a085801d3db]:
+SELECT toInt64(murmurHash2_64('Apache Spark', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.554 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [cf6901db-4038-444b-8e94-696ada36938e]:
+SELECT toInt64(murmurHash2_64('Apache Spark', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.556 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3ef96931-7e98-4b03-bd4d-838fe0869699]:
+SELECT toInt64(murmurHash2_64('Apache Spark', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.558 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [18909d1e-9032-495b-90ff-6076affe6abd]:
+SELECT toInt64(murmurHash2_64('Apache Spark', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.559 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [5e6769d4-58ef-4379-acf3-8c4e9ce9108d]:
+SELECT toInt64(murmurHash2_64('Apache Spark', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.561 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [431cac06-fd09-4d04-a87e-9fbc156029a4]:
+SELECT toInt64(murmurHash2_64('ClickHouse', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.563 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3a15ac90-4c87-402c-8b5e-da707b0c2e59]:
+SELECT toInt64(murmurHash2_64('ClickHouse', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.565 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [9bb20f22-1306-4e2d-8160-c7e86504bd1a]:
+SELECT toInt64(murmurHash2_64('ClickHouse', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.567 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [60ff9e43-12ca-4039-a54d-dc23b5dc4d6c]:
+SELECT toInt64(murmurHash2_64('ClickHouse', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.568 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [f6f33039-809e-4600-8ecc-1d2e79da51af]:
+SELECT toInt64(murmurHash2_64('ClickHouse', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.570 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [ab7e192f-63bb-4c0b-ad87-3fa7714cc105]:
+SELECT toInt64(murmurHash2_64('ClickHouse', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.572 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [008b9279-f50f-448b-877b-6b09a4e39843]:
+SELECT toInt64(murmurHash2_64('Yandex', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.573 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [298e363a-37b0-4f78-8d90-e18b55a1915a]:
+SELECT toInt64(murmurHash2_64('Yandex', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.575 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [9c806c79-7968-4982-98b1-6579b121900d]:
+SELECT toInt64(murmurHash2_64('Yandex', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.577 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [98ca050e-be35-452e-b04f-ea1bcd8d60e9]:
+SELECT toInt64(murmurHash2_64('热爱', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.580 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8d23cb34-3baa-4099-8d93-455d49e126cc]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector'))
+
+25/11/02 13:46:25.584 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0ad86fd5-60e6-482f-9b60-e5b268b8fafc]:
+SELECT toInt64(murmurHash3_32('Apache Spark'))
+
+25/11/02 13:46:25.586 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e32903dc-9d10-428f-bdfb-faf6112ce922]:
+SELECT toInt64(murmurHash3_32('ClickHouse'))
+
+25/11/02 13:46:25.588 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [cdb2e37e-6deb-4e6f-a36d-934a1958e71b]:
+SELECT toInt64(murmurHash3_32('Yandex'))
+
+25/11/02 13:46:25.589 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [fd1f9d3b-9bf2-40a1-b697-33c96866a608]:
+SELECT toInt64(murmurHash3_32('热爱'))
+
+25/11/02 13:46:25.591 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [fa377d2b-7a8f-4c70-9f63-8aa4c92169a5]:
+SELECT toInt64(murmurHash3_32('🇨🇳'))
+
+25/11/02 13:46:25.592 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [f329d4b0-803f-48ce-a282-e85b74c13ab4]:
+SELECT toInt64(murmurHash3_32('This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.594 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3c038dd9-37cd-4720-9adb-cdba6cc13aab]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'Apache Spark'))
+
+25/11/02 13:46:25.596 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [09a8dc95-45d3-4b57-954f-885530f9075f]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'ClickHouse'))
+
+25/11/02 13:46:25.597 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [d00c1bb9-b4fb-4cb6-923a-4483b1268853]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'Yandex'))
+
+25/11/02 13:46:25.599 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [a644133c-0356-4baa-a304-54f6b4d4a883]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', '热爱'))
+
+25/11/02 13:46:25.601 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b7a13923-41fe-4ade-917f-afff8345b16a]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', '🇨🇳'))
+
+25/11/02 13:46:25.603 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [d6590c58-d4d4-4e9d-94e2-71804bbd9aea]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.605 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [7cbb5e3d-f42d-42cd-b89e-773a259f1278]:
+SELECT toInt64(murmurHash3_32('Apache Spark', 'ClickHouse'))
+
+25/11/02 13:46:25.607 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [fc089203-167b-421e-a87b-87520728f960]:
+SELECT toInt64(murmurHash3_32('Apache Spark', 'Yandex'))
+
+25/11/02 13:46:25.608 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [86ae7448-02fc-4bcf-a509-2ca0fb617498]:
+SELECT toInt64(murmurHash3_32('Apache Spark', '热爱'))
+
+25/11/02 13:46:25.610 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [681befd2-17d7-4f26-a21e-437d14f9b183]:
+SELECT toInt64(murmurHash3_32('Apache Spark', '🇨🇳'))
+
+25/11/02 13:46:25.612 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [d4e1340f-eecd-44d9-9ddf-6f2923eeebf2]:
+SELECT toInt64(murmurHash3_32('Apache Spark', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.613 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [a9bae2ac-adeb-4a53-b032-a1d00035b3df]:
+SELECT toInt64(murmurHash3_32('ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.615 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [51233118-fa64-4126-936c-95f7b5617091]:
+SELECT toInt64(murmurHash3_32('ClickHouse', '热爱'))
+
+25/11/02 13:46:25.617 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2e1d9373-177b-4e92-963b-c1f81768086e]:
+SELECT toInt64(murmurHash3_32('ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.618 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [af4088dc-f5a3-4d4b-b7a0-e3dc6c245e32]:
+SELECT toInt64(murmurHash3_32('ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.620 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [006cfed3-833a-4595-ae63-321acceb3d9f]:
+SELECT toInt64(murmurHash3_32('Yandex', '热爱'))
+
+25/11/02 13:46:25.622 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8faf8421-aba9-4c2a-b68c-f04731a416fd]:
+SELECT toInt64(murmurHash3_32('Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.624 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [355be017-8523-465a-9c64-7339df73b04c]:
+SELECT toInt64(murmurHash3_32('Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.625 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0768a56d-ba97-40ac-8be2-c7ee3af4ec60]:
+SELECT toInt64(murmurHash3_32('热爱', '🇨🇳'))
+
+25/11/02 13:46:25.627 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [c8bfa72d-d6d9-46bb-9a57-b8b4f81dbad5]:
+SELECT toInt64(murmurHash3_32('热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.629 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [dcbcb511-2556-4578-b1da-481119e7f2b6]:
+SELECT toInt64(murmurHash3_32('🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.631 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [91c7ceca-0650-4404-a3ee-79965e067100]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'Apache Spark', 'ClickHouse'))
+
+25/11/02 13:46:25.632 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8f11f2a1-3372-43e8-98bf-953319f2d748]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'Apache Spark', 'Yandex'))
+
+25/11/02 13:46:25.634 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [624e9bfa-884c-41bf-acfa-166b21a61612]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'Apache Spark', '热爱'))
+
+25/11/02 13:46:25.636 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [4512d952-4568-4596-8bcb-61af3826a329]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'Apache Spark', '🇨🇳'))
+
+25/11/02 13:46:25.637 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [fc9d810b-b391-4b49-89b5-794133c7bfaa]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'Apache Spark', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.639 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3c398a66-8d0d-48ad-86e2-d8e5cdc84122]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.641 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [137418ac-563b-45d8-b035-a2551db364f4]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'ClickHouse', '热爱'))
+
+25/11/02 13:46:25.643 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6cb1bb0c-cdf9-467c-ba98-fc96779bc870]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.645 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [344b1980-7514-4a53-9eae-a52da205fc0d]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.646 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [faa7ff99-d55d-4e58-aa5f-ec14ce0db6a4]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.648 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [a215c039-2836-46be-b1ec-4c29a2880b5b]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.650 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [dd41579f-ca09-4fe1-9369-e41b1d0cc5a8]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.652 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [c24a02b2-970b-49b9-add4-680fa06cd671]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.653 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [527db020-2469-405a-99ec-49be887780c0]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.655 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [621bd963-f289-4d37-8df9-0135e3daba30]:
+SELECT toInt64(murmurHash3_32('spark-clickhouse-connector', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.657 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e574e6fd-98a1-440a-94ca-297b1a2f6777]:
+SELECT toInt64(murmurHash3_32('Apache Spark', 'ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.658 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [04d24585-786f-4982-a642-e2b6421de3fd]:
+SELECT toInt64(murmurHash3_32('Apache Spark', 'ClickHouse', '热爱'))
+
+25/11/02 13:46:25.660 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [958982b2-b74f-43e2-b06e-d163074ba1b3]:
+SELECT toInt64(murmurHash3_32('Apache Spark', 'ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.662 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [af66e5ec-ca02-4b30-9d1f-a52ebf5ed505]:
+SELECT toInt64(murmurHash3_32('Apache Spark', 'ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.664 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [7cceaf6d-78a2-4124-a2ad-ca42a414baf7]:
+SELECT toInt64(murmurHash3_32('Apache Spark', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.666 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [f8169ecb-4ba4-430a-a2eb-70a442c24850]:
+SELECT toInt64(murmurHash3_32('Apache Spark', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.667 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2358a78d-6bc3-478c-b632-072572716554]:
+SELECT toInt64(murmurHash3_32('Apache Spark', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.668 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [eeea2a4f-9b6c-446b-9835-3da8ac039629]:
+SELECT toInt64(murmurHash3_32('Apache Spark', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.670 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [dd33c830-f3f2-4f4c-8da5-c4129985c9dc]:
+SELECT toInt64(murmurHash3_32('Apache Spark', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.671 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [ed16b073-c6c4-41a7-93ed-e68818fa9d7e]:
+SELECT toInt64(murmurHash3_32('Apache Spark', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.673 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [88d00c3c-cb2c-4f87-8d34-3130342cbf41]:
+SELECT toInt64(murmurHash3_32('ClickHouse', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.675 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [f5bf720a-6bda-4c37-ae49-0bbc98b192aa]:
+SELECT toInt64(murmurHash3_32('ClickHouse', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.677 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [62c53c4d-2e5f-4b63-9efe-97e6bc5db844]:
+SELECT toInt64(murmurHash3_32('ClickHouse', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.678 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [95fa426c-8195-4f96-9d4d-1593ad3669d7]:
+SELECT toInt64(murmurHash3_32('ClickHouse', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.680 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [49dd7e19-c5af-4b56-b37c-20f1525ff8d7]:
+SELECT toInt64(murmurHash3_32('ClickHouse', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.682 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [1f765901-a448-41f8-abc1-78898d2647b6]:
+SELECT toInt64(murmurHash3_32('ClickHouse', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.684 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b7277ad7-5310-4497-aa2d-e4229775f5df]:
+SELECT toInt64(murmurHash3_32('Yandex', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.686 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6c38af0f-24c4-46d6-a8e2-164884f73513]:
+SELECT toInt64(murmurHash3_32('Yandex', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.688 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [7087a0c7-98b8-4b41-b6b9-bac00eba8d94]:
+SELECT toInt64(murmurHash3_32('Yandex', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.689 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [f6cff0ff-aac1-4303-a8c4-212ec0bac6cd]:
+SELECT toInt64(murmurHash3_32('热爱', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.692 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e2301991-52b7-4e16-bc8c-ed0103f95134]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector'))
+
+25/11/02 13:46:25.696 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e3be961a-c3fe-4231-8f76-a3ef936087cd]:
+SELECT toInt64(murmurHash3_64('Apache Spark'))
+
+25/11/02 13:46:25.697 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [34cf7139-cc4a-4853-9bb1-43d84b913b52]:
+SELECT toInt64(murmurHash3_64('ClickHouse'))
+
+25/11/02 13:46:25.699 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [88dc0f0e-279b-4983-98f0-1a9486860e3c]:
+SELECT toInt64(murmurHash3_64('Yandex'))
+
+25/11/02 13:46:25.700 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [c5972711-bd8b-4b28-8a5c-1d9edc6cb450]:
+SELECT toInt64(murmurHash3_64('热爱'))
+
+25/11/02 13:46:25.702 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [651a1053-e14c-4cf7-b452-29983df983ac]:
+SELECT toInt64(murmurHash3_64('🇨🇳'))
+
+25/11/02 13:46:25.704 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [ca6785c1-5ade-43a4-84b2-45f2215bb25a]:
+SELECT toInt64(murmurHash3_64('This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.705 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [34fb7045-0c65-4fa3-92c6-30fa4a115d63]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'Apache Spark'))
+
+25/11/02 13:46:25.707 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [de2c703e-92d7-4ff0-88b6-9ff1143ae7db]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'ClickHouse'))
+
+25/11/02 13:46:25.709 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e8741357-2002-4132-bcdd-3e34938657b7]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'Yandex'))
+
+25/11/02 13:46:25.710 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [7b331422-0ba0-4c5b-98df-d5d28577225d]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', '热爱'))
+
+25/11/02 13:46:25.712 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [70b3a81d-4666-473b-b5d6-f44beea43fda]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', '🇨🇳'))
+
+25/11/02 13:46:25.714 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [4c3860e4-64c2-4219-84a6-3c1f2529fba2]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.716 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [d33aa52e-e6a7-4b86-9779-4de61fd32850]:
+SELECT toInt64(murmurHash3_64('Apache Spark', 'ClickHouse'))
+
+25/11/02 13:46:25.717 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [15641907-a767-4543-9207-8700b1f86322]:
+SELECT toInt64(murmurHash3_64('Apache Spark', 'Yandex'))
+
+25/11/02 13:46:25.720 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [aca99a1f-b317-4b2e-9ed7-079c637d3298]:
+SELECT toInt64(murmurHash3_64('Apache Spark', '热爱'))
+
+25/11/02 13:46:25.722 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [15fed36a-b421-4c5d-9865-298edb9cbe67]:
+SELECT toInt64(murmurHash3_64('Apache Spark', '🇨🇳'))
+
+25/11/02 13:46:25.723 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e02648c3-51f2-42a6-915c-322fb26560d0]:
+SELECT toInt64(murmurHash3_64('Apache Spark', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.725 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3ec07c89-9716-4908-82da-dfd0fa2b85ad]:
+SELECT toInt64(murmurHash3_64('ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.727 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [a800769b-1b9e-40be-be71-fc056c5a445d]:
+SELECT toInt64(murmurHash3_64('ClickHouse', '热爱'))
+
+25/11/02 13:46:25.728 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [1d95e2ad-fc40-4c7d-a2f3-f01593d40677]:
+SELECT toInt64(murmurHash3_64('ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.730 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [220a42bf-6bf1-4551-b968-874852c85891]:
+SELECT toInt64(murmurHash3_64('ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.732 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3121db1a-14fa-4438-ad21-4e0b1bd00289]:
+SELECT toInt64(murmurHash3_64('Yandex', '热爱'))
+
+25/11/02 13:46:25.733 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3ee9f98f-822a-4ea3-ba0d-c2ad47059818]:
+SELECT toInt64(murmurHash3_64('Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.735 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [fdde3543-a014-47db-bac9-44fdead3521a]:
+SELECT toInt64(murmurHash3_64('Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.737 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [74d4b233-2cea-40fe-99ca-90795f1cf27d]:
+SELECT toInt64(murmurHash3_64('热爱', '🇨🇳'))
+
+25/11/02 13:46:25.738 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [373af534-20e4-424b-bc82-f8157f1a39be]:
+SELECT toInt64(murmurHash3_64('热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.740 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [d50b879d-72dc-4066-8564-3cc09b2b03c6]:
+SELECT toInt64(murmurHash3_64('🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.741 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [f8c82a85-0d1b-46e1-a249-32b7040a5716]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'Apache Spark', 'ClickHouse'))
+
+25/11/02 13:46:25.743 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [76be2268-b80c-4a93-a430-4a9a30d01ab0]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'Apache Spark', 'Yandex'))
+
+25/11/02 13:46:25.745 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [68826744-106e-45aa-b785-9bf5149339d8]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'Apache Spark', '热爱'))
+
+25/11/02 13:46:25.747 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2d6c5706-7832-4f42-b588-8cb6f8ab38e3]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'Apache Spark', '🇨🇳'))
+
+25/11/02 13:46:25.748 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [0688a981-00c9-4881-9d36-5060192c0278]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'Apache Spark', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.750 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e0045737-6e16-40ea-8722-6295fc602ac9]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.752 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [5cc41bef-5bd7-4644-bab7-163e48909f34]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'ClickHouse', '热爱'))
+
+25/11/02 13:46:25.754 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e2f13432-448e-42c6-807d-1f38d4d0ffc1]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.756 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2c328c47-1dc5-475e-b6a9-c122f78289a8]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.757 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [a913b54e-7151-4148-a64d-7ff6702d061c]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.759 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [1e60e6ba-48a1-4855-bfed-59781277de3b]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.761 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [a30405cb-913b-4a58-88b5-9a3ccb347359]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.763 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [57e2f112-26bf-49df-ae3f-3edfd448ba7d]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.764 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [f72ae055-0aab-44ad-af7c-99aa14fa3cde]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.766 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [138709c3-38f8-406e-b8ad-5d7f1a6ba0e9]:
+SELECT toInt64(murmurHash3_64('spark-clickhouse-connector', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.768 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [54c97def-4202-4419-b2f5-1b31a4582305]:
+SELECT toInt64(murmurHash3_64('Apache Spark', 'ClickHouse', 'Yandex'))
+
+25/11/02 13:46:25.769 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [57dc766c-a889-4a29-9273-14379d8bcf1b]:
+SELECT toInt64(murmurHash3_64('Apache Spark', 'ClickHouse', '热爱'))
+
+25/11/02 13:46:25.771 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [d9bdc389-3c5c-4662-913a-2ca6e6e469a0]:
+SELECT toInt64(murmurHash3_64('Apache Spark', 'ClickHouse', '🇨🇳'))
+
+25/11/02 13:46:25.772 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [5a30233a-283d-48c1-a743-21667b006051]:
+SELECT toInt64(murmurHash3_64('Apache Spark', 'ClickHouse', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.774 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8b6dc968-ae64-4499-8522-9f32d0617086]:
+SELECT toInt64(murmurHash3_64('Apache Spark', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.776 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [91fb0edd-b214-473c-a2f9-b9a97582c2c3]:
+SELECT toInt64(murmurHash3_64('Apache Spark', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.777 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [a4b94f92-b208-459d-a01a-d9971bfff2f9]:
+SELECT toInt64(murmurHash3_64('Apache Spark', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.779 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [494c1668-6746-4e42-9c71-787a1571c21b]:
+SELECT toInt64(murmurHash3_64('Apache Spark', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.780 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [6b453411-4b2f-4635-823b-efb2756c06e3]:
+SELECT toInt64(murmurHash3_64('Apache Spark', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.782 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [de9d086a-7fd2-41ac-9efb-adf93df3149a]:
+SELECT toInt64(murmurHash3_64('Apache Spark', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.784 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [8e98de3a-3eab-4a39-871b-eaa05e9be25c]:
+SELECT toInt64(murmurHash3_64('ClickHouse', 'Yandex', '热爱'))
+
+25/11/02 13:46:25.785 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [2d541ced-af41-4041-be43-33708972d3d8]:
+SELECT toInt64(murmurHash3_64('ClickHouse', 'Yandex', '🇨🇳'))
+
+25/11/02 13:46:25.787 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [26544b56-0d24-4685-a163-d40a452647f9]:
+SELECT toInt64(murmurHash3_64('ClickHouse', 'Yandex', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.789 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [cb4741ba-9b46-4a8e-807d-0291dc0eea6f]:
+SELECT toInt64(murmurHash3_64('ClickHouse', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.790 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [893c1f37-a0e5-4b06-b93e-4074910367d7]:
+SELECT toInt64(murmurHash3_64('ClickHouse', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.791 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [a69e0a50-f076-416a-978f-6c21227768ca]:
+SELECT toInt64(murmurHash3_64('ClickHouse', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.793 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [4505e29d-b953-4ab6-9900-d3dee34ee823]:
+SELECT toInt64(murmurHash3_64('Yandex', '热爱', '🇨🇳'))
+
+25/11/02 13:46:25.795 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [b573e594-a772-48f4-8a1c-d18096337cb4]:
+SELECT toInt64(murmurHash3_64('Yandex', '热爱', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.797 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [e70261d0-b4b8-494b-b98f-ed2be5593b3d]:
+SELECT toInt64(murmurHash3_64('Yandex', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:25.798 ScalaTest-1-running-ClickHouseSingleHashSuite DEBUG NodeClient: Execute ClickHouse SQL [3704f386-4e88-4d9f-b6d4-66b1310b8724]:
+SELECT toInt64(murmurHash3_64('热爱', '🇨🇳', 'This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳This is a long test text. 在传统的行式数据库系统中，数据按如下顺序存储。🇨🇳'))
+
+25/11/02 13:46:26.027 ScalaTest-1 INFO 8: Creating container for image: clickhouse/clickhouse-server:23.8
+25/11/02 13:46:26.060 ScalaTest-1 INFO 8: Container clickhouse/clickhouse-server:23.8 is starting: 3bf397fe9a0af4dc23a32513b9a96b790eac0bce9bf75ccee587799a4ecdaffa
+25/11/02 13:46:26.143 ScalaTest-1 INFO 8: Waiting for database connection to become available at jdbc:clickhouse://localhost:57659/default using query 'SELECT 1'
+25/11/02 13:46:26.151 ScalaTest-1 ERROR ApacheHttpConnectionImpl: HTTP request failed
+java.net.SocketException: Connection reset
+	at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:328)
+	at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:355)
+	at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:808)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:966)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.SessionInputBufferImpl.fillBuffer(SessionInputBufferImpl.java:149)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.SessionInputBufferImpl.readLine(SessionInputBufferImpl.java:280)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.AbstractMessageParser.parse(AbstractMessageParser.java:247)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.AbstractMessageParser.parse(AbstractMessageParser.java:54)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.DefaultBHttpClientConnection.receiveResponseHeader(DefaultBHttpClientConnection.java:299)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.HttpRequestExecutor.execute(HttpRequestExecutor.java:175)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.HttpRequestExecutor.execute(HttpRequestExecutor.java:218)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager$InternalConnectionEndpoint.execute(PoolingHttpClientConnectionManager.java:712)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.InternalExecRuntime.execute(InternalExecRuntime.java:216)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.MainClientExec.execute(MainClientExec.java:116)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ConnectExec.execute(ConnectExec.java:188)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ProtocolExec.execute(ProtocolExec.java:192)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.HttpRequestRetryExec.execute(HttpRequestRetryExec.java:96)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.RedirectExec.execute(RedirectExec.java:115)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.InternalHttpClient.doExecute(InternalHttpClient.java:170)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.CloseableHttpClient.execute(CloseableHttpClient.java:123)
+	at com.clickhouse.client.http.ApacheHttpConnectionImpl.post(ApacheHttpConnectionImpl.java:260)
+	at com.clickhouse.client.http.ClickHouseHttpClient.send(ClickHouseHttpClient.java:195)
+	at com.clickhouse.client.AbstractClient.execute(AbstractClient.java:280)
+	at com.clickhouse.client.ClickHouseClientBuilder$Agent.sendOnce(ClickHouseClientBuilder.java:282)
+	at com.clickhouse.client.ClickHouseClientBuilder$Agent.send(ClickHouseClientBuilder.java:294)
+	at com.clickhouse.client.ClickHouseClientBuilder$Agent.execute(ClickHouseClientBuilder.java:349)
+	at com.clickhouse.client.ClickHouseClient.executeAndWait(ClickHouseClient.java:878)
+	at com.clickhouse.client.ClickHouseRequest.executeAndWait(ClickHouseRequest.java:2154)
+	at com.clickhouse.jdbc.internal.ClickHouseConnectionImpl.getServerInfo(ClickHouseConnectionImpl.java:128)
+	at com.clickhouse.jdbc.internal.ClickHouseConnectionImpl.<init>(ClickHouseConnectionImpl.java:335)
+	at com.clickhouse.jdbc.internal.ClickHouseConnectionImpl.<init>(ClickHouseConnectionImpl.java:288)
+	at com.clickhouse.jdbc.ClickHouseDriver.connect(ClickHouseDriver.java:157)
+	at com.clickhouse.jdbc.ClickHouseDriver.connect(ClickHouseDriver.java:41)
+	at org.testcontainers.containers.JdbcDatabaseContainer.createConnection(JdbcDatabaseContainer.java:253)
+	at org.testcontainers.containers.JdbcDatabaseContainer.createConnection(JdbcDatabaseContainer.java:218)
+	at org.testcontainers.containers.JdbcDatabaseContainer.waitUntilContainerStarted(JdbcDatabaseContainer.java:158)
+	at org.testcontainers.containers.GenericContainer.tryStart(GenericContainer.java:501)
+	at org.testcontainers.containers.GenericContainer.lambda$doStart$0(GenericContainer.java:354)
+	at org.rnorth.ducttape.unreliables.Unreliables.retryUntilSuccess(Unreliables.java:81)
+	at org.testcontainers.containers.GenericContainer.doStart(GenericContainer.java:344)
+	at org.testcontainers.containers.GenericContainer.start(GenericContainer.java:334)
+	at com.dimafeng.testcontainers.SingleContainer.start(Container.scala:48)
+	at com.dimafeng.testcontainers.ForAllTestContainer.run(ForAllTestContainer.scala:17)
+	at com.dimafeng.testcontainers.ForAllTestContainer.run$(ForAllTestContainer.scala:13)
+	at com.clickhouse.spark.ClickHouseSingleUtilsSuite.run(UtilsSuite.scala:26)
+	at org.scalatest.tools.SuiteRunner.run(SuiteRunner.scala:47)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+25/11/02 13:46:26.261 ScalaTest-1 ERROR ApacheHttpConnectionImpl: HTTP request failed
+java.net.SocketException: Connection reset
+	at java.base/sun.nio.ch.NioSocketImpl.implRead(NioSocketImpl.java:328)
+	at java.base/sun.nio.ch.NioSocketImpl.read(NioSocketImpl.java:355)
+	at java.base/sun.nio.ch.NioSocketImpl$1.read(NioSocketImpl.java:808)
+	at java.base/java.net.Socket$SocketInputStream.read(Socket.java:966)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.SessionInputBufferImpl.fillBuffer(SessionInputBufferImpl.java:149)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.SessionInputBufferImpl.readLine(SessionInputBufferImpl.java:280)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.AbstractMessageParser.parse(AbstractMessageParser.java:247)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.AbstractMessageParser.parse(AbstractMessageParser.java:54)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.DefaultBHttpClientConnection.receiveResponseHeader(DefaultBHttpClientConnection.java:299)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.HttpRequestExecutor.execute(HttpRequestExecutor.java:175)
+	at com.clickhouse.client.internal.apache.hc.core5.http.impl.io.HttpRequestExecutor.execute(HttpRequestExecutor.java:218)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager$InternalConnectionEndpoint.execute(PoolingHttpClientConnectionManager.java:712)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.InternalExecRuntime.execute(InternalExecRuntime.java:216)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.MainClientExec.execute(MainClientExec.java:116)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ConnectExec.execute(ConnectExec.java:188)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ProtocolExec.execute(ProtocolExec.java:192)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.HttpRequestRetryExec.execute(HttpRequestRetryExec.java:96)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.RedirectExec.execute(RedirectExec.java:115)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.InternalHttpClient.doExecute(InternalHttpClient.java:170)
+	at com.clickhouse.client.internal.apache.hc.client5.http.impl.classic.CloseableHttpClient.execute(CloseableHttpClient.java:123)
+	at com.clickhouse.client.http.ApacheHttpConnectionImpl.post(ApacheHttpConnectionImpl.java:260)
+	at com.clickhouse.client.http.ClickHouseHttpClient.send(ClickHouseHttpClient.java:195)
+	at com.clickhouse.client.AbstractClient.execute(AbstractClient.java:280)
+	at com.clickhouse.client.ClickHouseClientBuilder$Agent.sendOnce(ClickHouseClientBuilder.java:282)
+	at com.clickhouse.client.ClickHouseClientBuilder$Agent.send(ClickHouseClientBuilder.java:294)
+	at com.clickhouse.client.ClickHouseClientBuilder$Agent.execute(ClickHouseClientBuilder.java:349)
+	at com.clickhouse.client.ClickHouseClient.executeAndWait(ClickHouseClient.java:878)
+	at com.clickhouse.client.ClickHouseRequest.executeAndWait(ClickHouseRequest.java:2154)
+	at com.clickhouse.jdbc.internal.ClickHouseConnectionImpl.getServerInfo(ClickHouseConnectionImpl.java:128)
+	at com.clickhouse.jdbc.internal.ClickHouseConnectionImpl.<init>(ClickHouseConnectionImpl.java:335)
+	at com.clickhouse.jdbc.internal.ClickHouseConnectionImpl.<init>(ClickHouseConnectionImpl.java:288)
+	at com.clickhouse.jdbc.ClickHouseDriver.connect(ClickHouseDriver.java:157)
+	at com.clickhouse.jdbc.ClickHouseDriver.connect(ClickHouseDriver.java:41)
+	at org.testcontainers.containers.JdbcDatabaseContainer.createConnection(JdbcDatabaseContainer.java:253)
+	at org.testcontainers.containers.JdbcDatabaseContainer.createConnection(JdbcDatabaseContainer.java:218)
+	at org.testcontainers.containers.JdbcDatabaseContainer.waitUntilContainerStarted(JdbcDatabaseContainer.java:158)
+	at org.testcontainers.containers.GenericContainer.tryStart(GenericContainer.java:501)
+	at org.testcontainers.containers.GenericContainer.lambda$doStart$0(GenericContainer.java:354)
+	at org.rnorth.ducttape.unreliables.Unreliables.retryUntilSuccess(Unreliables.java:81)
+	at org.testcontainers.containers.GenericContainer.doStart(GenericContainer.java:344)
+	at org.testcontainers.containers.GenericContainer.start(GenericContainer.java:334)
+	at com.dimafeng.testcontainers.SingleContainer.start(Container.scala:48)
+	at com.dimafeng.testcontainers.ForAllTestContainer.run(ForAllTestContainer.scala:17)
+	at com.dimafeng.testcontainers.ForAllTestContainer.run$(ForAllTestContainer.scala:13)
+	at com.clickhouse.spark.ClickHouseSingleUtilsSuite.run(UtilsSuite.scala:26)
+	at org.scalatest.tools.SuiteRunner.run(SuiteRunner.scala:47)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+25/11/02 13:46:26.379 ScalaTest-1 INFO 8: Container clickhouse/clickhouse-server:23.8 started in PT0.351488S
+25/11/02 13:46:26.379 ScalaTest-1 INFO 8: Container is started (JDBC URL: jdbc:clickhouse://localhost:57659/default)
+25/11/02 13:46:26.380 ScalaTest-1-running-ClickHouseSingleUtilsSuite DEBUG NodeClient: Execute ClickHouse SQL [7fef688d-8401-4fc3-b45b-4b60880ec070]:
+SELECT toDateTime64('2023-03-29 15:25:25.977654', 3, 'Asia/Jerusalem')
+

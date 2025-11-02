@@ -1,0 +1,1697 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/spec/TableSpec.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.spec
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.ToJson
+</span>18 <span style=''>
+</span>19 <span style=''>import java.time.LocalDateTime
+</span>20 <span style=''>import java.util
+</span>21 <span style=''>import scala.collection.JavaConverters._
+</span>22 <span style=''>
+</span>23 <span style=''>case class TableSpec(
+</span>24 <span style=''>  database: String,
+</span>25 <span style=''>  name: String,
+</span>26 <span style=''>  uuid: String,
+</span>27 <span style=''>  engine: String,
+</span>28 <span style=''>  is_temporary: Boolean,
+</span>29 <span style=''>  data_paths: List[String],
+</span>30 <span style=''>  metadata_path: String,
+</span>31 <span style=''>  metadata_modification_time: LocalDateTime,
+</span>32 <span style=''>  dependencies_database: List[String],
+</span>33 <span style=''>  dependencies_table: List[String],
+</span>34 <span style=''>  create_table_query: String,
+</span>35 <span style=''>  engine_full: String,
+</span>36 <span style=''>  partition_key: String,
+</span>37 <span style=''>  sorting_key: String,
+</span>38 <span style=''>  primary_key: String,
+</span>39 <span style=''>  sampling_key: String,
+</span>40 <span style=''>  storage_policy: String,
+</span>41 <span style=''>  total_rows: Option[Long],
+</span>42 <span style=''>  total_bytes: Option[Long],
+</span>43 <span style=''>  lifetime_rows: Option[Long],
+</span>44 <span style=''>  lifetime_bytes: Option[Long]
+</span>45 <span style=''>) extends ToJson {
+</span>46 <span style=''>  def toMap: Map[String, String] = Map(
+</span>47 <span style=''>    &quot;database&quot; </span><span style='background: #F0ADAD'>-&gt; database</span><span style=''>,
+</span>48 <span style=''>    &quot;name&quot; </span><span style='background: #F0ADAD'>-&gt; name</span><span style=''>,
+</span>49 <span style=''>    &quot;uuid&quot; </span><span style='background: #F0ADAD'>-&gt; uuid</span><span style=''>,
+</span>50 <span style=''>    &quot;engine&quot; </span><span style='background: #F0ADAD'>-&gt; engine</span><span style=''>,
+</span>51 <span style=''>    &quot;is_temporary&quot; </span><span style='background: #F0ADAD'>-&gt; is_temporary.toString</span><span style=''>,
+</span>52 <span style=''>    &quot;data_paths&quot; </span><span style='background: #F0ADAD'>-&gt; data_paths.mkString(&quot;,&quot;)</span><span style=''>,
+</span>53 <span style=''>    &quot;metadata_path&quot; </span><span style='background: #F0ADAD'>-&gt; metadata_path</span><span style=''>,
+</span>54 <span style=''>    &quot;metadata_modification_time&quot; </span><span style='background: #F0ADAD'>-&gt; metadata_modification_time.toString</span><span style=''>,
+</span>55 <span style=''>    &quot;dependencies_database&quot; </span><span style='background: #F0ADAD'>-&gt; dependencies_database.mkString(&quot;,&quot;)</span><span style=''>,
+</span>56 <span style=''>    &quot;dependencies_table&quot; </span><span style='background: #F0ADAD'>-&gt; dependencies_table.mkString(&quot;,&quot;)</span><span style=''>,
+</span>57 <span style=''>    &quot;create_table_query&quot; </span><span style='background: #F0ADAD'>-&gt; create_table_query</span><span style=''>,
+</span>58 <span style=''>    &quot;engine_full&quot; </span><span style='background: #F0ADAD'>-&gt; engine_full</span><span style=''>,
+</span>59 <span style=''>    &quot;partition_key&quot; </span><span style='background: #F0ADAD'>-&gt; partition_key</span><span style=''>,
+</span>60 <span style=''>    &quot;sorting_key&quot; </span><span style='background: #F0ADAD'>-&gt; sorting_key</span><span style=''>,
+</span>61 <span style=''>    &quot;primary_key&quot; </span><span style='background: #F0ADAD'>-&gt; primary_key</span><span style=''>,
+</span>62 <span style=''>    &quot;sampling_key&quot; </span><span style='background: #F0ADAD'>-&gt; sampling_key</span><span style=''>,
+</span>63 <span style=''>    &quot;storage_policy&quot; </span><span style='background: #F0ADAD'>-&gt; storage_policy</span><span style=''>,
+</span>64 <span style=''>    &quot;total_rows&quot; </span><span style='background: #F0ADAD'>-&gt; total_rows.map(_.toString).getOrElse(&quot;&quot;)</span><span style=''>,
+</span>65 <span style=''>    &quot;total_bytes&quot; </span><span style='background: #F0ADAD'>-&gt; total_bytes.map(_.toString).getOrElse(&quot;&quot;)</span><span style=''>,
+</span>66 <span style=''>    &quot;lifetime_rows&quot; </span><span style='background: #F0ADAD'>-&gt; lifetime_rows.map(_.toString).getOrElse(&quot;&quot;)</span><span style=''>,
+</span>67 <span style=''>    &quot;lifetime_bytes&quot; </span><span style='background: #F0ADAD'>-&gt; lifetime_bytes.map(_.toString).getOrElse(&quot;&quot;)</span><span style=''>
+</span>68 <span style=''>  )
+</span>69 <span style=''>
+</span>70 <span style=''>  def toJavaMap: util.Map[String, String] = toMap.asJava
+</span>71 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          1365
+          -
+          1365
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Map.apply[String, String](scala.Predef.ArrowAssoc[String](&quot;database&quot;).-&gt;[String](TableSpec.this.database), scala.Predef.ArrowAssoc[String](&quot;name&quot;).-&gt;[String](TableSpec.this.name), scala.Predef.ArrowAssoc[String](&quot;uuid&quot;).-&gt;[String](TableSpec.this.uuid), scala.Predef.ArrowAssoc[String](&quot;engine&quot;).-&gt;[String](TableSpec.this.engine), scala.Predef.ArrowAssoc[String](&quot;is_temporary&quot;).-&gt;[String](TableSpec.this.is_temporary.toString()), scala.Predef.ArrowAssoc[String](&quot;data_paths&quot;).-&gt;[String](TableSpec.this.data_paths.mkString(&quot;,&quot;)), scala.Predef.ArrowAssoc[String](&quot;metadata_path&quot;).-&gt;[String](TableSpec.this.metadata_path), scala.Predef.ArrowAssoc[String](&quot;metadata_modification_time&quot;).-&gt;[String](TableSpec.this.metadata_modification_time.toString()), scala.Predef.ArrowAssoc[String](&quot;dependencies_database&quot;).-&gt;[String](TableSpec.this.dependencies_database.mkString(&quot;,&quot;)), scala.Predef.ArrowAssoc[String](&quot;dependencies_table&quot;).-&gt;[String](TableSpec.this.dependencies_table.mkString(&quot;,&quot;)), scala.Predef.ArrowAssoc[String](&quot;create_table_query&quot;).-&gt;[String](TableSpec.this.create_table_query), scala.Predef.ArrowAssoc[String](&quot;engine_full&quot;).-&gt;[String](TableSpec.this.engine_full), scala.Predef.ArrowAssoc[String](&quot;partition_key&quot;).-&gt;[String](TableSpec.this.partition_key), scala.Predef.ArrowAssoc[String](&quot;sorting_key&quot;).-&gt;[String](TableSpec.this.sorting_key), scala.Predef.ArrowAssoc[String](&quot;primary_key&quot;).-&gt;[String](TableSpec.this.primary_key), scala.Predef.ArrowAssoc[String](&quot;sampling_key&quot;).-&gt;[String](TableSpec.this.sampling_key), scala.Predef.ArrowAssoc[String](&quot;storage_policy&quot;).-&gt;[String](TableSpec.this.storage_policy), scala.Predef.ArrowAssoc[String](&quot;total_rows&quot;).-&gt;[String](TableSpec.this.total_rows.map[String](((x$1: Long) =&gt; x$1.toString())).getOrElse[String](&quot;&quot;)), scala.Predef.ArrowAssoc[String](&quot;total_bytes&quot;).-&gt;[String](TableSpec.this.total_bytes.map[String](((x$2: Long) =&gt; x$2.toString())).getOrElse[String](&quot;&quot;)), scala.Predef.ArrowAssoc[String](&quot;lifetime_rows&quot;).-&gt;[String](TableSpec.this.lifetime_rows.map[String](((x$3: Long) =&gt; x$3.toString())).getOrElse[String](&quot;&quot;)), scala.Predef.ArrowAssoc[String](&quot;lifetime_bytes&quot;).-&gt;[String](TableSpec.this.lifetime_bytes.map[String](((x$4: Long) =&gt; x$4.toString())).getOrElse[String](&quot;&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          585
+        </td>
+        <td>
+          1382
+          -
+          1393
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;database&quot;).-&gt;[String](TableSpec.this.database)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          818
+        </td>
+        <td>
+          1385
+          -
+          1385
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.database
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.database
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          1371
+          -
+          1371
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;database&quot;
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          837
+        </td>
+        <td>
+          1409
+          -
+          1409
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.name
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          156
+        </td>
+        <td>
+          1399
+          -
+          1399
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;name&quot;
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          475
+        </td>
+        <td>
+          1406
+          -
+          1413
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;name&quot;).-&gt;[String](TableSpec.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          498
+        </td>
+        <td>
+          1426
+          -
+          1433
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;uuid&quot;).-&gt;[String](TableSpec.this.uuid)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          967
+        </td>
+        <td>
+          1429
+          -
+          1429
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.uuid
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.uuid
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          282
+        </td>
+        <td>
+          1419
+          -
+          1419
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;uuid&quot;
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          819
+        </td>
+        <td>
+          1451
+          -
+          1451
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.engine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.engine
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          603
+        </td>
+        <td>
+          1448
+          -
+          1457
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;engine&quot;).-&gt;[String](TableSpec.this.engine)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          1439
+          -
+          1439
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;engine&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          454
+        </td>
+        <td>
+          1478
+          -
+          1502
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;is_temporary&quot;).-&gt;[String](TableSpec.this.is_temporary.toString())
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          866
+        </td>
+        <td>
+          1494
+          -
+          1494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Any.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.is_temporary.toString()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          210
+        </td>
+        <td>
+          1463
+          -
+          1463
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;is_temporary&quot;
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          65
+        </td>
+        <td>
+          1508
+          -
+          1508
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;data_paths&quot;
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          554
+        </td>
+        <td>
+          1521
+          -
+          1548
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;data_paths&quot;).-&gt;[String](TableSpec.this.data_paths.mkString(&quot;,&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          951
+        </td>
+        <td>
+          1543
+          -
+          1543
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.data_paths.mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          821
+        </td>
+        <td>
+          1573
+          -
+          1573
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.metadata_path
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.metadata_path
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          1554
+          -
+          1554
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;metadata_path&quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          580
+        </td>
+        <td>
+          1570
+          -
+          1586
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;metadata_path&quot;).-&gt;[String](TableSpec.this.metadata_path)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          191
+        </td>
+        <td>
+          1592
+          -
+          1592
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;metadata_modification_time&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          456
+        </td>
+        <td>
+          1621
+          -
+          1659
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;metadata_modification_time&quot;).-&gt;[String](TableSpec.this.metadata_modification_time.toString())
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          852
+        </td>
+        <td>
+          1651
+          -
+          1651
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.LocalDateTime.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.metadata_modification_time.toString()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          931
+        </td>
+        <td>
+          1722
+          -
+          1722
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.dependencies_database.mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          1665
+          -
+          1665
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;dependencies_database&quot;
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          494
+        </td>
+        <td>
+          1689
+          -
+          1727
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;dependencies_database&quot;).-&gt;[String](TableSpec.this.dependencies_database.mkString(&quot;,&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          809
+        </td>
+        <td>
+          1784
+          -
+          1784
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.dependencies_table.mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          396
+        </td>
+        <td>
+          1754
+          -
+          1789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;dependencies_table&quot;).-&gt;[String](TableSpec.this.dependencies_table.mkString(&quot;,&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          1733
+          -
+          1733
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;dependencies_table&quot;
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          836
+        </td>
+        <td>
+          1819
+          -
+          1819
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.create_table_query
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.create_table_query
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          461
+        </td>
+        <td>
+          1816
+          -
+          1837
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;create_table_query&quot;).-&gt;[String](TableSpec.this.create_table_query)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          179
+        </td>
+        <td>
+          1795
+          -
+          1795
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;create_table_query&quot;
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          26
+        </td>
+        <td>
+          1843
+          -
+          1843
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;engine_full&quot;
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          935
+        </td>
+        <td>
+          1860
+          -
+          1860
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.engine_full
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.engine_full
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          549
+        </td>
+        <td>
+          1857
+          -
+          1871
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;engine_full&quot;).-&gt;[String](TableSpec.this.engine_full)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          770
+        </td>
+        <td>
+          1896
+          -
+          1896
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.partition_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.partition_key
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          1877
+          -
+          1877
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;partition_key&quot;
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          380
+        </td>
+        <td>
+          1893
+          -
+          1909
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;partition_key&quot;).-&gt;[String](TableSpec.this.partition_key)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          182
+        </td>
+        <td>
+          1915
+          -
+          1915
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;sorting_key&quot;
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          415
+        </td>
+        <td>
+          1929
+          -
+          1943
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;sorting_key&quot;).-&gt;[String](TableSpec.this.sorting_key)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          838
+        </td>
+        <td>
+          1932
+          -
+          1932
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.sorting_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.sorting_key
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          1949
+          -
+          1949
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;primary_key&quot;
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          1963
+          -
+          1977
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;primary_key&quot;).-&gt;[String](TableSpec.this.primary_key)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          915
+        </td>
+        <td>
+          1966
+          -
+          1966
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.primary_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.primary_key
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          806
+        </td>
+        <td>
+          2001
+          -
+          2001
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.sampling_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.sampling_key
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          79
+        </td>
+        <td>
+          1983
+          -
+          1983
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;sampling_key&quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          383
+        </td>
+        <td>
+          1998
+          -
+          2013
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;sampling_key&quot;).-&gt;[String](TableSpec.this.sampling_key)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          140
+        </td>
+        <td>
+          2019
+          -
+          2019
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;storage_policy&quot;
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          455
+        </td>
+        <td>
+          2036
+          -
+          2053
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;storage_policy&quot;).-&gt;[String](TableSpec.this.storage_policy)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          894
+        </td>
+        <td>
+          2039
+          -
+          2039
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.storage_policy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.storage_policy
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          732
+        </td>
+        <td>
+          2111
+          -
+          2111
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.total_rows.map[String](((x$1: Long) =&gt; x$1.toString())).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          481
+        </td>
+        <td>
+          2072
+          -
+          2115
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;total_rows&quot;).-&gt;[String](TableSpec.this.total_rows.map[String](((x$1: Long) =&gt; x$1.toString())).getOrElse[String](&quot;&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          58
+        </td>
+        <td>
+          2059
+          -
+          2059
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;total_rows&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          138
+        </td>
+        <td>
+          2121
+          -
+          2121
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;total_bytes&quot;
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          401
+        </td>
+        <td>
+          2135
+          -
+          2179
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;total_bytes&quot;).-&gt;[String](TableSpec.this.total_bytes.map[String](((x$2: Long) =&gt; x$2.toString())).getOrElse[String](&quot;&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          807
+        </td>
+        <td>
+          2175
+          -
+          2175
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.total_bytes.map[String](((x$2: Long) =&gt; x$2.toString())).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          199
+        </td>
+        <td>
+          2185
+          -
+          2185
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;lifetime_rows&quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          435
+        </td>
+        <td>
+          2201
+          -
+          2247
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;lifetime_rows&quot;).-&gt;[String](TableSpec.this.lifetime_rows.map[String](((x$3: Long) =&gt; x$3.toString())).getOrElse[String](&quot;&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          826
+        </td>
+        <td>
+          2243
+          -
+          2243
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.lifetime_rows.map[String](((x$3: Long) =&gt; x$3.toString())).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          741
+        </td>
+        <td>
+          2313
+          -
+          2313
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.lifetime_bytes.map[String](((x$4: Long) =&gt; x$4.toString())).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          2253
+          -
+          2253
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;lifetime_bytes&quot;
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          533
+        </td>
+        <td>
+          2270
+          -
+          2317
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;lifetime_bytes&quot;).-&gt;[String](TableSpec.this.lifetime_bytes.map[String](((x$4: Long) =&gt; x$4.toString())).getOrElse[String](&quot;&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          402
+        </td>
+        <td>
+          2373
+          -
+          2373
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.mapAsJavaMapConverter[String, String](TableSpec.this.toMap).asJava
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          789
+        </td>
+        <td>
+          2367
+          -
+          2367
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableSpec.this.toMap
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

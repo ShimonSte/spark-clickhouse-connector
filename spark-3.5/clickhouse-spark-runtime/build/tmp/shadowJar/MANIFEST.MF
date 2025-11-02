@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Implementation-Title: Spark-ClickHouse-Connector
+Implementation-Version: 3.5_2.12_0.9.0-SNAPSHOT
+

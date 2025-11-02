@@ -1,0 +1,4157 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          org/apache/spark/sql/clickhouse/SchemaUtils.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package org.apache.spark.sql.clickhouse
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.data.ClickHouseDataType._
+</span>18 <span style=''>import com.clickhouse.data.{ClickHouseColumn, ClickHouseDataType}
+</span>19 <span style=''>import com.clickhouse.spark.exception.CHClientException
+</span>20 <span style=''>import org.apache.spark.sql.types._
+</span>21 <span style=''>import org.apache.spark.sql.catalyst.SQLConfHelper
+</span>22 <span style=''>import org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_FIXED_STRING_AS
+</span>23 <span style=''>
+</span>24 <span style=''>object SchemaUtils extends SQLConfHelper {
+</span>25 <span style=''>
+</span>26 <span style=''>  def fromClickHouseType(chColumn: ClickHouseColumn): (DataType, Boolean) = {
+</span>27 <span style=''>    val catalystType = chColumn.getDataType match {
+</span>28 <span style=''>      case Nothing =&gt; NullType
+</span>29 <span style=''>      case Bool =&gt; BooleanType
+</span>30 <span style=''>      case String | JSON | UUID | Enum8 | Enum16 | IPv4 | IPv6 =&gt; StringType
+</span>31 <span style=''>      case FixedString =&gt;
+</span>32 <span style=''>        conf.getConf(READ_FIXED_STRING_AS) match {
+</span>33 <span style=''>          case &quot;binary&quot; =&gt; BinaryType
+</span>34 <span style=''>          case &quot;string&quot; =&gt; StringType
+</span>35 <span style=''>          case unsupported =&gt; throw CHClientException(s&quot;Unsupported fixed string read format mapping: $unsupported&quot;)
+</span>36 <span style=''>        }
+</span>37 <span style=''>      case Int8 =&gt; ByteType
+</span>38 <span style=''>      case UInt8 | Int16 =&gt; ShortType
+</span>39 <span style=''>      case UInt16 | Int32 =&gt; IntegerType
+</span>40 <span style=''>      case UInt32 | Int64 | UInt64 =&gt; LongType
+</span>41 <span style=''>      case Int128 | UInt128 | Int256 | UInt256 =&gt; DecimalType(38, 0)
+</span>42 <span style=''>      case Float32 =&gt; FloatType
+</span>43 <span style=''>      case Float64 =&gt; DoubleType
+</span>44 <span style=''>      case Date | Date32 =&gt; DateType
+</span>45 <span style=''>      case DateTime | DateTime32 | DateTime64 =&gt; TimestampType
+</span>46 <span style=''>      case ClickHouseDataType.Decimal if chColumn.getScale </span><span style='background: #AEF1AE'>&lt;= 38</span><span style=''> =&gt;
+</span>47 <span style=''>        DecimalType(chColumn.getPrecision, chColumn.getScale)
+</span>48 <span style=''>      case Decimal32 =&gt; DecimalType(9, chColumn.getScale)
+</span>49 <span style=''>      case Decimal64 =&gt; DecimalType(18, chColumn.getScale)
+</span>50 <span style=''>      case Decimal128 =&gt; DecimalType(38, chColumn.getScale)
+</span>51 <span style=''>      case IntervalYear =&gt; YearMonthIntervalType(YearMonthIntervalType.YEAR)
+</span>52 <span style=''>      case IntervalMonth =&gt; YearMonthIntervalType(YearMonthIntervalType.MONTH)
+</span>53 <span style=''>      case IntervalDay =&gt; DayTimeIntervalType(DayTimeIntervalType.DAY)
+</span>54 <span style=''>      case IntervalHour =&gt; DayTimeIntervalType(DayTimeIntervalType.HOUR)
+</span>55 <span style=''>      case IntervalMinute =&gt; DayTimeIntervalType(DayTimeIntervalType.MINUTE)
+</span>56 <span style=''>      case IntervalSecond =&gt; DayTimeIntervalType(DayTimeIntervalType.SECOND)
+</span>57 <span style=''>      case Array =&gt;
+</span>58 <span style=''>        val elementChCols = chColumn.getNestedColumns
+</span>59 <span style=''>        assert(elementChCols.size </span><span style='background: #AEF1AE'>== 1</span><span style=''>)
+</span>60 <span style=''>        val (elementType, elementNullable) = fromClickHouseType(elementChCols.get(0))
+</span>61 <span style=''>        ArrayType(elementType, elementNullable)
+</span>62 <span style=''>      case Map =&gt;
+</span>63 <span style=''>        val kvChCols = chColumn.getNestedColumns
+</span>64 <span style=''>        assert(kvChCols.size </span><span style='background: #AEF1AE'>== 2</span><span style=''>)
+</span>65 <span style=''>        val (keyChType, valueChType) = (kvChCols.get(0), kvChCols.get(1))
+</span>66 <span style=''>        val (keyType, keyNullable) = fromClickHouseType(keyChType)
+</span>67 <span style=''>        require(
+</span>68 <span style=''>          !keyNullable,
+</span>69 <span style=''>          s&quot;Illegal type: ${keyChType.getOriginalTypeName}, the key type of Map should not be nullable&quot;
+</span>70 <span style=''>        )
+</span>71 <span style=''>        val (valueType, valueNullable) = fromClickHouseType(valueChType)
+</span>72 <span style=''>        MapType(keyType, valueType, valueNullable)
+</span>73 <span style=''>      case Object | Nested | Tuple | Point | Polygon | MultiPolygon | Ring | IntervalQuarter | IntervalWeek |
+</span>74 <span style=''>          Decimal256 | AggregateFunction | SimpleAggregateFunction =&gt;
+</span>75 <span style=''>        throw CHClientException(s&quot;Unsupported type: ${chColumn.getOriginalTypeName}&quot;)
+</span>76 <span style=''>    }
+</span>77 <span style=''>    (catalystType, chColumn.isNullable)
+</span>78 <span style=''>  }
+</span>79 <span style=''>
+</span>80 <span style=''>  def toClickHouseType(catalystType: DataType, nullable: Boolean): String =
+</span>81 <span style=''>    catalystType match {
+</span>82 <span style=''>      case BooleanType =&gt; maybeNullable(&quot;UInt8&quot;, nullable)
+</span>83 <span style=''>      case ByteType =&gt; maybeNullable(&quot;Int8&quot;, nullable)
+</span>84 <span style=''>      case ShortType =&gt; maybeNullable(&quot;Int16&quot;, nullable)
+</span>85 <span style=''>      case IntegerType =&gt; maybeNullable(&quot;Int32&quot;, nullable)
+</span>86 <span style=''>      case LongType =&gt; maybeNullable(&quot;Int64&quot;, nullable)
+</span>87 <span style=''>      case FloatType =&gt; maybeNullable(&quot;Float32&quot;, nullable)
+</span>88 <span style=''>      case DoubleType =&gt; maybeNullable(&quot;Float64&quot;, nullable)
+</span>89 <span style=''>      case StringType =&gt; maybeNullable(&quot;String&quot;, nullable)
+</span>90 <span style=''>      case VarcharType(_) =&gt; maybeNullable(&quot;String&quot;, nullable)
+</span>91 <span style=''>      case CharType(_) =&gt; maybeNullable(&quot;String&quot;, nullable) // TODO: maybe FixString?
+</span>92 <span style=''>      case DateType =&gt; maybeNullable(&quot;Date&quot;, nullable)
+</span>93 <span style=''>      case TimestampType =&gt; maybeNullable(&quot;DateTime&quot;, nullable)
+</span>94 <span style=''>      case DecimalType.Fixed(p, s) =&gt; maybeNullable(s&quot;Decimal($p, $s)&quot;, nullable)
+</span>95 <span style=''>      case ArrayType(elemType, containsNull) =&gt; s&quot;Array(${toClickHouseType(elemType, containsNull)})&quot;
+</span>96 <span style=''>      // TODO currently only support String as key
+</span>97 <span style=''>      case MapType(keyType, valueType, valueContainsNull) if keyType.isInstanceOf[StringType] =&gt;
+</span>98 <span style=''>        s&quot;Map(${toClickHouseType(keyType, nullable = false)}, ${toClickHouseType(valueType, valueContainsNull)})&quot;
+</span>99 <span style=''>      case _ =&gt; throw CHClientException(s&quot;Unsupported type: $catalystType&quot;)
+</span>100 <span style=''>    }
+</span>101 <span style=''>
+</span>102 <span style=''>  def fromClickHouseSchema(chSchema: Seq[(String, String)]): StructType = {
+</span>103 <span style=''>    val structFields = chSchema.map { case (name, maybeNullableType) =&gt;
+</span>104 <span style=''>      val chCols = ClickHouseColumn.parse(s&quot;`$name` $maybeNullableType&quot;)
+</span>105 <span style=''>      assert(chCols.size </span><span style='background: #F0ADAD'>== 1</span><span style=''>)
+</span>106 <span style=''>      val (sparkType, nullable) = fromClickHouseType(chCols.get(0))
+</span>107 <span style=''>      StructField(name, sparkType, nullable)
+</span>108 <span style=''>    }
+</span>109 <span style=''>    StructType(structFields)
+</span>110 <span style=''>  }
+</span>111 <span style=''>
+</span>112 <span style=''>  def toClickHouseSchema(catalystSchema: StructType): Seq[(String, String, String)] =
+</span>113 <span style=''>    catalystSchema.fields
+</span>114 <span style=''>      .map { field =&gt;
+</span>115 <span style=''>        val chType = toClickHouseType(field.dataType, field.nullable)
+</span>116 <span style=''>        (field.name, chType, field.getComment().map(c =&gt; s&quot; COMMENT '$c'&quot;).getOrElse(&quot;&quot;))
+</span>117 <span style=''>      }
+</span>118 <span style=''>
+</span>119 <span style=''>  private[clickhouse] def maybeNullable(chType: String, nullable: Boolean): String =
+</span>120 <span style=''>    if (nullable) wrapNullable(chType) else chType
+</span>121 <span style=''>
+</span>122 <span style=''>  private[clickhouse] def wrapNullable(chType: String): String = s&quot;Nullable($chType)&quot;
+</span>123 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          549
+        </td>
+        <td>
+          1095
+          -
+          1095
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseColumn.getDataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chColumn.getDataType()
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          1159
+        </td>
+        <td>
+          1137
+          -
+          1137
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.NullType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.NullType
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          2110
+        </td>
+        <td>
+          1137
+          -
+          1137
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.NullType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.NullType
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          2293
+        </td>
+        <td>
+          1165
+          -
+          1165
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.BooleanType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.BooleanType
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          701
+        </td>
+        <td>
+          1165
+          -
+          1165
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.BooleanType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.BooleanType
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1335
+        </td>
+        <td>
+          1243
+          -
+          1243
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          353
+        </td>
+        <td>
+          1243
+          -
+          1243
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1391
+        </td>
+        <td>
+          1300
+          -
+          1300
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.getConf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.conf.getConf[String](org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_FIXED_STRING_AS)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          359
+        </td>
+        <td>
+          1323
+          -
+          1323
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.conf.getConf[String](org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_FIXED_STRING_AS) match {
+  case &quot;binary&quot; =&gt; org.apache.spark.sql.types.BinaryType
+  case &quot;string&quot; =&gt; org.apache.spark.sql.types.StringType
+  case (unsupported @ _) =&gt; throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported fixed string read format mapping: &quot;, &quot;&quot;).s(unsupported), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+}
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          2345
+        </td>
+        <td>
+          1301
+          -
+          1301
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_FIXED_STRING_AS
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_FIXED_STRING_AS
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          2032
+        </td>
+        <td>
+          1358
+          -
+          1358
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.BinaryType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.BinaryType
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          617
+        </td>
+        <td>
+          1358
+          -
+          1358
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.BinaryType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.BinaryType
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          733
+        </td>
+        <td>
+          1396
+          -
+          1396
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1163
+        </td>
+        <td>
+          1396
+          -
+          1396
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1388
+        </td>
+        <td>
+          1437
+          -
+          1437
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported fixed string read format mapping: &quot;, &quot;&quot;).s(unsupported), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          2153
+        </td>
+        <td>
+          1437
+          -
+          1437
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported fixed string read format mapping: &quot;, &quot;&quot;).s(unsupported), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          2353
+        </td>
+        <td>
+          1553
+          -
+          1553
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.ByteType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.ByteType
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1497
+        </td>
+        <td>
+          1553
+          -
+          1553
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.ByteType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.ByteType
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          2104
+        </td>
+        <td>
+          1590
+          -
+          1590
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.ShortType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.ShortType
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          471
+        </td>
+        <td>
+          1590
+          -
+          1590
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.ShortType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.ShortType
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1133
+        </td>
+        <td>
+          1629
+          -
+          1629
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          739
+        </td>
+        <td>
+          1629
+          -
+          1629
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1326
+        </td>
+        <td>
+          1679
+          -
+          1679
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2262
+        </td>
+        <td>
+          1679
+          -
+          1679
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1895
+        </td>
+        <td>
+          1749
+          -
+          1749
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DecimalType.apply(38, 0)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          446
+        </td>
+        <td>
+          1749
+          -
+          1749
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DecimalType.apply(38, 0)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          595
+        </td>
+        <td>
+          1779
+          -
+          1779
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.FloatType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.FloatType
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1504
+        </td>
+        <td>
+          1779
+          -
+          1779
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.FloatType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.FloatType
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          1198
+        </td>
+        <td>
+          1811
+          -
+          1811
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DoubleType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DoubleType
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          2108
+        </td>
+        <td>
+          1811
+          -
+          1811
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DoubleType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DoubleType
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          2269
+        </td>
+        <td>
+          1850
+          -
+          1850
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DateType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DateType
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          715
+        </td>
+        <td>
+          1850
+          -
+          1850
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DateType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DateType
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1334
+        </td>
+        <td>
+          1908
+          -
+          1908
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.TimestampType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.TimestampType
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          428
+        </td>
+        <td>
+          1908
+          -
+          1908
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.TimestampType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.TimestampType
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1911
+        </td>
+        <td>
+          1981
+          -
+          1986
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chColumn.getScale().&lt;=(38)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1468
+        </td>
+        <td>
+          2019
+          -
+          2019
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseColumn.getPrecision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chColumn.getPrecision()
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          2113
+        </td>
+        <td>
+          2009
+          -
+          2009
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DecimalType.apply(chColumn.getPrecision(), chColumn.getScale())
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          2042
+          -
+          2042
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseColumn.getScale
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chColumn.getScale()
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1181
+        </td>
+        <td>
+          2009
+          -
+          2009
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DecimalType.apply(chColumn.getPrecision(), chColumn.getScale())
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          430
+        </td>
+        <td>
+          2087
+          -
+          2087
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DecimalType.apply(9, chColumn.getScale())
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1288
+        </td>
+        <td>
+          2087
+          -
+          2087
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DecimalType.apply(9, chColumn.getScale())
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          671
+        </td>
+        <td>
+          2088
+          -
+          2088
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          9
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          2225
+        </td>
+        <td>
+          2100
+          -
+          2100
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseColumn.getScale
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chColumn.getScale()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1889
+        </td>
+        <td>
+          2146
+          -
+          2146
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          18
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          2074
+        </td>
+        <td>
+          2145
+          -
+          2145
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DecimalType.apply(18, chColumn.getScale())
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          512
+        </td>
+        <td>
+          2145
+          -
+          2145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DecimalType.apply(18, chColumn.getScale())
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1427
+        </td>
+        <td>
+          2159
+          -
+          2159
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseColumn.getScale
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chColumn.getScale()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          194
+        </td>
+        <td>
+          2219
+          -
+          2219
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseColumn.getScale
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chColumn.getScale()
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2260
+        </td>
+        <td>
+          2205
+          -
+          2205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DecimalType.apply(38, chColumn.getScale())
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1291
+        </td>
+        <td>
+          2205
+          -
+          2205
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.DecimalType.apply(38, chColumn.getScale())
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1130
+        </td>
+        <td>
+          2206
+          -
+          2206
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          38
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          403
+        </td>
+        <td>
+          2300
+          -
+          2300
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.YearMonthIntervalType.YEAR
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.YearMonthIntervalType.YEAR
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1892
+        </td>
+        <td>
+          2277
+          -
+          2277
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.YearMonthIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.YearMonthIntervalType.apply(org.apache.spark.sql.types.YearMonthIntervalType.YEAR)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1398
+        </td>
+        <td>
+          2277
+          -
+          2277
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.YearMonthIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.YearMonthIntervalType.apply(org.apache.spark.sql.types.YearMonthIntervalType.YEAR)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          593
+        </td>
+        <td>
+          2378
+          -
+          2378
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.YearMonthIntervalType.MONTH
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.YearMonthIntervalType.MONTH
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          2079
+        </td>
+        <td>
+          2355
+          -
+          2355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.YearMonthIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.YearMonthIntervalType.apply(org.apache.spark.sql.types.YearMonthIntervalType.MONTH)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1086
+        </td>
+        <td>
+          2355
+          -
+          2355
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.YearMonthIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.YearMonthIntervalType.apply(org.apache.spark.sql.types.YearMonthIntervalType.MONTH)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1371
+        </td>
+        <td>
+          2430
+          -
+          2430
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.apply(org.apache.spark.sql.types.DayTimeIntervalType.DAY)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          2267
+        </td>
+        <td>
+          2430
+          -
+          2430
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.apply(org.apache.spark.sql.types.DayTimeIntervalType.DAY)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          197
+        </td>
+        <td>
+          2451
+          -
+          2451
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.DAY
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.DAY
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1855
+        </td>
+        <td>
+          2502
+          -
+          2502
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.apply(org.apache.spark.sql.types.DayTimeIntervalType.HOUR)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          324
+        </td>
+        <td>
+          2523
+          -
+          2523
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.HOUR
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.HOUR
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1038
+        </td>
+        <td>
+          2502
+          -
+          2502
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.apply(org.apache.spark.sql.types.DayTimeIntervalType.HOUR)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1091
+        </td>
+        <td>
+          2577
+          -
+          2577
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.apply(org.apache.spark.sql.types.DayTimeIntervalType.MINUTE)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          2136
+        </td>
+        <td>
+          2577
+          -
+          2577
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.apply(org.apache.spark.sql.types.DayTimeIntervalType.MINUTE)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          601
+        </td>
+        <td>
+          2598
+          -
+          2598
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.MINUTE
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.MINUTE
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          199
+        </td>
+        <td>
+          2675
+          -
+          2675
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.SECOND
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.SECOND
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1376
+        </td>
+        <td>
+          2654
+          -
+          2654
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.apply(org.apache.spark.sql.types.DayTimeIntervalType.SECOND)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          2222
+        </td>
+        <td>
+          2654
+          -
+          2654
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.DayTimeIntervalType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DayTimeIntervalType.apply(org.apache.spark.sql.types.DayTimeIntervalType.SECOND)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          232
+        </td>
+        <td>
+          2700
+          -
+          2700
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val elementChCols: java.util.List[com.clickhouse.data.ClickHouseColumn] = chColumn.getNestedColumns();
+  scala.Predef.assert(elementChCols.size().==(1));
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$1: (org.apache.spark.sql.types.DataType, Boolean) = (SchemaUtils.this.fromClickHouseType(elementChCols.get(0)): (org.apache.spark.sql.types.DataType, Boolean) @unchecked) match {
+    case (_1: org.apache.spark.sql.types.DataType, _2: Boolean)(org.apache.spark.sql.types.DataType, Boolean)((elementType @ _), (elementNullable @ _)) =&gt; scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](elementType, elementNullable)
+  };
+  val elementType: org.apache.spark.sql.types.DataType = x$1._1;
+  val elementNullable: Boolean = x$1._2;
+  org.apache.spark.sql.types.ArrayType.apply(elementType, elementNullable)
+}
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          397
+        </td>
+        <td>
+          2740
+          -
+          2740
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseColumn.getNestedColumns
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chColumn.getNestedColumns()
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1859
+        </td>
+        <td>
+          2791
+          -
+          2795
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          elementChCols.size().==(1)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1045
+        </td>
+        <td>
+          2771
+          -
+          2771
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.assert
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.assert(elementChCols.size().==(1))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          558
+        </td>
+        <td>
+          2810
+          -
+          2810
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          2073
+        </td>
+        <td>
+          2823
+          -
+          2823
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1162
+        </td>
+        <td>
+          2900
+          -
+          2900
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.ArrayType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.ArrayType.apply(elementType, elementNullable)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1169
+        </td>
+        <td>
+          2946
+          -
+          2946
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  val kvChCols: java.util.List[com.clickhouse.data.ClickHouseColumn] = chColumn.getNestedColumns();
+  scala.Predef.assert(kvChCols.size().==(2));
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$2: (com.clickhouse.data.ClickHouseColumn, com.clickhouse.data.ClickHouseColumn) = (scala.Tuple2.apply[com.clickhouse.data.ClickHouseColumn, com.clickhouse.data.ClickHouseColumn](kvChCols.get(0), kvChCols.get(1)): (com.clickhouse.data.ClickHouseColumn, com.clickhouse.data.ClickHouseColumn) @unchecked) match {
+    case (_1: com.clickhouse.data.ClickHouseColumn, _2: com.clickhouse.data.ClickHouseColumn)(com.clickhouse.data.ClickHouseColumn, com.clickhouse.data.ClickHouseColumn)((keyChType @ _), (valueChType @ _)) =&gt; scala.Tuple2.apply[com.clickhouse.data.ClickHouseColumn, com.clickhouse.data.ClickHouseColumn](keyChType, valueChType)
+  };
+  val keyChType: com.clickhouse.data.ClickHouseColumn = x$2._1;
+  val valueChType: com.clickhouse.data.ClickHouseColumn = x$2._2;
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$3: (org.apache.spark.sql.types.DataType, Boolean) = (SchemaUtils.this.fromClickHouseType(keyChType): (org.apache.spark.sql.types.DataType, Boolean) @unchecked) match {
+    case (_1: org.apache.spark.sql.types.DataType, _2: Boolean)(org.apache.spark.sql.types.DataType, Boolean)((keyType @ _), (keyNullable @ _)) =&gt; scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](keyType, keyNullable)
+  };
+  val keyType: org.apache.spark.sql.types.DataType = x$3._1;
+  val keyNullable: Boolean = x$3._2;
+  scala.Predef.require(keyNullable.unary_!, scala.StringContext.apply(&quot;Illegal type: &quot;, &quot;, the key type of Map should not be nullable&quot;).s(keyChType.getOriginalTypeName()));
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$4: (org.apache.spark.sql.types.DataType, Boolean) = (SchemaUtils.this.fromClickHouseType(valueChType): (org.apache.spark.sql.types.DataType, Boolean) @unchecked) match {
+    case (_1: org.apache.spark.sql.types.DataType, _2: Boolean)(org.apache.spark.sql.types.DataType, Boolean)((valueType @ _), (valueNullable @ _)) =&gt; scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](valueType, valueNullable)
+  };
+  val valueType: org.apache.spark.sql.types.DataType = x$4._1;
+  val valueNullable: Boolean = x$4._2;
+  org.apache.spark.sql.types.MapType.apply(keyType, valueType, valueNullable)
+}
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          2231
+        </td>
+        <td>
+          2981
+          -
+          2981
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseColumn.getNestedColumns
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chColumn.getNestedColumns()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1344
+        </td>
+        <td>
+          3027
+          -
+          3031
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          kvChCols.size().==(2)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          401
+        </td>
+        <td>
+          3012
+          -
+          3012
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.assert
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.assert(kvChCols.size().==(2))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1000
+        </td>
+        <td>
+          3057
+          -
+          3057
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1927
+        </td>
+        <td>
+          3046
+          -
+          3046
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          2037
+        </td>
+        <td>
+          3129
+          -
+          3129
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._2
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          565
+        </td>
+        <td>
+          3120
+          -
+          3120
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._1
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1914
+        </td>
+        <td>
+          3189
+          -
+          3189
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.require(keyNullable.unary_!, scala.StringContext.apply(&quot;Illegal type: &quot;, &quot;, the key type of Map should not be nullable&quot;).s(keyChType.getOriginalTypeName()))
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1166
+        </td>
+        <td>
+          3201
+          -
+          3201
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          keyNullable.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1260
+        </td>
+        <td>
+          3253
+          -
+          3253
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseColumn.getOriginalTypeName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          keyChType.getOriginalTypeName()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1780
+        </td>
+        <td>
+          3273
+          -
+          3273
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;, the key type of Map should not be nullable&quot;
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          195
+        </td>
+        <td>
+          3227
+          -
+          3227
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Illegal type: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          407
+        </td>
+        <td>
+          3225
+          -
+          3225
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Illegal type: &quot;, &quot;, the key type of Map should not be nullable&quot;).s(keyChType.getOriginalTypeName())
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          517
+        </td>
+        <td>
+          3353
+          -
+          3353
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4._2
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          945
+        </td>
+        <td>
+          3342
+          -
+          3342
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4._1
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          2040
+        </td>
+        <td>
+          3417
+          -
+          3417
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.MapType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.apache.spark.sql.types.MapType.apply(keyType, valueType, valueNullable)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          163
+        </td>
+        <td>
+          3641
+          -
+          3641
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported type: &quot;, &quot;&quot;).s(chColumn.getOriginalTypeName()), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1705
+        </td>
+        <td>
+          3641
+          -
+          3641
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported type: &quot;, &quot;&quot;).s(chColumn.getOriginalTypeName()), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1333
+        </td>
+        <td>
+          3753
+          -
+          3753
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseColumn.isNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chColumn.isNullable()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          371
+        </td>
+        <td>
+          3729
+          -
+          3729
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple2.apply[org.apache.spark.sql.types.DataType with Product with Serializable, Boolean](catalystType, chColumn.isNullable())
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          926
+        </td>
+        <td>
+          3910
+          -
+          3910
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;UInt8&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1857
+        </td>
+        <td>
+          3910
+          -
+          3910
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;UInt8&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          2140
+        </td>
+        <td>
+          3966
+          -
+          3966
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Int8&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          556
+        </td>
+        <td>
+          3966
+          -
+          3966
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Int8&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1142
+        </td>
+        <td>
+          4022
+          -
+          4022
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Int16&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          4022
+          -
+          4022
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Int16&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1691
+        </td>
+        <td>
+          4081
+          -
+          4081
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.maybeNullable(&quot;Int32&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1341
+        </td>
+        <td>
+          4081
+          -
+          4081
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.maybeNullable(&quot;Int32&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          451
+        </td>
+        <td>
+          4137
+          -
+          4137
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Int64&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1968
+        </td>
+        <td>
+          4137
+          -
+          4137
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Int64&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          4194
+          -
+          4194
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Float32&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          928
+        </td>
+        <td>
+          4194
+          -
+          4194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Float32&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1165
+        </td>
+        <td>
+          4254
+          -
+          4254
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Float64&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          2118
+        </td>
+        <td>
+          4254
+          -
+          4254
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Float64&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1778
+        </td>
+        <td>
+          4314
+          -
+          4314
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.maybeNullable(&quot;String&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          284
+        </td>
+        <td>
+          4314
+          -
+          4314
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.maybeNullable(&quot;String&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1350
+        </td>
+        <td>
+          4377
+          -
+          4377
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;String&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          435
+        </td>
+        <td>
+          4377
+          -
+          4377
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;String&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1913
+        </td>
+        <td>
+          4437
+          -
+          4437
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;String&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1051
+        </td>
+        <td>
+          4437
+          -
+          4437
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;String&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          2124
+        </td>
+        <td>
+          4520
+          -
+          4520
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Date&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          4520
+          -
+          4520
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;Date&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1135
+        </td>
+        <td>
+          4580
+          -
+          4580
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;DateTime&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          213
+        </td>
+        <td>
+          4580
+          -
+          4580
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SchemaUtils.this.maybeNullable(&quot;DateTime&quot;, nullable)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          369
+        </td>
+        <td>
+          4654
+          -
+          4654
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.maybeNullable(scala.StringContext.apply(&quot;Decimal(&quot;, &quot;, &quot;, &quot;)&quot;).s(p, s), nullable)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1787
+        </td>
+        <td>
+          4655
+          -
+          4655
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Decimal(&quot;, &quot;, &quot;, &quot;)&quot;).s(p, s)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          892
+        </td>
+        <td>
+          4654
+          -
+          4654
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.maybeNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.maybeNullable(scala.StringContext.apply(&quot;Decimal(&quot;, &quot;, &quot;, &quot;)&quot;).s(p, s), nullable)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          4759
+          -
+          4759
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.toClickHouseType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.toClickHouseType(elemType, containsNull)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1897
+        </td>
+        <td>
+          4735
+          -
+          4735
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Array(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          925
+        </td>
+        <td>
+          4784
+          -
+          4784
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1140
+        </td>
+        <td>
+          4733
+          -
+          4733
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Array(&quot;, &quot;)&quot;).s(SchemaUtils.this.toClickHouseType(elemType, containsNull))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          2085
+        </td>
+        <td>
+          4733
+          -
+          4733
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Array(&quot;, &quot;)&quot;).s(SchemaUtils.this.toClickHouseType(elemType, containsNull))
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          198
+        </td>
+        <td>
+          4919
+          -
+          4919
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          keyType.isInstanceOf[org.apache.spark.sql.types.StringType]
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          2012
+        </td>
+        <td>
+          4943
+          -
+          4943
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Map(&quot;, &quot;, &quot;, &quot;)&quot;).s(SchemaUtils.this.toClickHouseType(keyType, false), SchemaUtils.this.toClickHouseType(valueType, valueContainsNull))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1901
+        </td>
+        <td>
+          4967
+          -
+          4967
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.toClickHouseType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.toClickHouseType(keyType, false)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          328
+        </td>
+        <td>
+          5046
+          -
+          5046
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1
+        </td>
+        <td>
+          4943
+          -
+          4943
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Map(&quot;, &quot;, &quot;, &quot;)&quot;).s(SchemaUtils.this.toClickHouseType(keyType, false), SchemaUtils.this.toClickHouseType(valueType, valueContainsNull))
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          927
+        </td>
+        <td>
+          5015
+          -
+          5015
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.toClickHouseType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.toClickHouseType(valueType, valueContainsNull)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1690
+        </td>
+        <td>
+          4945
+          -
+          4945
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Map(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          894
+        </td>
+        <td>
+          4995
+          -
+          4995
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;, &quot;
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1096
+        </td>
+        <td>
+          5065
+          -
+          5065
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported type: &quot;, &quot;&quot;).s(catalystType), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          203
+        </td>
+        <td>
+          5065
+          -
+          5065
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported type: &quot;, &quot;&quot;).s(catalystType), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          286
+        </td>
+        <td>
+          5244
+          -
+          5244
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1823
+        </td>
+        <td>
+          5244
+          -
+          5244
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          chSchema.map[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](((x0$1: (String, String)) =&gt; x0$1 match {
+  case (_1: String, _2: String)(String, String)((name @ _), (maybeNullableType @ _)) =&gt; {
+    val chCols: java.util.List[com.clickhouse.data.ClickHouseColumn] = com.clickhouse.data.ClickHouseColumn.parse(scala.StringContext.apply(&quot;`&quot;, &quot;` &quot;, &quot;&quot;).s(name, maybeNullableType));
+    scala.Predef.assert(chCols.size().==(1));
+    &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$5: (org.apache.spark.sql.types.DataType, Boolean) = (SchemaUtils.this.fromClickHouseType(chCols.get(0)): (org.apache.spark.sql.types.DataType, Boolean) @unchecked) match {
+      case (_1: org.apache.spark.sql.types.DataType, _2: Boolean)(org.apache.spark.sql.types.DataType, Boolean)((sparkType @ _), (nullable @ _)) =&gt; scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](sparkType, nullable)
+    };
+    val sparkType: org.apache.spark.sql.types.DataType = x$5._1;
+    val nullable: Boolean = x$5._2;
+    org.apache.spark.sql.types.StructField.apply(name, sparkType, nullable, org.apache.spark.sql.types.StructField.apply$default$4)
+  }
+}))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField])
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1104
+        </td>
+        <td>
+          5277
+          -
+          5277
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val chCols: java.util.List[com.clickhouse.data.ClickHouseColumn] = com.clickhouse.data.ClickHouseColumn.parse(scala.StringContext.apply(&quot;`&quot;, &quot;` &quot;, &quot;&quot;).s(name, maybeNullableType));
+  scala.Predef.assert(chCols.size().==(1));
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$5: (org.apache.spark.sql.types.DataType, Boolean) = (SchemaUtils.this.fromClickHouseType(chCols.get(0)): (org.apache.spark.sql.types.DataType, Boolean) @unchecked) match {
+    case (_1: org.apache.spark.sql.types.DataType, _2: Boolean)(org.apache.spark.sql.types.DataType, Boolean)((sparkType @ _), (nullable @ _)) =&gt; scala.Tuple2.apply[org.apache.spark.sql.types.DataType, Boolean](sparkType, nullable)
+  };
+  val sparkType: org.apache.spark.sql.types.DataType = x$5._1;
+  val nullable: Boolean = x$5._2;
+  org.apache.spark.sql.types.StructField.apply(name, sparkType, nullable, org.apache.spark.sql.types.StructField.apply$default$4)
+}
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1692
+        </td>
+        <td>
+          5322
+          -
+          5322
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;`&quot;, &quot;` &quot;, &quot;&quot;).s(name, maybeNullableType)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          770
+        </td>
+        <td>
+          5321
+          -
+          5321
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseColumn.parse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.data.ClickHouseColumn.parse(scala.StringContext.apply(&quot;`&quot;, &quot;` &quot;, &quot;&quot;).s(name, maybeNullableType))
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          332
+        </td>
+        <td>
+          5378
+          -
+          5382
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          chCols.size().==(1)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1866
+        </td>
+        <td>
+          5365
+          -
+          5365
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.assert
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.assert(chCols.size().==(1))
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          2
+        </td>
+        <td>
+          5406
+          -
+          5406
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$5._2
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1050
+        </td>
+        <td>
+          5395
+          -
+          5395
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$5._1
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          1666
+        </td>
+        <td>
+          5469
+          -
+          5469
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructField.apply(name, sparkType, nullable, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          890
+        </td>
+        <td>
+          5517
+          -
+          5517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructType.apply(structFields)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          406
+        </td>
+        <td>
+          5642
+          -
+          5642
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          catalystSchema.fields
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          1826
+        </td>
+        <td>
+          5660
+          -
+          5660
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.DummyImplicit.dummyImplicit
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Predef.this.DummyImplicit.dummyImplicit
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          856
+        </td>
+        <td>
+          5660
+          -
+          5660
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.FallbackArrayBuilding.fallbackCanBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.fallbackCanBuildFrom[(String, String, String)](Predef.this.DummyImplicit.dummyImplicit)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          413
+        </td>
+        <td>
+          5660
+          -
+          5660
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](catalystSchema.fields).map[(String, String, String), Seq[(String, String, String)]](((field: org.apache.spark.sql.types.StructField) =&gt; {
+  val chType: String = SchemaUtils.this.toClickHouseType(field.dataType, field.nullable);
+  scala.Tuple3.apply[String, String, String](field.name, chType, field.getComment().map[String](((c: String) =&gt; scala.StringContext.apply(&quot; COMMENT \'&quot;, &quot;\'&quot;).s(c))).getOrElse[String](&quot;&quot;))
+}))(scala.this.Array.fallbackCanBuildFrom[(String, String, String)](Predef.this.DummyImplicit.dummyImplicit))
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          1871
+        </td>
+        <td>
+          5715
+          -
+          5715
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.dataType
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          1054
+        </td>
+        <td>
+          5731
+          -
+          5731
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.nullable
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          5708
+          -
+          5708
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.toClickHouseType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.toClickHouseType(field.dataType, field.nullable)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          1667
+        </td>
+        <td>
+          5756
+          -
+          5756
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.name
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          1190
+        </td>
+        <td>
+          5825
+          -
+          5825
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.getComment().map[String](((c: String) =&gt; scala.StringContext.apply(&quot; COMMENT \'&quot;, &quot;\'&quot;).s(c))).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          242
+        </td>
+        <td>
+          5749
+          -
+          5749
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple3.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Tuple3.apply[String, String, String](field.name, chType, field.getComment().map[String](((c: String) =&gt; scala.StringContext.apply(&quot; COMMENT \'&quot;, &quot;\'&quot;).s(c))).getOrElse[String](&quot;&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          5969
+          -
+          5969
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.chType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          chType
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          1012
+        </td>
+        <td>
+          5955
+          -
+          5955
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.wrapNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.wrapNullable(chType)
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          1900
+        </td>
+        <td>
+          5955
+          -
+          5955
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.wrapNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SchemaUtils.this.wrapNullable(chType)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1641
+        </td>
+        <td>
+          6042
+          -
+          6042
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Nullable(&quot;, &quot;)&quot;).s(chType)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

@@ -1,0 +1,1892 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/format/JSONOutputFormat.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.format
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.exception.CHClientException
+</span>18 <span style=''>import java.io.InputStream
+</span>19 <span style=''>
+</span>20 <span style=''>import scala.collection.immutable.ListMap
+</span>21 <span style=''>import scala.collection.JavaConverters._
+</span>22 <span style=''>
+</span>23 <span style=''>import com.fasterxml.jackson.databind.JsonNode
+</span>24 <span style=''>import com.fasterxml.jackson.databind.node.ObjectNode
+</span>25 <span style=''>import com.clickhouse.spark.JsonProtocol.om
+</span>26 <span style=''>
+</span>27 <span style=''>///////////////////////////////////////////////////////////////////////////////
+</span>28 <span style=''>/////////////////////////////////// Simple ////////////////////////////////////
+</span>29 <span style=''>///////////////////////////////////////////////////////////////////////////////
+</span>30 <span style=''>
+</span>31 <span style=''>object JSONEachRowSimpleOutput {
+</span>32 <span style=''>  def deserialize(input: InputStream): SimpleOutput[ObjectNode] = {
+</span>33 <span style=''>    val records = om.readerFor[ObjectNode]
+</span>34 <span style=''>      .readValues[ObjectNode](input)
+</span>35 <span style=''>      .asScala.toSeq
+</span>36 <span style=''>    new JSONEachRowSimpleOutput(records)
+</span>37 <span style=''>  }
+</span>38 <span style=''>}
+</span>39 <span style=''>
+</span>40 <span style=''>class JSONEachRowSimpleOutput(
+</span>41 <span style=''>  override val records: Seq[ObjectNode]
+</span>42 <span style=''>) extends SimpleOutput[ObjectNode]
+</span>43 <span style=''>
+</span>44 <span style=''>object JSONCompactEachRowWithNamesAndTypesSimpleOutput {
+</span>45 <span style=''>  def deserialize(input: InputStream): SimpleOutput[Array[JsonNode]] with NamesAndTypes = {
+</span>46 <span style=''>    val jsonParser = om.getFactory.createParser(input)
+</span>47 <span style=''>    val records = om.readValues[Array[JsonNode]](jsonParser).asScala.toSeq
+</span>48 <span style=''>    new JSONCompactEachRowWithNamesAndTypesSimpleOutput(records)
+</span>49 <span style=''>  }
+</span>50 <span style=''>}
+</span>51 <span style=''>
+</span>52 <span style=''>class JSONCompactEachRowWithNamesAndTypesSimpleOutput(
+</span>53 <span style=''>  //     first row : names
+</span>54 <span style=''>  //    second row : types
+</span>55 <span style=''>  // following rows: records
+</span>56 <span style=''>  namesAndTypesData: Seq[Array[JsonNode]]
+</span>57 <span style=''>) extends SimpleOutput[Array[JsonNode]] with NamesAndTypes {
+</span>58 <span style=''>
+</span>59 <span style=''>  private val _namesAndTypes: ListMap[String, String] = namesAndTypesData.take(2).toList match {
+</span>60 <span style=''>    case names :: types :: Nil =&gt; ListMap.empty </span><span style='background: #F0ADAD'>++ (names.map(_.asText) zip types.map(_.asText))</span><span style=''>
+</span>61 <span style=''>    case _ =&gt; throw CHClientException(&quot;Corrupt data of output format JSONCompactEachRowWithNamesAndTypes&quot;)
+</span>62 <span style=''>  }
+</span>63 <span style=''>
+</span>64 <span style=''>  private val _records: Seq[Array[JsonNode]] = namesAndTypesData.drop(2)
+</span>65 <span style=''>
+</span>66 <span style=''>  override def namesAndTypes: ListMap[String, String] = _namesAndTypes
+</span>67 <span style=''>
+</span>68 <span style=''>  override def records: Seq[Array[JsonNode]] = _records
+</span>69 <span style=''>}
+</span>70 <span style=''>
+</span>71 <span style=''>///////////////////////////////////////////////////////////////////////////////
+</span>72 <span style=''>/////////////////////////////////// Stream ////////////////////////////////////
+</span>73 <span style=''>///////////////////////////////////////////////////////////////////////////////
+</span>74 <span style=''>
+</span>75 <span style=''>object JSONCompactEachRowWithNamesAndTypesStreamOutput {
+</span>76 <span style=''>  def deserializeStream(input: InputStream): StreamOutput[Array[JsonNode]] = {
+</span>77 <span style=''>    val jsonParser = om.getFactory.createParser(input)
+</span>78 <span style=''>    val stream = om.readValues[Array[JsonNode]](jsonParser).asScala
+</span>79 <span style=''>    new JSONCompactEachRowWithNamesAndTypesStreamOutput(stream)
+</span>80 <span style=''>  }
+</span>81 <span style=''>}
+</span>82 <span style=''>
+</span>83 <span style=''>class JSONCompactEachRowWithNamesAndTypesStreamOutput(
+</span>84 <span style=''>  //     first row : names
+</span>85 <span style=''>  //    second row : types
+</span>86 <span style=''>  // following rows: records
+</span>87 <span style=''>  namesAndTypesDataStream: Iterator[Array[JsonNode]]
+</span>88 <span style=''>) extends StreamOutput[Array[JsonNode]] with NamesAndTypes {
+</span>89 <span style=''>
+</span>90 <span style=''>  private var names: Array[String] = _
+</span>91 <span style=''>  private var types: Array[String] = _
+</span>92 <span style=''>
+</span>93 <span style=''>  override lazy val namesAndTypes: ListMap[String, String] = {
+</span>94 <span style=''>    hasNext
+</span>95 <span style=''>    require(names != null &amp;&amp; types != null)
+</span>96 <span style=''>    ListMap.empty ++ (names zip types)
+</span>97 <span style=''>  }
+</span>98 <span style=''>
+</span>99 <span style=''>  private var nextRecord: Array[JsonNode] = _
+</span>100 <span style=''>
+</span>101 <span style=''>  override def hasNext: Boolean = {
+</span>102 <span style=''>    if (nextRecord </span><span style='background: #F0ADAD'>!= null</span><span style=''>)
+</span>103 <span style=''>      return true
+</span>104 <span style=''>
+</span>105 <span style=''>    while (namesAndTypesDataStream.hasNext)
+</span>106 <span style=''>      if (names </span><span style='background: #F0ADAD'>== null</span><span style=''>)
+</span>107 <span style=''>        names = namesAndTypesDataStream.next.map(_.asText)
+</span>108 <span style=''>      else if (types </span><span style='background: #F0ADAD'>== null</span><span style=''>)
+</span>109 <span style=''>        types = namesAndTypesDataStream.next.map(_.asText)
+</span>110 <span style=''>      else {
+</span>111 <span style=''>        nextRecord = namesAndTypesDataStream.next
+</span>112 <span style=''>        return true
+</span>113 <span style=''>      }
+</span>114 <span style=''>    false
+</span>115 <span style=''>  }
+</span>116 <span style=''>
+</span>117 <span style=''>  override def next: Array[JsonNode] = {
+</span>118 <span style=''>    if (!hasNext) {
+</span>119 <span style=''>      throw new NoSuchElementException(&quot;End of stream&quot;)
+</span>120 <span style=''>    }
+</span>121 <span style=''>    val ret = nextRecord
+</span>122 <span style=''>    nextRecord = null
+</span>123 <span style=''>    ret
+</span>124 <span style=''>  }
+</span>125 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          283
+        </td>
+        <td>
+          1329
+          -
+          1329
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.ObjectReader.readValues
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.JsonProtocol.om.readerFor[com.fasterxml.jackson.databind.node.ObjectNode](scala.this.JavaTypeable.gen0JavaTypeable[com.fasterxml.jackson.databind.node.ObjectNode]((ClassTag.apply[com.fasterxml.jackson.databind.node.ObjectNode](classOf[com.fasterxml.jackson.databind.node.ObjectNode]): scala.reflect.ClassTag[com.fasterxml.jackson.databind.node.ObjectNode]))).readValues[com.fasterxml.jackson.databind.node.ObjectNode](input)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          999
+        </td>
+        <td>
+          1352
+          -
+          1352
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.asScalaIteratorConverter[com.fasterxml.jackson.databind.node.ObjectNode](com.clickhouse.spark.JsonProtocol.om.readerFor[com.fasterxml.jackson.databind.node.ObjectNode](scala.this.JavaTypeable.gen0JavaTypeable[com.fasterxml.jackson.databind.node.ObjectNode]((ClassTag.apply[com.fasterxml.jackson.databind.node.ObjectNode](classOf[com.fasterxml.jackson.databind.node.ObjectNode]): scala.reflect.ClassTag[com.fasterxml.jackson.databind.node.ObjectNode]))).readValues[com.fasterxml.jackson.databind.node.ObjectNode](input)).asScala.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          622
+        </td>
+        <td>
+          1362
+          -
+          1362
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONEachRowSimpleOutput.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new JSONEachRowSimpleOutput(records)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          212
+        </td>
+        <td>
+          1709
+          -
+          1709
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.core.JsonFactory.createParser
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.JsonProtocol.om.getFactory().createParser(input)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          891
+        </td>
+        <td>
+          1765
+          -
+          1765
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.fasterxml.jackson.module.scala.JavaTypeable.gen0JavaTypeable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.JavaTypeable.gen0JavaTypeable[com.fasterxml.jackson.databind.JsonNode]((ClassTag.apply[com.fasterxml.jackson.databind.JsonNode](classOf[com.fasterxml.jackson.databind.JsonNode]): scala.reflect.ClassTag[com.fasterxml.jackson.databind.JsonNode]))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          657
+        </td>
+        <td>
+          1765
+          -
+          1765
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.fasterxml.jackson.module.scala.JavaTypeable.arrayJavaTypeable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.JavaTypeable.arrayJavaTypeable[com.fasterxml.jackson.databind.JsonNode](scala.this.JavaTypeable.gen0JavaTypeable[com.fasterxml.jackson.databind.JsonNode]((ClassTag.apply[com.fasterxml.jackson.databind.JsonNode](classOf[com.fasterxml.jackson.databind.JsonNode]): scala.reflect.ClassTag[com.fasterxml.jackson.databind.JsonNode])))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          928
+        </td>
+        <td>
+          1786
+          -
+          1786
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.asScalaIteratorConverter[Array[com.fasterxml.jackson.databind.JsonNode]](com.clickhouse.spark.JsonProtocol.om.readValues[Array[com.fasterxml.jackson.databind.JsonNode]](jsonParser)(scala.this.JavaTypeable.arrayJavaTypeable[com.fasterxml.jackson.databind.JsonNode](scala.this.JavaTypeable.gen0JavaTypeable[com.fasterxml.jackson.databind.JsonNode]((ClassTag.apply[com.fasterxml.jackson.databind.JsonNode](classOf[com.fasterxml.jackson.databind.JsonNode]): scala.reflect.ClassTag[com.fasterxml.jackson.databind.JsonNode]))))).asScala.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          255
+        </td>
+        <td>
+          1765
+          -
+          1765
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.fasterxml.jackson.module.scala.ClassTagExtensions.readValues
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.JsonProtocol.om.readValues[Array[com.fasterxml.jackson.databind.JsonNode]](jsonParser)(scala.this.JavaTypeable.arrayJavaTypeable[com.fasterxml.jackson.databind.JsonNode](scala.this.JavaTypeable.gen0JavaTypeable[com.fasterxml.jackson.databind.JsonNode]((ClassTag.apply[com.fasterxml.jackson.databind.JsonNode](classOf[com.fasterxml.jackson.databind.JsonNode]): scala.reflect.ClassTag[com.fasterxml.jackson.databind.JsonNode]))))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          555
+        </td>
+        <td>
+          1796
+          -
+          1796
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesSimpleOutput.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new JSONCompactEachRowWithNamesAndTypesSimpleOutput(records)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1004
+        </td>
+        <td>
+          2188
+          -
+          2188
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesSimpleOutput.this.namesAndTypesData.take(2).toList
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          327
+        </td>
+        <td>
+          2185
+          -
+          2185
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          932
+        </td>
+        <td>
+          2288
+          -
+          2288
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](types).map[String, Array[String]](((x$2: com.fasterxml.jackson.databind.JsonNode) =&gt; x$2.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          606
+        </td>
+        <td>
+          2267
+          -
+          2267
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.asText()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          175
+        </td>
+        <td>
+          2264
+          -
+          2264
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          310
+        </td>
+        <td>
+          2275
+          -
+          2275
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Predef.DummyImplicit.dummyImplicit
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Predef.this.DummyImplicit.dummyImplicit
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          824
+        </td>
+        <td>
+          2264
+          -
+          2264
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](names).map[String, Array[String]](((x$1: com.fasterxml.jackson.databind.JsonNode) =&gt; x$1.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          644
+        </td>
+        <td>
+          2291
+          -
+          2291
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$2.asText()
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          258
+        </td>
+        <td>
+          2288
+          -
+          2288
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          512
+        </td>
+        <td>
+          2288
+          -
+          2288
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapRefArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.wrapRefArray[String](scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](types).map[String, Array[String]](((x$2: com.fasterxml.jackson.databind.JsonNode) =&gt; x$2.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          180
+        </td>
+        <td>
+          2251
+          -
+          2299
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.ListMap.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.ListMap.empty[String, Nothing].++[String](scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](names).map[String, Array[String]](((x$1: com.fasterxml.jackson.databind.JsonNode) =&gt; x$1.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).zip[String, String, scala.collection.GenTraversableOnce[(String, String)]](scala.Predef.wrapRefArray[String](scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](types).map[String, Array[String]](((x$2: com.fasterxml.jackson.databind.JsonNode) =&gt; x$2.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))))(scala.this.Array.fallbackCanBuildFrom[(String, String)](Predef.this.DummyImplicit.dummyImplicit)))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          847
+        </td>
+        <td>
+          2251
+          -
+          2299
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.immutable.ListMap.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.ListMap.empty[String, Nothing].++[String](scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](names).map[String, Array[String]](((x$1: com.fasterxml.jackson.databind.JsonNode) =&gt; x$1.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).zip[String, String, scala.collection.GenTraversableOnce[(String, String)]](scala.Predef.wrapRefArray[String](scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](types).map[String, Array[String]](((x$2: com.fasterxml.jackson.databind.JsonNode) =&gt; x$2.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))))(scala.this.Array.fallbackCanBuildFrom[(String, String)](Predef.this.DummyImplicit.dummyImplicit)))
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          984
+        </td>
+        <td>
+          2275
+          -
+          2275
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.FallbackArrayBuilding.fallbackCanBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.fallbackCanBuildFrom[(String, String)](Predef.this.DummyImplicit.dummyImplicit)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          610
+        </td>
+        <td>
+          2275
+          -
+          2298
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.zip
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](names).map[String, Array[String]](((x$1: com.fasterxml.jackson.databind.JsonNode) =&gt; x$1.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).zip[String, String, scala.collection.GenTraversableOnce[(String, String)]](scala.Predef.wrapRefArray[String](scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](types).map[String, Array[String]](((x$2: com.fasterxml.jackson.databind.JsonNode) =&gt; x$2.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))))(scala.this.Array.fallbackCanBuildFrom[(String, String)](Predef.this.DummyImplicit.dummyImplicit))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          235
+        </td>
+        <td>
+          2314
+          -
+          2314
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(&quot;Corrupt data of output format JSONCompactEachRowWithNamesAndTypes&quot;, com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          646
+        </td>
+        <td>
+          2314
+          -
+          2314
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(&quot;Corrupt data of output format JSONCompactEachRowWithNamesAndTypes&quot;, com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          910
+        </td>
+        <td>
+          2481
+          -
+          2481
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.drop
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesSimpleOutput.this.namesAndTypesData.drop(2)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          514
+        </td>
+        <td>
+          2542
+          -
+          2542
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesSimpleOutput._namesAndTypes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesSimpleOutput.this._namesAndTypes
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          131
+        </td>
+        <td>
+          2605
+          -
+          2605
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesSimpleOutput._records
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesSimpleOutput.this._records
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          986
+        </td>
+        <td>
+          3041
+          -
+          3041
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.core.JsonFactory.createParser
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.JsonProtocol.om.getFactory().createParser(input)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          890
+        </td>
+        <td>
+          3096
+          -
+          3096
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.fasterxml.jackson.module.scala.ClassTagExtensions.readValues
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.JsonProtocol.om.readValues[Array[com.fasterxml.jackson.databind.JsonNode]](jsonParser)(scala.this.JavaTypeable.arrayJavaTypeable[com.fasterxml.jackson.databind.JsonNode](scala.this.JavaTypeable.gen0JavaTypeable[com.fasterxml.jackson.databind.JsonNode]((ClassTag.apply[com.fasterxml.jackson.databind.JsonNode](classOf[com.fasterxml.jackson.databind.JsonNode]): scala.reflect.ClassTag[com.fasterxml.jackson.databind.JsonNode]))))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          674
+        </td>
+        <td>
+          3109
+          -
+          3109
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsScala.asScala
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.asScalaIteratorConverter[Array[com.fasterxml.jackson.databind.JsonNode]](com.clickhouse.spark.JsonProtocol.om.readValues[Array[com.fasterxml.jackson.databind.JsonNode]](jsonParser)(scala.this.JavaTypeable.arrayJavaTypeable[com.fasterxml.jackson.databind.JsonNode](scala.this.JavaTypeable.gen0JavaTypeable[com.fasterxml.jackson.databind.JsonNode]((ClassTag.apply[com.fasterxml.jackson.databind.JsonNode](classOf[com.fasterxml.jackson.databind.JsonNode]): scala.reflect.ClassTag[com.fasterxml.jackson.databind.JsonNode]))))).asScala
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          566
+        </td>
+        <td>
+          3096
+          -
+          3096
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.fasterxml.jackson.module.scala.JavaTypeable.gen0JavaTypeable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.JavaTypeable.gen0JavaTypeable[com.fasterxml.jackson.databind.JsonNode]((ClassTag.apply[com.fasterxml.jackson.databind.JsonNode](classOf[com.fasterxml.jackson.databind.JsonNode]): scala.reflect.ClassTag[com.fasterxml.jackson.databind.JsonNode]))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          161
+        </td>
+        <td>
+          3096
+          -
+          3096
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.fasterxml.jackson.module.scala.JavaTypeable.arrayJavaTypeable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.JavaTypeable.arrayJavaTypeable[com.fasterxml.jackson.databind.JsonNode](scala.this.JavaTypeable.gen0JavaTypeable[com.fasterxml.jackson.databind.JsonNode]((ClassTag.apply[com.fasterxml.jackson.databind.JsonNode](classOf[com.fasterxml.jackson.databind.JsonNode]): scala.reflect.ClassTag[com.fasterxml.jackson.databind.JsonNode])))
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          241
+        </td>
+        <td>
+          3121
+          -
+          3121
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesStreamOutput.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new JSONCompactEachRowWithNamesAndTypesStreamOutput(stream)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          558
+        </td>
+        <td>
+          3770
+          -
+          3770
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          916
+        </td>
+        <td>
+          3785
+          -
+          3792
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.nextRecord.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          969
+        </td>
+        <td>
+          3770
+          -
+          3770
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          501
+        </td>
+        <td>
+          3807
+          -
+          3807
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          136
+        </td>
+        <td>
+          3800
+          -
+          3800
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesStreamOutput.hasNext
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          return true
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          499
+        </td>
+        <td>
+          3817
+          -
+          3817
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          166
+        </td>
+        <td>
+          3848
+          -
+          3848
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.Iterator.hasNext
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.hasNext
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          238
+        </td>
+        <td>
+          3817
+          -
+          3817
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  if (JSONCompactEachRowWithNamesAndTypesStreamOutput.this.names.==(null))
+    JSONCompactEachRowWithNamesAndTypesStreamOutput.this.names_=(scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()).map[String, Array[String]](((x$3: com.fasterxml.jackson.databind.JsonNode) =&gt; x$3.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+  else
+    if (JSONCompactEachRowWithNamesAndTypesStreamOutput.this.types.==(null))
+      JSONCompactEachRowWithNamesAndTypesStreamOutput.this.types_=(scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()).map[String, Array[String]](((x$4: com.fasterxml.jackson.databind.JsonNode) =&gt; x$4.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+    else
+      {
+        JSONCompactEachRowWithNamesAndTypesStreamOutput.this.nextRecord_=(JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next());
+        return true
+      };
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          936
+        </td>
+        <td>
+          3817
+          -
+          3817
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          868
+        </td>
+        <td>
+          3873
+          -
+          3880
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.names.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          466
+        </td>
+        <td>
+          3863
+          -
+          3863
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesStreamOutput.while$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          478
+        </td>
+        <td>
+          3922
+          -
+          3922
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.next
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          110
+        </td>
+        <td>
+          3896
+          -
+          3896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesStreamOutput.names_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.names_=(scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()).map[String, Array[String]](((x$3: com.fasterxml.jackson.databind.JsonNode) =&gt; x$3.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          531
+        </td>
+        <td>
+          3930
+          -
+          3930
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()).map[String, Array[String]](((x$3: com.fasterxml.jackson.databind.JsonNode) =&gt; x$3.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          898
+        </td>
+        <td>
+          3930
+          -
+          3930
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          1023
+        </td>
+        <td>
+          3896
+          -
+          3896
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesStreamOutput.names_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.names_=(scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()).map[String, Array[String]](((x$3: com.fasterxml.jackson.databind.JsonNode) =&gt; x$3.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          257
+        </td>
+        <td>
+          3933
+          -
+          3933
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$3.asText()
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          609
+        </td>
+        <td>
+          3962
+          -
+          3969
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.types.==(null)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          853
+        </td>
+        <td>
+          3952
+          -
+          3952
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          if (JSONCompactEachRowWithNamesAndTypesStreamOutput.this.types.==(null))
+  JSONCompactEachRowWithNamesAndTypesStreamOutput.this.types_=(scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()).map[String, Array[String]](((x$4: com.fasterxml.jackson.databind.JsonNode) =&gt; x$4.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+else
+  {
+    JSONCompactEachRowWithNamesAndTypesStreamOutput.this.nextRecord_=(JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next());
+    return true
+  }
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          953
+        </td>
+        <td>
+          3985
+          -
+          3985
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesStreamOutput.types_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.types_=(scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()).map[String, Array[String]](((x$4: com.fasterxml.jackson.databind.JsonNode) =&gt; x$4.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          142
+        </td>
+        <td>
+          4011
+          -
+          4011
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.next
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          522
+        </td>
+        <td>
+          3985
+          -
+          3985
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesStreamOutput.types_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.types_=(scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()).map[String, Array[String]](((x$4: com.fasterxml.jackson.databind.JsonNode) =&gt; x$4.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          871
+        </td>
+        <td>
+          4022
+          -
+          4022
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$4.asText()
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          410
+        </td>
+        <td>
+          4019
+          -
+          4019
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          233
+        </td>
+        <td>
+          4019
+          -
+          4019
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[com.fasterxml.jackson.databind.JsonNode](JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()).map[String, Array[String]](((x$4: com.fasterxml.jackson.databind.JsonNode) =&gt; x$4.asText()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          157
+        </td>
+        <td>
+          4041
+          -
+          4041
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  JSONCompactEachRowWithNamesAndTypesStreamOutput.this.nextRecord_=(JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next());
+  return true
+}
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          112
+        </td>
+        <td>
+          4088
+          -
+          4088
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.next
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next()
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          985
+        </td>
+        <td>
+          4062
+          -
+          4062
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesStreamOutput.nextRecord_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.nextRecord_=(JSONCompactEachRowWithNamesAndTypesStreamOutput.this.namesAndTypesDataStream.next())
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          586
+        </td>
+        <td>
+          4108
+          -
+          4108
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          119
+        </td>
+        <td>
+          4125
+          -
+          4125
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          421
+        </td>
+        <td>
+          4181
+          -
+          4181
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          841
+        </td>
+        <td>
+          4181
+          -
+          4181
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          772
+        </td>
+        <td>
+          4185
+          -
+          4185
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.hasNext.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          211
+        </td>
+        <td>
+          4203
+          -
+          4203
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.NoSuchElementException(&quot;End of stream&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          587
+        </td>
+        <td>
+          4203
+          -
+          4203
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.NoSuchElementException(&quot;End of stream&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          222
+        </td>
+        <td>
+          4273
+          -
+          4273
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesStreamOutput.nextRecord
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.nextRecord
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          897
+        </td>
+        <td>
+          4299
+          -
+          4299
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesStreamOutput.nextRecord_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JSONCompactEachRowWithNamesAndTypesStreamOutput.this.nextRecord_=(null)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

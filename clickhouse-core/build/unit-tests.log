@@ -1,0 +1,62 @@
+25/11/02 13:46:11.678 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: MergeTree PARTITION BY toYYYYMM(create_time) ORDER BY id
+25/11/02 13:46:11.731 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: ReplicatedMergeTree('/clickhouse/tables/{shard}/wj_report/wj_respondent', '{replica}') PARTITION BY toYYYYMM(created) ORDER BY id SETTINGS index_granularity = 8192
+25/11/02 13:46:11.736 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: ReplacingMergeTree() PARTITION BY toYYYYMM(created) ORDER BY id SETTINGS index_granularity = 8192
+25/11/02 13:46:11.738 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: ReplacingMergeTree(ts) PARTITION BY toYYYYMM(created) ORDER BY id SETTINGS index_granularity = 8192
+25/11/02 13:46:11.739 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: ReplacingMergeTree(ts, is_deleted) PARTITION BY toYYYYMM(created) ORDER BY id SETTINGS index_granularity = 8192
+25/11/02 13:46:11.741 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/wj_report/wj_respondent', '{replica}') PARTITION BY toYYYYMM(created) ORDER BY id SETTINGS index_granularity = 8192
+25/11/02 13:46:11.742 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/wj_report/wj_respondent', '{replica}', ts) PARTITION BY toYYYYMM(created) ORDER BY id SETTINGS index_granularity = 8192
+25/11/02 13:46:11.742 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/wj_report/wj_respondent', '{replica}', ts, is_deleted) PARTITION BY toYYYYMM(created) ORDER BY id SETTINGS index_granularity = 8192
+25/11/02 13:46:11.744 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: Distributed('default', 'wj_report', 'wj_respondent_local')
+25/11/02 13:46:11.745 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: Distributed('default', 'wj_report', 'wj_respondent_local', xxHash64(id))
+25/11/02 13:46:11.747 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: Distributed('default', 'wj_report', 'wj_respondent_local', xxHash64(toString(id, ver)))
+25/11/02 13:46:11.751 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: MergeTree PARTITION BY (a) ORDER BY id
+25/11/02 13:46:11.752 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: MergeTree PARTITION BY (a, b) ORDER BY id
+25/11/02 13:46:11.753 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: MergeTree ORDER BY (a)
+25/11/02 13:46:11.753 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: MergeTree ORDER BY (a, b)
+25/11/02 13:46:11.754 ScalaTest-1-running-SQLParserSuite DEBUG SQLParser: Parsing SQL: MergeTree PARTITION BY id % 3
+25/11/02 13:46:11.759 ScalaTest-1-running-UtilsSuite WARN Utils: Execution failed caused by: 
+com.clickhouse.spark.UtilsSuite$InheritedException
+	at com.clickhouse.spark.UtilsSuite.$anonfun$new$4(UtilsSuite.scala:51)
+	at scala.runtime.java8.JFunction0$mcV$sp.apply(JFunction0$mcV$sp.java:23)
+	at scala.util.Try$.apply(Try.scala:213)
+	at com.clickhouse.spark.Utils$.retry(Utils.scala:99)
+	at com.clickhouse.spark.UtilsSuite.$anonfun$new$3(UtilsSuite.scala:49)
+	at org.scalatest.OutcomeOf.outcomeOf(OutcomeOf.scala:85)
+	at org.scalatest.OutcomeOf.outcomeOf$(OutcomeOf.scala:83)
+	at org.scalatest.OutcomeOf$.outcomeOf(OutcomeOf.scala:104)
+	at org.scalatest.Transformer.apply(Transformer.scala:22)
+	at org.scalatest.Transformer.apply(Transformer.scala:20)
+	at org.scalatest.funsuite.AnyFunSuiteLike$$anon$1.apply(AnyFunSuiteLike.scala:226)
+	at org.scalatest.TestSuite.withFixture(TestSuite.scala:196)
+	at org.scalatest.TestSuite.withFixture$(TestSuite.scala:195)
+	at org.scalatest.funsuite.AnyFunSuite.withFixture(AnyFunSuite.scala:1564)
+	at org.scalatest.funsuite.AnyFunSuiteLike.invokeWithFixture$1(AnyFunSuiteLike.scala:224)
+	at org.scalatest.funsuite.AnyFunSuiteLike.$anonfun$runTest$1(AnyFunSuiteLike.scala:236)
+	at org.scalatest.SuperEngine.runTestImpl(Engine.scala:306)
+	at org.scalatest.funsuite.AnyFunSuiteLike.runTest(AnyFunSuiteLike.scala:236)
+	at org.scalatest.funsuite.AnyFunSuiteLike.runTest$(AnyFunSuiteLike.scala:218)
+	at org.scalatest.funsuite.AnyFunSuite.runTest(AnyFunSuite.scala:1564)
+	at org.scalatest.funsuite.AnyFunSuiteLike.$anonfun$runTests$1(AnyFunSuiteLike.scala:269)
+	at org.scalatest.SuperEngine.$anonfun$runTestsInBranch$1(Engine.scala:413)
+	at scala.collection.immutable.List.foreach(List.scala:431)
+	at org.scalatest.SuperEngine.traverseSubNodes$1(Engine.scala:401)
+	at org.scalatest.SuperEngine.runTestsInBranch(Engine.scala:396)
+	at org.scalatest.SuperEngine.runTestsImpl(Engine.scala:475)
+	at org.scalatest.funsuite.AnyFunSuiteLike.runTests(AnyFunSuiteLike.scala:269)
+	at org.scalatest.funsuite.AnyFunSuiteLike.runTests$(AnyFunSuiteLike.scala:268)
+	at org.scalatest.funsuite.AnyFunSuite.runTests(AnyFunSuite.scala:1564)
+	at org.scalatest.Suite.run(Suite.scala:1114)
+	at org.scalatest.Suite.run$(Suite.scala:1096)
+	at org.scalatest.funsuite.AnyFunSuite.org$scalatest$funsuite$AnyFunSuiteLike$$super$run(AnyFunSuite.scala:1564)
+	at org.scalatest.funsuite.AnyFunSuiteLike.$anonfun$run$1(AnyFunSuiteLike.scala:273)
+	at org.scalatest.SuperEngine.runImpl(Engine.scala:535)
+	at org.scalatest.funsuite.AnyFunSuiteLike.run(AnyFunSuiteLike.scala:273)
+	at org.scalatest.funsuite.AnyFunSuiteLike.run$(AnyFunSuiteLike.scala:272)
+	at org.scalatest.funsuite.AnyFunSuite.run(AnyFunSuite.scala:1564)
+	at org.scalatest.tools.SuiteRunner.run(SuiteRunner.scala:47)
+	at java.base/java.util.concurrent.Executors$RunnableAdapter.call(Executors.java:539)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:264)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)
+	at java.base/java.lang.Thread.run(Thread.java:840)
+25/11/02 13:46:11.760 ScalaTest-1-running-UtilsSuite WARN Utils: 3 times retry remaining, the next will be in 0ms

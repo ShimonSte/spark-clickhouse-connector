@@ -1,0 +1,6189 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/parse/AstVisitor.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.parse
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.ClickHouseSQLParser.{
+</span>18 <span style=''>  ColumnExprContext,
+</span>19 <span style=''>  ColumnExprFunctionContext,
+</span>20 <span style=''>  ColumnExprIdentifierContext,
+</span>21 <span style=''>  ColumnExprListContext,
+</span>22 <span style=''>  ColumnExprLiteralContext,
+</span>23 <span style=''>  ColumnExprParensContext,
+</span>24 <span style=''>  ColumnExprPrecedence1Context,
+</span>25 <span style=''>  ColumnExprPrecedence2Context,
+</span>26 <span style=''>  ColumnExprTupleContext,
+</span>27 <span style=''>  ColumnsExprColumnContext,
+</span>28 <span style=''>  ColumnsExprContext,
+</span>29 <span style=''>  EngineClauseContext,
+</span>30 <span style=''>  OrderByClauseContext,
+</span>31 <span style=''>  OrderExprContext,
+</span>32 <span style=''>  SettingsClauseContext
+</span>33 <span style=''>}
+</span>34 <span style=''>import com.clickhouse.spark.expr.{Expr, FieldRef, FuncExpr, OrderExpr, StringLiteral, TupleExpr}
+</span>35 <span style=''>import com.clickhouse.spark.spec.{
+</span>36 <span style=''>  DistributedEngineSpec,
+</span>37 <span style=''>  MergeTreeEngineSpec,
+</span>38 <span style=''>  ReplacingMergeTreeEngineSpec,
+</span>39 <span style=''>  ReplicatedMergeTreeEngineSpec,
+</span>40 <span style=''>  ReplicatedReplacingMergeTreeEngineSpec,
+</span>41 <span style=''>  TableEngineSpec,
+</span>42 <span style=''>  UnknownTableEngineSpec
+</span>43 <span style=''>}
+</span>44 <span style=''>import com.clickhouse.spark.{ClickHouseSQLBaseVisitor, Logging, Utils}
+</span>45 <span style=''>
+</span>46 <span style=''>import scala.collection.JavaConverters._
+</span>47 <span style=''>import org.antlr.v4.runtime.tree.ParseTree
+</span>48 <span style=''>import com.clickhouse.spark.expr._
+</span>49 <span style=''>import com.clickhouse.spark.spec._
+</span>50 <span style=''>import com.clickhouse.spark.ClickHouseSQLParser._
+</span>51 <span style=''>
+</span>52 <span style=''>class AstVisitor extends ClickHouseSQLBaseVisitor[AnyRef] with Logging {
+</span>53 <span style=''>  import ParseUtils._
+</span>54 <span style=''>
+</span>55 <span style=''>  protected def typedVisit[T](ctx: ParseTree): T =
+</span>56 <span style=''>    ctx.accept(this).asInstanceOf[T]
+</span>57 <span style=''>
+</span>58 <span style=''>  protected def tupleIfNeeded(maybeSingleTupleExpr: List[Expr]): TupleExpr = maybeSingleTupleExpr match {
+</span>59 <span style=''>    case List(tupleExpr: TupleExpr) =&gt; tupleExpr
+</span>60 <span style=''>    case exprList: List[Expr] =&gt; TupleExpr(exprList)
+</span>61 <span style=''>  }
+</span>62 <span style=''>
+</span>63 <span style=''>  override def visitEngineClause(ctx: EngineClauseContext): TableEngineSpec = {
+</span>64 <span style=''>    val engineExpr = source(ctx.engineExpr)
+</span>65 <span style=''>    val engine = source(ctx.engineExpr.identifierOrNull)
+</span>66 <span style=''>
+</span>67 <span style=''>    val engineArgs: Seq[Expr] =
+</span>68 <span style=''>      Option(ctx.engineExpr.columnExprList)
+</span>69 <span style=''>        .map(_.columnsExpr.asScala)
+</span>70 <span style=''>        .getOrElse(List.empty)
+</span>71 <span style=''>        .map(visitColumnsExpr)
+</span>72 <span style=''>        .toSeq
+</span>73 <span style=''>
+</span>74 <span style=''>    val orderByOpt = listToOption(ctx.orderByClause)
+</span>75 <span style=''>      .map(visitOrderByClause)
+</span>76 <span style=''>      .map(orderByList =&gt; tupleIfNeeded(orderByList.map(_.expr)))
+</span>77 <span style=''>    val pkOpt = listToOption(ctx.primaryKeyClause)
+</span>78 <span style=''>      .map(_.columnExpr)
+</span>79 <span style=''>      .map(visitColumnExpr)
+</span>80 <span style=''>    val partOpt = listToOption(ctx.partitionByClause)
+</span>81 <span style=''>      .map(_.columnExpr)
+</span>82 <span style=''>      .map(visitColumnExpr)
+</span>83 <span style=''>    val sampleByOpt = listToOption(ctx.sampleByClause)
+</span>84 <span style=''>      .map(_.columnExpr)
+</span>85 <span style=''>      .map(visitColumnExpr)
+</span>86 <span style=''>    val ttlOpt = listToOption(ctx.ttlClause).map(source) // we don't care about ttl now
+</span>87 <span style=''>    val settings = listToOption(ctx.settingsClause)
+</span>88 <span style=''>      .map(visitSettingsClause)
+</span>89 <span style=''>      .getOrElse(Map.empty)
+</span>90 <span style=''>
+</span>91 <span style=''>    engine match {
+</span>92 <span style=''>      case eg: String if &quot;MergeTree&quot; </span><span style='background: #AEF1AE'>equalsIgnoreCase eg</span><span style=''> =&gt;
+</span>93 <span style=''>        MergeTreeEngineSpec(
+</span>94 <span style=''>          engine_clause = engineExpr,
+</span>95 <span style=''>          _sorting_key = tupleIfNeeded(orderByOpt.toList),
+</span>96 <span style=''>          _primary_key = tupleIfNeeded(pkOpt.toList),
+</span>97 <span style=''>          _partition_key = tupleIfNeeded(partOpt.toList),
+</span>98 <span style=''>          _sampling_key = tupleIfNeeded(sampleByOpt.toList),
+</span>99 <span style=''>          _ttl = ttlOpt,
+</span>100 <span style=''>          _settings = settings
+</span>101 <span style=''>        )
+</span>102 <span style=''>      case eg: String if &quot;ReplacingMergeTree&quot; </span><span style='background: #AEF1AE'>equalsIgnoreCase eg</span><span style=''> =&gt;
+</span>103 <span style=''>        ReplacingMergeTreeEngineSpec(
+</span>104 <span style=''>          engine_clause = engineExpr,
+</span>105 <span style=''>          version_column = engineArgs.lift(0).map(_.asInstanceOf[FieldRef]),
+</span>106 <span style=''>          is_deleted_column = engineArgs.lift(1).map(_.asInstanceOf[FieldRef]),
+</span>107 <span style=''>          _sorting_key = tupleIfNeeded(orderByOpt.toList),
+</span>108 <span style=''>          _primary_key = tupleIfNeeded(pkOpt.toList),
+</span>109 <span style=''>          _partition_key = tupleIfNeeded(partOpt.toList),
+</span>110 <span style=''>          _sampling_key = tupleIfNeeded(sampleByOpt.toList),
+</span>111 <span style=''>          _ttl = ttlOpt,
+</span>112 <span style=''>          _settings = settings
+</span>113 <span style=''>        )
+</span>114 <span style=''>      case eg: String if &quot;ReplicatedMergeTree&quot; </span><span style='background: #AEF1AE'>equalsIgnoreCase eg</span><span style=''> =&gt;
+</span>115 <span style=''>        ReplicatedMergeTreeEngineSpec(
+</span>116 <span style=''>          engine_clause = engineExpr,
+</span>117 <span style=''>          zk_path = engineArgs.head.asInstanceOf[StringLiteral].value,
+</span>118 <span style=''>          replica_name = engineArgs(1).asInstanceOf[StringLiteral].value,
+</span>119 <span style=''>          _sorting_key = tupleIfNeeded(orderByOpt.toList),
+</span>120 <span style=''>          _primary_key = tupleIfNeeded(pkOpt.toList),
+</span>121 <span style=''>          _partition_key = tupleIfNeeded(partOpt.toList),
+</span>122 <span style=''>          _sampling_key = tupleIfNeeded(sampleByOpt.toList),
+</span>123 <span style=''>          _ttl = ttlOpt,
+</span>124 <span style=''>          _settings = settings
+</span>125 <span style=''>        )
+</span>126 <span style=''>      case eg: String if &quot;ReplicatedReplacingMergeTree&quot; </span><span style='background: #AEF1AE'>equalsIgnoreCase eg</span><span style=''> =&gt;
+</span>127 <span style=''>        ReplicatedReplacingMergeTreeEngineSpec(
+</span>128 <span style=''>          engine_clause = engineExpr,
+</span>129 <span style=''>          zk_path = engineArgs.head.asInstanceOf[StringLiteral].value,
+</span>130 <span style=''>          replica_name = engineArgs(1).asInstanceOf[StringLiteral].value,
+</span>131 <span style=''>          version_column = engineArgs.lift(2).map(_.asInstanceOf[FieldRef]),
+</span>132 <span style=''>          is_deleted_column = engineArgs.lift(3).map(_.asInstanceOf[FieldRef]),
+</span>133 <span style=''>          _sorting_key = tupleIfNeeded(orderByOpt.toList),
+</span>134 <span style=''>          _primary_key = tupleIfNeeded(pkOpt.toList),
+</span>135 <span style=''>          _partition_key = tupleIfNeeded(partOpt.toList),
+</span>136 <span style=''>          _sampling_key = tupleIfNeeded(sampleByOpt.toList),
+</span>137 <span style=''>          _ttl = ttlOpt,
+</span>138 <span style=''>          _settings = settings
+</span>139 <span style=''>        )
+</span>140 <span style=''>      case eg: String if &quot;Distributed&quot; </span><span style='background: #AEF1AE'>equalsIgnoreCase eg</span><span style=''> =&gt;
+</span>141 <span style=''>        DistributedEngineSpec(
+</span>142 <span style=''>          engine_clause = engineExpr,
+</span>143 <span style=''>          cluster = engineArgs.head.asInstanceOf[StringLiteral].value,
+</span>144 <span style=''>          local_db = engineArgs(1).asInstanceOf[StringLiteral].value,
+</span>145 <span style=''>          local_table = engineArgs(2).asInstanceOf[StringLiteral].value,
+</span>146 <span style=''>          sharding_key = engineArgs.drop(3).headOption,
+</span>147 <span style=''>          _settings = settings
+</span>148 <span style=''>        )
+</span>149 <span style=''>      case _ =&gt; UnknownTableEngineSpec(engineExpr)
+</span>150 <span style=''>    }
+</span>151 <span style=''>  }
+</span>152 <span style=''>
+</span>153 <span style=''>  // //////////////////////////////////////////////
+</span>154 <span style=''>  // ///////////// visit ColumnExpr ///////////////
+</span>155 <span style=''>  // //////////////////////////////////////////////
+</span>156 <span style=''>  def visitColumnExpr(ctx: ColumnExprContext): Expr = ctx match {
+</span>157 <span style=''>    case fieldCtx: ColumnExprIdentifierContext =&gt; visitColumnExprIdentifier(fieldCtx)
+</span>158 <span style=''>    case literalCtx: ColumnExprLiteralContext =&gt; visitColumnExprLiteral(literalCtx)
+</span>159 <span style=''>    case funcCtx: ColumnExprFunctionContext =&gt; visitColumnExprFunction(funcCtx)
+</span>160 <span style=''>    case singleColCtx: ColumnExprParensContext =&gt; visitColumnExpr(singleColCtx.columnExpr)
+</span>161 <span style=''>    case tupleCtx: ColumnExprTupleContext =&gt; visitColumnExprTuple(tupleCtx)
+</span>162 <span style=''>    case precedence1Ctx: ColumnExprPrecedence1Context =&gt; visitColumnExprPrecedence1(precedence1Ctx)
+</span>163 <span style=''>    case precedence2Ctx: ColumnExprPrecedence2Context =&gt; visitColumnExprPrecedence2(precedence2Ctx)
+</span>164 <span style=''>    case other: ColumnExprContext =&gt; throw new IllegalArgumentException(
+</span>165 <span style=''>        s&quot;Unsupported ColumnExpr: [${other.getClass.getSimpleName}] ${other.getText}&quot;
+</span>166 <span style=''>      )
+</span>167 <span style=''>  }
+</span>168 <span style=''>
+</span>169 <span style=''>  override def visitColumnExprIdentifier(ctx: ColumnExprIdentifierContext): FieldRef =
+</span>170 <span style=''>    FieldRef(source(ctx.columnIdentifier))
+</span>171 <span style=''>
+</span>172 <span style=''>  override def visitColumnExprLiteral(ctx: ColumnExprLiteralContext): StringLiteral =
+</span>173 <span style=''>    StringLiteral(Utils.stripSingleQuote(source(ctx.literal)))
+</span>174 <span style=''>
+</span>175 <span style=''>  override def visitColumnExprFunction(ctx: ColumnExprFunctionContext): FuncExpr = {
+</span>176 <span style=''>    require(
+</span>177 <span style=''>      ctx.columnExprList </span><span style='background: #AEF1AE'>== null</span><span style=''>,
+</span>178 <span style=''>      s&quot;Unsupported ColumnExprFunction with columnExprList: [${ctx.getClass.getSimpleName}] ${ctx.getText}&quot;
+</span>179 <span style=''>    )
+</span>180 <span style=''>    require(
+</span>181 <span style=''>      ctx.DISTINCT </span><span style='background: #AEF1AE'>== null</span><span style=''>,
+</span>182 <span style=''>      s&quot;Unsupported ColumnExprFunction with DISTINCT: [${ctx.getClass.getSimpleName}] ${ctx.getText}&quot;
+</span>183 <span style=''>    )
+</span>184 <span style=''>
+</span>185 <span style=''>    val funcName = ctx.identifier.getText
+</span>186 <span style=''>    val funArgs = Option(ctx.columnArgList).map(_.columnArgExpr.asScala.toList.map { columnArgExprCtx =&gt;
+</span>187 <span style=''>      require(
+</span>188 <span style=''>        columnArgExprCtx.columnLambdaExpr </span><span style='background: #AEF1AE'>== null</span><span style=''>,
+</span>189 <span style=''>        s&quot;Unsupported ColumnLambdaExpr: ${source(columnArgExprCtx)}&quot;
+</span>190 <span style=''>      )
+</span>191 <span style=''>      // recursive visit, but not sure if spark support the nested transform
+</span>192 <span style=''>      visitColumnExpr(columnArgExprCtx.columnExpr)
+</span>193 <span style=''>    }).getOrElse(Nil)
+</span>194 <span style=''>    FuncExpr(funcName, funArgs)
+</span>195 <span style=''>  }
+</span>196 <span style=''>
+</span>197 <span style=''>  override def visitColumnExprTuple(ctx: ColumnExprTupleContext): TupleExpr =
+</span>198 <span style=''>    TupleExpr(visitColumnExprList(ctx.columnExprList))
+</span>199 <span style=''>
+</span>200 <span style=''>  override def visitColumnExprPrecedence1(ctx: ColumnExprPrecedence1Context): FuncExpr = {
+</span>201 <span style=''>    val funcName =
+</span>202 <span style=''>      if (ctx.PERCENT </span><span style='background: #AEF1AE'>!= null</span><span style=''>) &quot;remainder&quot;
+</span>203 <span style=''>      else if (ctx.SLASH </span><span style='background: #F0ADAD'>!= null</span><span style=''>) &quot;divide&quot;
+</span>204 <span style=''>      else if (ctx.ASTERISK </span><span style='background: #F0ADAD'>!= null</span><span style=''>) &quot;multiply&quot;
+</span>205 <span style=''>      else throw new IllegalArgumentException(s&quot;Invalid [ColumnExprPrecedence1] ${ctx.getText}&quot;)
+</span>206 <span style=''>    val funArgs = List(visitColumnExpr(ctx.columnExpr(0)), visitColumnExpr(ctx.columnExpr(1)))
+</span>207 <span style=''>    FuncExpr(funcName, funArgs)
+</span>208 <span style=''>  }
+</span>209 <span style=''>
+</span>210 <span style=''>  override def visitColumnExprPrecedence2(ctx: ColumnExprPrecedence2Context): FuncExpr = {
+</span>211 <span style=''>    val funcName =
+</span>212 <span style=''>      if (ctx.PLUS </span><span style='background: #F0ADAD'>!= null</span><span style=''>) &quot;add&quot;
+</span>213 <span style=''>      else if (ctx.DASH </span><span style='background: #F0ADAD'>!= null</span><span style=''>) &quot;subtract&quot;
+</span>214 <span style=''>      else if (ctx.CONCAT </span><span style='background: #F0ADAD'>!= null</span><span style=''>) &quot;concat&quot;
+</span>215 <span style=''>      else throw new IllegalArgumentException(s&quot;Invalid [ColumnExprPrecedence2] ${ctx.getText}&quot;)
+</span>216 <span style=''>    val funArgs = List(visitColumnExpr(ctx.columnExpr(0)), visitColumnExpr(ctx.columnExpr(1)))
+</span>217 <span style=''>    FuncExpr(funcName, funArgs)
+</span>218 <span style=''>  }
+</span>219 <span style=''>
+</span>220 <span style=''>  // //////////////////////////////////////////////
+</span>221 <span style=''>  // ////////////// visit order by ////////////////
+</span>222 <span style=''>  // //////////////////////////////////////////////
+</span>223 <span style=''>
+</span>224 <span style=''>  override def visitOrderByClause(ctx: OrderByClauseContext): List[OrderExpr] =
+</span>225 <span style=''>    ctx.orderExprList.orderExpr.asScala.toList.map(visitOrderExpr)
+</span>226 <span style=''>
+</span>227 <span style=''>  override def visitOrderExpr(ctx: OrderExprContext): OrderExpr = {
+</span>228 <span style=''>    val desc = Seq(ctx.DESC, ctx.DESCENDING).exists(_ </span><span style='background: #AEF1AE'>!= null</span><span style=''>)
+</span>229 <span style=''>    val nullLast = Option(ctx.LAST).nonEmpty
+</span>230 <span style=''>    OrderExpr(visitColumnExpr(ctx.columnExpr()), !desc, !nullLast)
+</span>231 <span style=''>  }
+</span>232 <span style=''>
+</span>233 <span style=''>  // //////////////////////////////////////////////
+</span>234 <span style=''>  // /////////////// visit others /////////////////
+</span>235 <span style=''>  // //////////////////////////////////////////////
+</span>236 <span style=''>
+</span>237 <span style=''>  override def visitColumnExprList(ctx: ColumnExprListContext): List[Expr] =
+</span>238 <span style=''>    ctx.columnsExpr.asScala.toList.map(visitColumnsExpr)
+</span>239 <span style=''>
+</span>240 <span style=''>  def visitColumnsExpr(ctx: ColumnsExprContext): Expr = ctx match {
+</span>241 <span style=''>    case field: ColumnsExprColumnContext =&gt; visitColumnExpr(field.columnExpr)
+</span>242 <span style=''>    case other: ColumnsExprContext =&gt; throw new IllegalArgumentException(
+</span>243 <span style=''>        s&quot;Unsupported ColumnsExprContext: ${source(other)}&quot;
+</span>244 <span style=''>      )
+</span>245 <span style=''>  }
+</span>246 <span style=''>
+</span>247 <span style=''>  override def visitSettingsClause(ctx: SettingsClauseContext): Map[String, String] =
+</span>248 <span style=''>    ctx.settingExprList.settingExpr.asScala.map(se =&gt; se.identifier.getText </span><span style='background: #AEF1AE'>-&gt; source(se.literal)</span><span style=''>).toMap
+</span>249 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          802
+        </td>
+        <td>
+          1834
+          -
+          1834
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.accept[AnyRef](this).asInstanceOf[T]
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          379
+        </td>
+        <td>
+          1984
+          -
+          1984
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          tupleExpr
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1081
+        </td>
+        <td>
+          2036
+          -
+          2036
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.TupleExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.expr.TupleExpr.apply(exprList)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          634
+        </td>
+        <td>
+          2036
+          -
+          2036
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.expr.TupleExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.expr.TupleExpr.apply(exprList)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          450
+        </td>
+        <td>
+          2164
+          -
+          2164
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.EngineClauseContext.engineExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.engineExpr()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          54
+        </td>
+        <td>
+          2159
+          -
+          2159
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.ParseUtils.source
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParseUtils.source(ctx.engineExpr())
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          749
+        </td>
+        <td>
+          2215
+          -
+          2215
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.EngineExprContext.identifierOrNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.engineExpr().identifierOrNull()
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          293
+        </td>
+        <td>
+          2199
+          -
+          2199
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.ParseUtils.source
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParseUtils.source(ctx.engineExpr().identifierOrNull())
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1009
+        </td>
+        <td>
+          2294
+          -
+          2294
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.EngineExprContext.columnExprList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.engineExpr().columnExprList()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          804
+        </td>
+        <td>
+          2325
+          -
+          2325
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnExprListContext.columnsExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.columnsExpr()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          366
+        </td>
+        <td>
+          2337
+          -
+          2337
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsScala.asScala
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.asScalaBufferConverter[com.clickhouse.spark.ClickHouseSQLParser.ColumnsExprContext](x$1.columnsExpr()).asScala
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1085
+        </td>
+        <td>
+          2370
+          -
+          2370
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.immutable.List.empty[Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          663
+        </td>
+        <td>
+          2390
+          -
+          2390
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnsExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnsExpr(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          264
+        </td>
+        <td>
+          2389
+          -
+          2389
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Seq.canBuildFrom[com.clickhouse.spark.expr.Expr]
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          2417
+          -
+          2417
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.apply[com.clickhouse.spark.ClickHouseSQLParser.ColumnExprListContext](ctx.engineExpr().columnExprList()).map[scala.collection.mutable.Buffer[com.clickhouse.spark.ClickHouseSQLParser.ColumnsExprContext]](((x$1: com.clickhouse.spark.ClickHouseSQLParser.ColumnExprListContext) =&gt; scala.collection.JavaConverters.asScalaBufferConverter[com.clickhouse.spark.ClickHouseSQLParser.ColumnsExprContext](x$1.columnsExpr()).asScala)).getOrElse[Seq[com.clickhouse.spark.ClickHouseSQLParser.ColumnsExprContext]](scala.collection.immutable.List.empty[Nothing]).map[com.clickhouse.spark.expr.Expr, Seq[com.clickhouse.spark.expr.Expr]]({
+  ((ctx: com.clickhouse.spark.ClickHouseSQLParser.ColumnsExprContext) =&gt; AstVisitor.this.visitColumnsExpr(ctx))
+})(collection.this.Seq.canBuildFrom[com.clickhouse.spark.expr.Expr]).toSeq
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          724
+        </td>
+        <td>
+          2462
+          -
+          2462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.EngineClauseContext.orderByClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.orderByClause()
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          337
+        </td>
+        <td>
+          2488
+          -
+          2488
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitOrderByClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitOrderByClause(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          373
+        </td>
+        <td>
+          2563
+          -
+          2563
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.immutable.List.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          orderByList.map[com.clickhouse.spark.expr.Expr, List[com.clickhouse.spark.expr.Expr]](((x$2: com.clickhouse.spark.expr.OrderExpr) =&gt; x$2.expr))(immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.Expr])
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1069
+        </td>
+        <td>
+          2547
+          -
+          2547
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(orderByList.map[com.clickhouse.spark.expr.Expr, List[com.clickhouse.spark.expr.Expr]](((x$2: com.clickhouse.spark.expr.OrderExpr) =&gt; x$2.expr))(immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.Expr]))
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          785
+        </td>
+        <td>
+          2563
+          -
+          2563
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.Expr]
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          650
+        </td>
+        <td>
+          2518
+          -
+          2518
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParseUtils.listToOption[com.clickhouse.spark.ClickHouseSQLParser.OrderByClauseContext](ctx.orderByClause()).map[List[com.clickhouse.spark.expr.OrderExpr]]({
+  ((ctx: com.clickhouse.spark.ClickHouseSQLParser.OrderByClauseContext) =&gt; AstVisitor.this.visitOrderByClause(ctx))
+}).map[com.clickhouse.spark.expr.TupleExpr](((orderByList: List[com.clickhouse.spark.expr.OrderExpr]) =&gt; AstVisitor.this.tupleIfNeeded(orderByList.map[com.clickhouse.spark.expr.Expr, List[com.clickhouse.spark.expr.Expr]](((x$2: com.clickhouse.spark.expr.OrderExpr) =&gt; x$2.expr))(immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.Expr]))))
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1012
+        </td>
+        <td>
+          2566
+          -
+          2566
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.OrderExpr.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2.expr
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          268
+        </td>
+        <td>
+          2607
+          -
+          2607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.EngineClauseContext.primaryKeyClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.primaryKeyClause()
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          5
+        </td>
+        <td>
+          2638
+          -
+          2638
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.PrimaryKeyClauseContext.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$3.columnExpr()
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          726
+        </td>
+        <td>
+          2661
+          -
+          2661
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          AstVisitor.this.visitColumnExpr(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          289
+        </td>
+        <td>
+          2660
+          -
+          2660
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParseUtils.listToOption[com.clickhouse.spark.ClickHouseSQLParser.PrimaryKeyClauseContext](ctx.primaryKeyClause()).map[com.clickhouse.spark.ClickHouseSQLParser.ColumnExprContext](((x$3: com.clickhouse.spark.ClickHouseSQLParser.PrimaryKeyClauseContext) =&gt; x$3.columnExpr())).map[com.clickhouse.spark.expr.Expr]({
+  ((ctx: com.clickhouse.spark.ClickHouseSQLParser.ColumnExprContext) =&gt; AstVisitor.this.visitColumnExpr(ctx))
+})
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          992
+        </td>
+        <td>
+          2713
+          -
+          2713
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.EngineClauseContext.partitionByClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.partitionByClause()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          786
+        </td>
+        <td>
+          2745
+          -
+          2745
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.PartitionByClauseContext.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$4.columnExpr()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1064
+        </td>
+        <td>
+          2767
+          -
+          2767
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParseUtils.listToOption[com.clickhouse.spark.ClickHouseSQLParser.PartitionByClauseContext](ctx.partitionByClause()).map[com.clickhouse.spark.ClickHouseSQLParser.ColumnExprContext](((x$4: com.clickhouse.spark.ClickHouseSQLParser.PartitionByClauseContext) =&gt; x$4.columnExpr())).map[com.clickhouse.spark.expr.Expr]({
+  ((ctx: com.clickhouse.spark.ClickHouseSQLParser.ColumnExprContext) =&gt; AstVisitor.this.visitColumnExpr(ctx))
+})
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          378
+        </td>
+        <td>
+          2768
+          -
+          2768
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExpr(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          631
+        </td>
+        <td>
+          2824
+          -
+          2824
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.EngineClauseContext.sampleByClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.sampleByClause()
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          248
+        </td>
+        <td>
+          2853
+          -
+          2853
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.SampleByClauseContext.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$5.columnExpr()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          728
+        </td>
+        <td>
+          2875
+          -
+          2875
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParseUtils.listToOption[com.clickhouse.spark.ClickHouseSQLParser.SampleByClauseContext](ctx.sampleByClause()).map[com.clickhouse.spark.ClickHouseSQLParser.ColumnExprContext](((x$5: com.clickhouse.spark.ClickHouseSQLParser.SampleByClauseContext) =&gt; x$5.columnExpr())).map[com.clickhouse.spark.expr.Expr]({
+  ((ctx: com.clickhouse.spark.ClickHouseSQLParser.ColumnExprContext) =&gt; AstVisitor.this.visitColumnExpr(ctx))
+})
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          6
+        </td>
+        <td>
+          2876
+          -
+          2876
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          AstVisitor.this.visitColumnExpr(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          561
+        </td>
+        <td>
+          2941
+          -
+          2941
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParseUtils.listToOption[com.clickhouse.spark.ClickHouseSQLParser.TtlClauseContext](ctx.ttlClause()).map[String]({
+  ((ctx: org.antlr.v4.runtime.ParserRuleContext) =&gt; ParseUtils.source(ctx))
+})
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          973
+        </td>
+        <td>
+          2942
+          -
+          2942
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.ParseUtils.source
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ParseUtils.source(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          333
+        </td>
+        <td>
+          2927
+          -
+          2927
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.EngineClauseContext.ttlClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.ttlClause()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          357
+        </td>
+        <td>
+          3017
+          -
+          3017
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.EngineClauseContext.settingsClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.settingsClause()
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1065
+        </td>
+        <td>
+          3044
+          -
+          3044
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitSettingsClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitSettingsClause(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          681
+        </td>
+        <td>
+          3086
+          -
+          3086
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Map.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.Map.empty[String, Nothing]
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          216
+        </td>
+        <td>
+          3081
+          -
+          3081
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParseUtils.listToOption[com.clickhouse.spark.ClickHouseSQLParser.SettingsClauseContext](ctx.settingsClause()).map[Map[String,String]]({
+  ((ctx: com.clickhouse.spark.ClickHouseSQLParser.SettingsClauseContext) =&gt; AstVisitor.this.visitSettingsClause(ctx))
+}).getOrElse[Map[String,String]](scala.Predef.Map.empty[String, Nothing])
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          8
+        </td>
+        <td>
+          3150
+          -
+          3169
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equalsIgnoreCase
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;MergeTree&quot;.equalsIgnoreCase(eg)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          711
+        </td>
+        <td>
+          3200
+          -
+          3200
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.MergeTreeEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.spec.MergeTreeEngineSpec.apply(engineExpr, AstVisitor.this.tupleIfNeeded(orderByOpt.toList), AstVisitor.this.tupleIfNeeded(pkOpt.toList), AstVisitor.this.tupleIfNeeded(partOpt.toList), AstVisitor.this.tupleIfNeeded(sampleByOpt.toList), ttlOpt, settings)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          43
+        </td>
+        <td>
+          3200
+          -
+          3200
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.MergeTreeEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.spec.MergeTreeEngineSpec.apply(engineExpr, AstVisitor.this.tupleIfNeeded(orderByOpt.toList), AstVisitor.this.tupleIfNeeded(pkOpt.toList), AstVisitor.this.tupleIfNeeded(partOpt.toList), AstVisitor.this.tupleIfNeeded(sampleByOpt.toList), ttlOpt, settings)
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          708
+        </td>
+        <td>
+          3290
+          -
+          3290
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          orderByOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          338
+        </td>
+        <td>
+          3278
+          -
+          3278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(orderByOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1027
+        </td>
+        <td>
+          3344
+          -
+          3344
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          pkOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          616
+        </td>
+        <td>
+          3337
+          -
+          3337
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(pkOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          360
+        </td>
+        <td>
+          3402
+          -
+          3402
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          partOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1074
+        </td>
+        <td>
+          3393
+          -
+          3393
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(partOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          687
+        </td>
+        <td>
+          3463
+          -
+          3463
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sampleByOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          243
+        </td>
+        <td>
+          3450
+          -
+          3450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(sampleByOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          322
+        </td>
+        <td>
+          3584
+          -
+          3603
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equalsIgnoreCase
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ReplacingMergeTree&quot;.equalsIgnoreCase(eg)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          250
+        </td>
+        <td>
+          3643
+          -
+          3643
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplacingMergeTreeEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.spec.ReplacingMergeTreeEngineSpec.apply(engineExpr, engineArgs.lift.apply(0).map[com.clickhouse.spark.expr.FieldRef](((x$6: com.clickhouse.spark.expr.Expr) =&gt; x$6.asInstanceOf[com.clickhouse.spark.expr.FieldRef])), engineArgs.lift.apply(1).map[com.clickhouse.spark.expr.FieldRef](((x$7: com.clickhouse.spark.expr.Expr) =&gt; x$7.asInstanceOf[com.clickhouse.spark.expr.FieldRef])), AstVisitor.this.tupleIfNeeded(orderByOpt.toList), AstVisitor.this.tupleIfNeeded(pkOpt.toList), AstVisitor.this.tupleIfNeeded(partOpt.toList), AstVisitor.this.tupleIfNeeded(sampleByOpt.toList), ttlOpt, settings)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          946
+        </td>
+        <td>
+          3643
+          -
+          3643
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplacingMergeTreeEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.spec.ReplacingMergeTreeEngineSpec.apply(engineExpr, engineArgs.lift.apply(0).map[com.clickhouse.spark.expr.FieldRef](((x$6: com.clickhouse.spark.expr.Expr) =&gt; x$6.asInstanceOf[com.clickhouse.spark.expr.FieldRef])), engineArgs.lift.apply(1).map[com.clickhouse.spark.expr.FieldRef](((x$7: com.clickhouse.spark.expr.Expr) =&gt; x$7.asInstanceOf[com.clickhouse.spark.expr.FieldRef])), AstVisitor.this.tupleIfNeeded(orderByOpt.toList), AstVisitor.this.tupleIfNeeded(pkOpt.toList), AstVisitor.this.tupleIfNeeded(partOpt.toList), AstVisitor.this.tupleIfNeeded(sampleByOpt.toList), ttlOpt, settings)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          394
+        </td>
+        <td>
+          3732
+          -
+          3732
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.lift.apply(0).map[com.clickhouse.spark.expr.FieldRef](((x$6: com.clickhouse.spark.expr.Expr) =&gt; x$6.asInstanceOf[com.clickhouse.spark.expr.FieldRef]))
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1030
+        </td>
+        <td>
+          3726
+          -
+          3726
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          619
+        </td>
+        <td>
+          3747
+          -
+          3747
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$6.asInstanceOf[com.clickhouse.spark.expr.FieldRef]
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          245
+        </td>
+        <td>
+          3812
+          -
+          3812
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.lift.apply(1).map[com.clickhouse.spark.expr.FieldRef](((x$7: com.clickhouse.spark.expr.Expr) =&gt; x$7.asInstanceOf[com.clickhouse.spark.expr.FieldRef]))
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          668
+        </td>
+        <td>
+          3827
+          -
+          3827
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$7.asInstanceOf[com.clickhouse.spark.expr.FieldRef]
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1077
+        </td>
+        <td>
+          3806
+          -
+          3806
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          959
+        </td>
+        <td>
+          3890
+          -
+          3890
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          orderByOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          703
+        </td>
+        <td>
+          3878
+          -
+          3878
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(orderByOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          325
+        </td>
+        <td>
+          3944
+          -
+          3944
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          pkOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          994
+        </td>
+        <td>
+          3937
+          -
+          3937
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(pkOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          395
+        </td>
+        <td>
+          3993
+          -
+          3993
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(partOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          598
+        </td>
+        <td>
+          4002
+          -
+          4002
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          partOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1048
+        </td>
+        <td>
+          4063
+          -
+          4063
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sampleByOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          673
+        </td>
+        <td>
+          4050
+          -
+          4050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(sampleByOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          705
+        </td>
+        <td>
+          4185
+          -
+          4204
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equalsIgnoreCase
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ReplicatedMergeTree&quot;.equalsIgnoreCase(eg)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          578
+        </td>
+        <td>
+          4245
+          -
+          4245
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedMergeTreeEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.spec.ReplicatedMergeTreeEngineSpec.apply(engineExpr, engineArgs.head.asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.apply(1).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, AstVisitor.this.tupleIfNeeded(orderByOpt.toList), AstVisitor.this.tupleIfNeeded(pkOpt.toList), AstVisitor.this.tupleIfNeeded(partOpt.toList), AstVisitor.this.tupleIfNeeded(sampleByOpt.toList), ttlOpt, settings)
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          152
+        </td>
+        <td>
+          4245
+          -
+          4245
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedMergeTreeEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.spec.ReplicatedMergeTreeEngineSpec.apply(engineExpr, engineArgs.head.asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.apply(1).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, AstVisitor.this.tupleIfNeeded(orderByOpt.toList), AstVisitor.this.tupleIfNeeded(pkOpt.toList), AstVisitor.this.tupleIfNeeded(partOpt.toList), AstVisitor.this.tupleIfNeeded(sampleByOpt.toList), ttlOpt, settings)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          294
+        </td>
+        <td>
+          4349
+          -
+          4349
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.StringLiteral.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.head.asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          980
+        </td>
+        <td>
+          4392
+          -
+          4392
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          602
+        </td>
+        <td>
+          4423
+          -
+          4423
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.StringLiteral.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.apply(1).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1052
+        </td>
+        <td>
+          4468
+          -
+          4468
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(orderByOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          150
+        </td>
+        <td>
+          4480
+          -
+          4480
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          orderByOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          227
+        </td>
+        <td>
+          4527
+          -
+          4527
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(pkOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          683
+        </td>
+        <td>
+          4534
+          -
+          4534
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          pkOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          750
+        </td>
+        <td>
+          4583
+          -
+          4583
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(partOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          950
+        </td>
+        <td>
+          4592
+          -
+          4592
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          partOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1031
+        </td>
+        <td>
+          4640
+          -
+          4640
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(sampleByOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          297
+        </td>
+        <td>
+          4653
+          -
+          4653
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sampleByOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          1053
+        </td>
+        <td>
+          4784
+          -
+          4803
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equalsIgnoreCase
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ReplicatedReplacingMergeTree&quot;.equalsIgnoreCase(eg)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          655
+        </td>
+        <td>
+          4853
+          -
+          4853
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedReplacingMergeTreeEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.spec.ReplicatedReplacingMergeTreeEngineSpec.apply(engineExpr, engineArgs.head.asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.apply(1).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.lift.apply(2).map[com.clickhouse.spark.expr.FieldRef](((x$8: com.clickhouse.spark.expr.Expr) =&gt; x$8.asInstanceOf[com.clickhouse.spark.expr.FieldRef])), engineArgs.lift.apply(3).map[com.clickhouse.spark.expr.FieldRef](((x$9: com.clickhouse.spark.expr.Expr) =&gt; x$9.asInstanceOf[com.clickhouse.spark.expr.FieldRef])), AstVisitor.this.tupleIfNeeded(orderByOpt.toList), AstVisitor.this.tupleIfNeeded(pkOpt.toList), AstVisitor.this.tupleIfNeeded(partOpt.toList), AstVisitor.this.tupleIfNeeded(sampleByOpt.toList), ttlOpt, settings)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1035
+        </td>
+        <td>
+          4853
+          -
+          4853
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicatedReplacingMergeTreeEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.spec.ReplicatedReplacingMergeTreeEngineSpec.apply(engineExpr, engineArgs.head.asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.apply(1).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.lift.apply(2).map[com.clickhouse.spark.expr.FieldRef](((x$8: com.clickhouse.spark.expr.Expr) =&gt; x$8.asInstanceOf[com.clickhouse.spark.expr.FieldRef])), engineArgs.lift.apply(3).map[com.clickhouse.spark.expr.FieldRef](((x$9: com.clickhouse.spark.expr.Expr) =&gt; x$9.asInstanceOf[com.clickhouse.spark.expr.FieldRef])), AstVisitor.this.tupleIfNeeded(orderByOpt.toList), AstVisitor.this.tupleIfNeeded(pkOpt.toList), AstVisitor.this.tupleIfNeeded(partOpt.toList), AstVisitor.this.tupleIfNeeded(sampleByOpt.toList), ttlOpt, settings)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          665
+        </td>
+        <td>
+          4957
+          -
+          4957
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.StringLiteral.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.head.asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          280
+        </td>
+        <td>
+          5000
+          -
+          5000
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          966
+        </td>
+        <td>
+          5031
+          -
+          5031
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.StringLiteral.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.apply(1).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          753
+        </td>
+        <td>
+          5081
+          -
+          5081
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          300
+        </td>
+        <td>
+          5102
+          -
+          5102
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$8.asInstanceOf[com.clickhouse.spark.expr.FieldRef]
+        </td>
+      </tr><tr>
+        <td>
+          131
+        </td>
+        <td>
+          1017
+        </td>
+        <td>
+          5087
+          -
+          5087
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.lift.apply(2).map[com.clickhouse.spark.expr.FieldRef](((x$8: com.clickhouse.spark.expr.Expr) =&gt; x$8.asInstanceOf[com.clickhouse.spark.expr.FieldRef]))
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          208
+        </td>
+        <td>
+          5182
+          -
+          5182
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$9.asInstanceOf[com.clickhouse.spark.expr.FieldRef]
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          626
+        </td>
+        <td>
+          5161
+          -
+          5161
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          3
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          1092
+        </td>
+        <td>
+          5167
+          -
+          5167
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.lift.apply(3).map[com.clickhouse.spark.expr.FieldRef](((x$9: com.clickhouse.spark.expr.Expr) =&gt; x$9.asInstanceOf[com.clickhouse.spark.expr.FieldRef]))
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          671
+        </td>
+        <td>
+          5245
+          -
+          5245
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          orderByOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          270
+        </td>
+        <td>
+          5233
+          -
+          5233
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(orderByOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          496
+        </td>
+        <td>
+          5292
+          -
+          5292
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(pkOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          943
+        </td>
+        <td>
+          5299
+          -
+          5299
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          pkOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1020
+        </td>
+        <td>
+          5348
+          -
+          5348
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(partOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          314
+        </td>
+        <td>
+          5357
+          -
+          5357
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          partOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          188
+        </td>
+        <td>
+          5405
+          -
+          5405
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.tupleIfNeeded
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.tupleIfNeeded(sampleByOpt.toList)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          574
+        </td>
+        <td>
+          5418
+          -
+          5418
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sampleByOpt.toList
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          275
+        </td>
+        <td>
+          5532
+          -
+          5551
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equalsIgnoreCase
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;Distributed&quot;.equalsIgnoreCase(eg)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          217
+        </td>
+        <td>
+          5584
+          -
+          5584
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.spec.DistributedEngineSpec.apply(engineExpr, engineArgs.head.asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.apply(1).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.apply(2).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.drop(3).headOption, settings)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          659
+        </td>
+        <td>
+          5584
+          -
+          5584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.spec.DistributedEngineSpec.apply(engineExpr, engineArgs.head.asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.apply(1).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.apply(2).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value, engineArgs.drop(3).headOption, settings)
+        </td>
+      </tr><tr>
+        <td>
+          143
+        </td>
+        <td>
+          925
+        </td>
+        <td>
+          5688
+          -
+          5688
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.StringLiteral.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.head.asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          519
+        </td>
+        <td>
+          5727
+          -
+          5727
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          315
+        </td>
+        <td>
+          5758
+          -
+          5758
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.StringLiteral.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.apply(1).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          579
+        </td>
+        <td>
+          5831
+          -
+          5831
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.StringLiteral.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.apply(2).asInstanceOf[com.clickhouse.spark.expr.StringLiteral].value
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          1000
+        </td>
+        <td>
+          5800
+          -
+          5800
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          2
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          189
+        </td>
+        <td>
+          5879
+          -
+          5879
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          3
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          1089
+        </td>
+        <td>
+          5882
+          -
+          5882
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.headOption
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          engineArgs.drop(3).headOption
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          929
+        </td>
+        <td>
+          5973
+          -
+          5973
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.UnknownTableEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.UnknownTableEngineSpec.apply(engineExpr)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          520
+        </td>
+        <td>
+          5973
+          -
+          5973
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.UnknownTableEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.UnknownTableEngineSpec.apply(engineExpr)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          340
+        </td>
+        <td>
+          6294
+          -
+          6294
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprIdentifier
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExprIdentifier(fieldCtx)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1006
+        </td>
+        <td>
+          6294
+          -
+          6294
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprIdentifier
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExprIdentifier(fieldCtx)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          176
+        </td>
+        <td>
+          6376
+          -
+          6376
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprLiteral
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExprLiteral(literalCtx)
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          581
+        </td>
+        <td>
+          6376
+          -
+          6376
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprLiteral
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExprLiteral(literalCtx)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          690
+        </td>
+        <td>
+          6459
+          -
+          6459
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExprFunction(funcCtx)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          835
+        </td>
+        <td>
+          6459
+          -
+          6459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExprFunction(funcCtx)
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          220
+        </td>
+        <td>
+          6548
+          -
+          6548
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnExprParensContext.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          singleColCtx.columnExpr()
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          548
+        </td>
+        <td>
+          6534
+          -
+          6534
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExpr(singleColCtx.columnExpr())
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          934
+        </td>
+        <td>
+          6534
+          -
+          6534
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExpr(singleColCtx.columnExpr())
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          995
+        </td>
+        <td>
+          6625
+          -
+          6625
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprTuple
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExprTuple(tupleCtx)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          344
+        </td>
+        <td>
+          6625
+          -
+          6625
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprTuple
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExprTuple(tupleCtx)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          564
+        </td>
+        <td>
+          6719
+          -
+          6719
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprPrecedence1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExprPrecedence1(precedence1Ctx)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          181
+        </td>
+        <td>
+          6719
+          -
+          6719
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprPrecedence1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExprPrecedence1(precedence1Ctx)
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          691
+        </td>
+        <td>
+          6819
+          -
+          6819
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprPrecedence2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          AstVisitor.this.visitColumnExprPrecedence2(precedence2Ctx)
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          888
+        </td>
+        <td>
+          6819
+          -
+          6819
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprPrecedence2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          AstVisitor.this.visitColumnExprPrecedence2(precedence2Ctx)
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          914
+        </td>
+        <td>
+          6873
+          -
+          6873
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Unsupported ColumnExpr: [&quot;, &quot;] &quot;, &quot;&quot;).s(other.getClass().getSimpleName(), other.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          273
+        </td>
+        <td>
+          6873
+          -
+          6873
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Unsupported ColumnExpr: [&quot;, &quot;] &quot;, &quot;&quot;).s(other.getClass().getSimpleName(), other.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          1001
+        </td>
+        <td>
+          7107
+          -
+          7107
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.FieldRef.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.expr.FieldRef.apply(ParseUtils.source(ctx.columnIdentifier()))
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          551
+        </td>
+        <td>
+          7119
+          -
+          7119
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnExprIdentifierContext.columnIdentifier
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.columnIdentifier()
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          7114
+          -
+          7114
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.ParseUtils.source
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParseUtils.source(ctx.columnIdentifier())
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          621
+        </td>
+        <td>
+          7277
+          -
+          7277
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnExprLiteralContext.literal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.literal()
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          893
+        </td>
+        <td>
+          7265
+          -
+          7265
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.stripSingleQuote
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.Utils.stripSingleQuote(ParseUtils.source(ctx.literal()))
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          198
+        </td>
+        <td>
+          7272
+          -
+          7272
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.ParseUtils.source
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParseUtils.source(ctx.literal())
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          643
+        </td>
+        <td>
+          7242
+          -
+          7242
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.StringLiteral.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.expr.StringLiteral.apply(com.clickhouse.spark.Utils.stripSingleQuote(ParseUtils.source(ctx.literal())))
+        </td>
+      </tr><tr>
+        <td>
+          176
+        </td>
+        <td>
+          870
+        </td>
+        <td>
+          7385
+          -
+          7385
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.require(ctx.columnExprList().==(null), scala.StringContext.apply(&quot;Unsupported ColumnExprFunction with columnExprList: [&quot;, &quot;] &quot;, &quot;&quot;).s(ctx.getClass().getSimpleName(), ctx.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          256
+        </td>
+        <td>
+          7412
+          -
+          7419
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.columnExprList().==(null)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          7527
+          -
+          7527
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          530
+        </td>
+        <td>
+          7511
+          -
+          7511
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;] &quot;
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          605
+        </td>
+        <td>
+          7519
+          -
+          7519
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.RuleContext.getText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.getText()
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          7427
+          -
+          7427
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Unsupported ColumnExprFunction with columnExprList: [&quot;, &quot;] &quot;, &quot;&quot;).s(ctx.getClass().getSimpleName(), ctx.getText())
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          960
+        </td>
+        <td>
+          7429
+          -
+          7429
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Unsupported ColumnExprFunction with columnExprList: [&quot;
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          1002
+        </td>
+        <td>
+          7497
+          -
+          7497
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getSimpleName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.getClass().getSimpleName()
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          155
+        </td>
+        <td>
+          7546
+          -
+          7546
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.require(ctx.DISTINCT().==(null), scala.StringContext.apply(&quot;Unsupported ColumnExprFunction with DISTINCT: [&quot;, &quot;] &quot;, &quot;&quot;).s(ctx.getClass().getSimpleName(), ctx.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          645
+        </td>
+        <td>
+          7567
+          -
+          7574
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.DISTINCT().==(null)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          983
+        </td>
+        <td>
+          7668
+          -
+          7668
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.RuleContext.getText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.getText()
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          7646
+          -
+          7646
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getSimpleName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.getClass().getSimpleName()
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          612
+        </td>
+        <td>
+          7582
+          -
+          7582
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Unsupported ColumnExprFunction with DISTINCT: [&quot;, &quot;] &quot;, &quot;&quot;).s(ctx.getClass().getSimpleName(), ctx.getText())
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          905
+        </td>
+        <td>
+          7660
+          -
+          7660
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;] &quot;
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          513
+        </td>
+        <td>
+          7676
+          -
+          7676
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          260
+        </td>
+        <td>
+          7584
+          -
+          7584
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Unsupported ColumnExprFunction with DISTINCT: [&quot;
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          846
+        </td>
+        <td>
+          7719
+          -
+          7719
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.RuleContext.getText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.identifier().getText()
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          436
+        </td>
+        <td>
+          7756
+          -
+          7756
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnExprFunctionContext.columnArgList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.columnArgList()
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          968
+        </td>
+        <td>
+          7810
+          -
+          7810
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.immutable.List.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.asScalaBufferConverter[com.clickhouse.spark.ClickHouseSQLParser.ColumnArgExprContext](x$10.columnArgExpr()).asScala.toList.map[com.clickhouse.spark.expr.Expr, List[com.clickhouse.spark.expr.Expr]](((columnArgExprCtx: com.clickhouse.spark.ClickHouseSQLParser.ColumnArgExprContext) =&gt; {
+  scala.Predef.require(columnArgExprCtx.columnLambdaExpr().==(null), scala.StringContext.apply(&quot;Unsupported ColumnLambdaExpr: &quot;, &quot;&quot;).s(ParseUtils.source(columnArgExprCtx)));
+  AstVisitor.this.visitColumnExpr(columnArgExprCtx.columnExpr())
+}))(immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.Expr])
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          240
+        </td>
+        <td>
+          7810
+          -
+          7810
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.Expr]
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          237
+        </td>
+        <td>
+          7777
+          -
+          7777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnArgListContext.columnArgExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$10.columnArgExpr()
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          159
+        </td>
+        <td>
+          7845
+          -
+          7845
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.require
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.require(columnArgExprCtx.columnLambdaExpr().==(null), scala.StringContext.apply(&quot;Unsupported ColumnLambdaExpr: &quot;, &quot;&quot;).s(ParseUtils.source(columnArgExprCtx)))
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          911
+        </td>
+        <td>
+          7889
+          -
+          7896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          columnArgExprCtx.columnLambdaExpr().==(null)
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          627
+        </td>
+        <td>
+          7906
+          -
+          7906
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Unsupported ColumnLambdaExpr: &quot;, &quot;&quot;).s(ParseUtils.source(columnArgExprCtx))
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          7965
+          -
+          7965
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          988
+        </td>
+        <td>
+          7946
+          -
+          7946
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.ParseUtils.source
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ParseUtils.source(columnArgExprCtx)
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          497
+        </td>
+        <td>
+          7908
+          -
+          7908
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Unsupported ColumnLambdaExpr: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          848
+        </td>
+        <td>
+          8091
+          -
+          8091
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnArgExprContext.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          columnArgExprCtx.columnExpr()
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          477
+        </td>
+        <td>
+          8073
+          -
+          8073
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExpr(columnArgExprCtx.columnExpr())
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          8119
+          -
+          8119
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.apply[com.clickhouse.spark.ClickHouseSQLParser.ColumnArgListContext](ctx.columnArgList()).map[List[com.clickhouse.spark.expr.Expr]](((x$10: com.clickhouse.spark.ClickHouseSQLParser.ColumnArgListContext) =&gt; scala.collection.JavaConverters.asScalaBufferConverter[com.clickhouse.spark.ClickHouseSQLParser.ColumnArgExprContext](x$10.columnArgExpr()).asScala.toList.map[com.clickhouse.spark.expr.Expr, List[com.clickhouse.spark.expr.Expr]](((columnArgExprCtx: com.clickhouse.spark.ClickHouseSQLParser.ColumnArgExprContext) =&gt; {
+  scala.Predef.require(columnArgExprCtx.columnLambdaExpr().==(null), scala.StringContext.apply(&quot;Unsupported ColumnLambdaExpr: &quot;, &quot;&quot;).s(ParseUtils.source(columnArgExprCtx)));
+  AstVisitor.this.visitColumnExpr(columnArgExprCtx.columnExpr())
+}))(immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.Expr]))).getOrElse[List[com.clickhouse.spark.expr.Expr]](scala.collection.immutable.Nil)
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          503
+        </td>
+        <td>
+          8120
+          -
+          8120
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.Nil
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.Nil
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          820
+        </td>
+        <td>
+          8137
+          -
+          8137
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.FuncExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.expr.FuncExpr.apply(funcName, funArgs)
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          164
+        </td>
+        <td>
+          8273
+          -
+          8273
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExprList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExprList(ctx.columnExprList())
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          869
+        </td>
+        <td>
+          8253
+          -
+          8253
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.TupleExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.expr.TupleExpr.apply(AstVisitor.this.visitColumnExprList(ctx.columnExprList()))
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          557
+        </td>
+        <td>
+          8278
+          -
+          8278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnExprTupleContext.columnExprList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.columnExprList()
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          479
+        </td>
+        <td>
+          8428
+          -
+          8435
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.PERCENT().!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          900
+        </td>
+        <td>
+          8437
+          -
+          8437
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;remainder&quot;
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          230
+        </td>
+        <td>
+          8437
+          -
+          8437
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;remainder&quot;
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          505
+        </td>
+        <td>
+          8474
+          -
+          8481
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.SLASH().!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          521
+        </td>
+        <td>
+          8460
+          -
+          8460
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          if (ctx.SLASH().!=(null))
+  &quot;divide&quot;
+else
+  if (ctx.ASTERISK().!=(null))
+    &quot;multiply&quot;
+  else
+    throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Invalid [ColumnExprPrecedence1] &quot;, &quot;&quot;).s(ctx.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          823
+        </td>
+        <td>
+          8483
+          -
+          8483
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;divide&quot;
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          8483
+          -
+          8483
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;divide&quot;
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          873
+        </td>
+        <td>
+          8529
+          -
+          8529
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;multiply&quot;
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          582
+        </td>
+        <td>
+          8520
+          -
+          8527
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.ASTERISK().!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          145
+        </td>
+        <td>
+          8529
+          -
+          8529
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;multiply&quot;
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          955
+        </td>
+        <td>
+          8503
+          -
+          8503
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          if (ctx.ASTERISK().!=(null))
+  &quot;multiply&quot;
+else
+  throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Invalid [ColumnExprPrecedence1] &quot;, &quot;&quot;).s(ctx.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          460
+        </td>
+        <td>
+          8551
+          -
+          8551
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Invalid [ColumnExprPrecedence1] &quot;, &quot;&quot;).s(ctx.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          234
+        </td>
+        <td>
+          8551
+          -
+          8551
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Invalid [ColumnExprPrecedence1] &quot;, &quot;&quot;).s(ctx.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          115
+        </td>
+        <td>
+          8690
+          -
+          8690
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnExprPrecedence1Context.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.columnExpr(0)
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          854
+        </td>
+        <td>
+          8659
+          -
+          8659
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.immutable.List.apply[com.clickhouse.spark.expr.Expr](AstVisitor.this.visitColumnExpr(ctx.columnExpr(0)), AstVisitor.this.visitColumnExpr(ctx.columnExpr(1)))
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          584
+        </td>
+        <td>
+          8726
+          -
+          8726
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnExprPrecedence1Context.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.columnExpr(1)
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          192
+        </td>
+        <td>
+          8711
+          -
+          8711
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExpr(ctx.columnExpr(1))
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          769
+        </td>
+        <td>
+          8675
+          -
+          8675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExpr(ctx.columnExpr(0))
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          464
+        </td>
+        <td>
+          8744
+          -
+          8744
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.FuncExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.expr.FuncExpr.apply(funcName, funArgs)
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          937
+        </td>
+        <td>
+          8907
+          -
+          8907
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;add&quot;
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          500
+        </td>
+        <td>
+          8907
+          -
+          8907
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;add&quot;
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          8898
+          -
+          8905
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.PLUS().!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          771
+        </td>
+        <td>
+          8946
+          -
+          8946
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;subtract&quot;
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          590
+        </td>
+        <td>
+          8946
+          -
+          8946
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;subtract&quot;
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          8924
+          -
+          8924
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          if (ctx.DASH().!=(null))
+  &quot;subtract&quot;
+else
+  if (ctx.CONCAT().!=(null))
+    &quot;concat&quot;
+  else
+    throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Invalid [ColumnExprPrecedence2] &quot;, &quot;&quot;).s(ctx.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          8937
+          -
+          8944
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.DASH().!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          439
+        </td>
+        <td>
+          8992
+          -
+          8992
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;concat&quot;
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          839
+        </td>
+        <td>
+          8992
+          -
+          8992
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;concat&quot;
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          213
+        </td>
+        <td>
+          8983
+          -
+          8990
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.CONCAT().!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          556
+        </td>
+        <td>
+          8968
+          -
+          8968
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          if (ctx.CONCAT().!=(null))
+  &quot;concat&quot;
+else
+  throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Invalid [ColumnExprPrecedence2] &quot;, &quot;&quot;).s(ctx.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          9012
+          -
+          9012
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Invalid [ColumnExprPrecedence2] &quot;, &quot;&quot;).s(ctx.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          940
+        </td>
+        <td>
+          9012
+          -
+          9012
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Invalid [ColumnExprPrecedence2] &quot;, &quot;&quot;).s(ctx.getText()))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          570
+        </td>
+        <td>
+          9136
+          -
+          9136
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          AstVisitor.this.visitColumnExpr(ctx.columnExpr(0))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          896
+        </td>
+        <td>
+          9172
+          -
+          9172
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          AstVisitor.this.visitColumnExpr(ctx.columnExpr(1))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          775
+        </td>
+        <td>
+          9151
+          -
+          9151
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnExprPrecedence2Context.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.columnExpr(0)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          9187
+          -
+          9187
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnExprPrecedence2Context.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.columnExpr(1)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          458
+        </td>
+        <td>
+          9120
+          -
+          9120
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.List.apply[com.clickhouse.spark.expr.Expr](AstVisitor.this.visitColumnExpr(ctx.columnExpr(0)), AstVisitor.this.visitColumnExpr(ctx.columnExpr(1)))
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          32
+        </td>
+        <td>
+          9205
+          -
+          9205
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.FuncExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.expr.FuncExpr.apply(funcName, funArgs)
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          962
+        </td>
+        <td>
+          9489
+          -
+          9489
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.OrderExprListContext.orderExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.orderExprList().orderExpr()
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          69
+        </td>
+        <td>
+          9517
+          -
+          9517
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.OrderExpr]
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          808
+        </td>
+        <td>
+          9517
+          -
+          9517
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.immutable.List.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.asScalaBufferConverter[com.clickhouse.spark.ClickHouseSQLParser.OrderExprContext](ctx.orderExprList().orderExpr()).asScala.toList.map[com.clickhouse.spark.expr.OrderExpr, List[com.clickhouse.spark.expr.OrderExpr]]({
+  ((ctx: com.clickhouse.spark.ClickHouseSQLParser.OrderExprContext) =&gt; AstVisitor.this.visitOrderExpr(ctx))
+})(immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.OrderExpr])
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          485
+        </td>
+        <td>
+          9518
+          -
+          9518
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitOrderExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitOrderExpr(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          200
+        </td>
+        <td>
+          9636
+          -
+          9636
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.OrderExprContext.DESCENDING
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.DESCENDING()
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          830
+        </td>
+        <td>
+          9657
+          -
+          9664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$11.!=(null)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          465
+        </td>
+        <td>
+          9654
+          -
+          9654
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.exists
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.Seq.apply[org.antlr.v4.runtime.tree.TerminalNode](ctx.DESC(), ctx.DESCENDING()).exists(((x$11: org.antlr.v4.runtime.tree.TerminalNode) =&gt; x$11.!=(null)))
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          387
+        </td>
+        <td>
+          9626
+          -
+          9626
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.OrderExprContext.DESC
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.DESC()
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          965
+        </td>
+        <td>
+          9702
+          -
+          9702
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Option.apply[org.antlr.v4.runtime.tree.TerminalNode](ctx.LAST()).nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          9696
+          -
+          9696
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.OrderExprContext.LAST
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.LAST()
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          812
+        </td>
+        <td>
+          9760
+          -
+          9760
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          desc.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          537
+        </td>
+        <td>
+          9755
+          -
+          9755
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.OrderExprContext.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.columnExpr()
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          91
+        </td>
+        <td>
+          9740
+          -
+          9740
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExpr(ctx.columnExpr())
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          381
+        </td>
+        <td>
+          9767
+          -
+          9767
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          nullLast.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          204
+        </td>
+        <td>
+          9724
+          -
+          9724
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.OrderExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.expr.OrderExpr.apply(AstVisitor.this.visitColumnExpr(ctx.columnExpr()), desc.unary_!, nullLast.unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          238
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          10055
+          -
+          10055
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.Expr]
+        </td>
+      </tr><tr>
+        <td>
+          238
+        </td>
+        <td>
+          731
+        </td>
+        <td>
+          10055
+          -
+          10055
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.immutable.List.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.asScalaBufferConverter[com.clickhouse.spark.ClickHouseSQLParser.ColumnsExprContext](ctx.columnsExpr()).asScala.toList.map[com.clickhouse.spark.expr.Expr, List[com.clickhouse.spark.expr.Expr]]({
+  ((ctx: com.clickhouse.spark.ClickHouseSQLParser.ColumnsExprContext) =&gt; AstVisitor.this.visitColumnsExpr(ctx))
+})(immutable.this.List.canBuildFrom[com.clickhouse.spark.expr.Expr])
+        </td>
+      </tr><tr>
+        <td>
+          238
+        </td>
+        <td>
+          877
+        </td>
+        <td>
+          10025
+          -
+          10025
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnExprListContext.columnsExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.columnsExpr()
+        </td>
+      </tr><tr>
+        <td>
+          238
+        </td>
+        <td>
+          440
+        </td>
+        <td>
+          10056
+          -
+          10056
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnsExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnsExpr(ctx)
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          541
+        </td>
+        <td>
+          10209
+          -
+          10209
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.ColumnsExprColumnContext.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          field.columnExpr()
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          95
+        </td>
+        <td>
+          10202
+          -
+          10202
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExpr(field.columnExpr())
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          794
+        </td>
+        <td>
+          10202
+          -
+          10202
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          AstVisitor.this.visitColumnExpr(field.columnExpr())
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          382
+        </td>
+        <td>
+          10259
+          -
+          10259
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Unsupported ColumnsExprContext: &quot;, &quot;&quot;).s(ParseUtils.source(other)))
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          10259
+          -
+          10259
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.IllegalArgumentException(scala.StringContext.apply(&quot;Unsupported ColumnsExprContext: &quot;, &quot;&quot;).s(ParseUtils.source(other)))
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          517
+        </td>
+        <td>
+          10530
+          -
+          10551
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[String](se.identifier().getText()).-&gt;[String](ParseUtils.source(se.literal()))
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          361
+        </td>
+        <td>
+          10553
+          -
+          10553
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.asScalaBufferConverter[com.clickhouse.spark.ClickHouseSQLParser.SettingExprContext](ctx.settingExprList().settingExpr()).asScala.map[(String, String), scala.collection.mutable.Buffer[(String, String)]](((se: com.clickhouse.spark.ClickHouseSQLParser.SettingExprContext) =&gt; scala.Predef.ArrowAssoc[String](se.identifier().getText()).-&gt;[String](ParseUtils.source(se.literal()))))(mutable.this.Buffer.canBuildFrom[(String, String)]).toMap[String, String](scala.Predef.$conforms[(String, String)])
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          10501
+          -
+          10501
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.mutable.Buffer.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          mutable.this.Buffer.canBuildFrom[(String, String)]
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          10
+        </td>
+        <td>
+          10543
+          -
+          10543
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.SettingExprContext.literal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          se.literal()
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          443
+        </td>
+        <td>
+          10522
+          -
+          10522
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.RuleContext.getText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          se.identifier().getText()
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          850
+        </td>
+        <td>
+          10478
+          -
+          10478
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.SettingExprListContext.settingExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ctx.settingExprList().settingExpr()
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          733
+        </td>
+        <td>
+          10539
+          -
+          10539
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.ParseUtils.source
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ParseUtils.source(se.literal())
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          798
+        </td>
+        <td>
+          10553
+          -
+          10553
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[(String, String)]
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

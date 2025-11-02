@@ -1,0 +1,934 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/hash/HashUtils.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.hash
+</span>16 <span style=''>
+</span>17 <span style=''>object HashUtils {
+</span>18 <span style=''>  def intHash64Impl(x: Long): Long =
+</span>19 <span style=''>    // https://github.com/ClickHouse/ClickHouse/blob/v23.5.3.24-stable/src/Functions/FunctionsHashing.h#L140
+</span>20 <span style=''>    intHash64(x </span><span style='background: #F0ADAD'>^ 0x4cf2d2baae6da887L</span><span style=''>)
+</span>21 <span style=''>
+</span>22 <span style=''>  def intHash64(l: Long): Long = {
+</span>23 <span style=''>    // https://github.com/ClickHouse/ClickHouse/blob/v23.5.3.24-stable/src/Common/HashTable/Hash.h#L26
+</span>24 <span style=''>    var x = l
+</span>25 <span style=''>    x </span><span style='background: #F0ADAD'>^= x &gt;&gt;&gt; 33</span><span style=''>
+</span>26 <span style=''>    x </span><span style='background: #F0ADAD'>*= 0xff51afd7ed558ccdL</span><span style=''>
+</span>27 <span style=''>    x </span><span style='background: #F0ADAD'>^= x &gt;&gt;&gt; 33</span><span style=''>
+</span>28 <span style=''>    x </span><span style='background: #F0ADAD'>*= 0xc4ceb9fe1a85ec53L</span><span style=''>
+</span>29 <span style=''>    x </span><span style='background: #F0ADAD'>^= x &gt;&gt;&gt; 33</span><span style=''>
+</span>30 <span style=''>    x
+</span>31 <span style=''>  }
+</span>32 <span style=''>
+</span>33 <span style=''>  def int32Impl(x: Long): Int =
+</span>34 <span style=''>    // https://github.com/ClickHouse/ClickHouse/blob/v23.5.3.24-stable/src/Functions/FunctionsHashing.h#L133
+</span>35 <span style=''>    intHash32(x, 0x75d9543de018bf45L)
+</span>36 <span style=''>
+</span>37 <span style=''>  def intHash32(l: Long, salt: Long): Int = {
+</span>38 <span style=''>    // https://github.com/ClickHouse/ClickHouse/blob/v23.5.3.24-stable/src/Common/HashTable/Hash.h#L502
+</span>39 <span style=''>    var x = l
+</span>40 <span style=''>
+</span>41 <span style=''>    x </span><span style='background: #F0ADAD'>^= salt</span><span style=''>
+</span>42 <span style=''>    x = (~x) </span><span style='background: #F0ADAD'>+ (x &lt;&lt; 18)</span><span style=''>
+</span>43 <span style=''>    x = x </span><span style='background: #F0ADAD'>^ ((x &gt;&gt;&gt; 31) | (x &lt;&lt; 33))</span><span style=''>
+</span>44 <span style=''>    x = x </span><span style='background: #F0ADAD'>* 21</span><span style=''>
+</span>45 <span style=''>    x = x </span><span style='background: #F0ADAD'>^ ((x &gt;&gt;&gt; 11) | (x &lt;&lt; 53))</span><span style=''>
+</span>46 <span style=''>    x = x </span><span style='background: #F0ADAD'>+ (x &lt;&lt; 6)</span><span style=''>
+</span>47 <span style=''>    x = x </span><span style='background: #F0ADAD'>^ ((x &gt;&gt;&gt; 22) | (x &lt;&lt; 42))</span><span style=''>
+</span>48 <span style=''>    x.toInt
+</span>49 <span style=''>  }
+</span>50 <span style=''>
+</span>51 <span style=''>  def toUInt32(v: Int): Long = if (v </span><span style='background: #F0ADAD'>&lt; 0</span><span style=''>) v </span><span style='background: #F0ADAD'>+ (1L &lt;&lt; 32)</span><span style=''> else v
+</span>52 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          811
+        </td>
+        <td>
+          780
+          -
+          801
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.^
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.^(5544725790478674055L)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          589
+        </td>
+        <td>
+          777
+          -
+          777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.hash.HashUtils.intHash64
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          HashUtils.this.intHash64(x.^(5544725790478674055L))
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          202
+        </td>
+        <td>
+          967
+          -
+          973
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&gt;&gt;&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.&gt;&gt;&gt;(33)
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          856
+        </td>
+        <td>
+          962
+          -
+          973
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.^
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.^(x.&gt;&gt;&gt;(33))
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          438
+        </td>
+        <td>
+          980
+          -
+          1002
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.*
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.*(-49064778989728563L)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          1014
+          -
+          1020
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&gt;&gt;&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.&gt;&gt;&gt;(33)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          939
+        </td>
+        <td>
+          1009
+          -
+          1020
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.^
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.^(x.&gt;&gt;&gt;(33))
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          543
+        </td>
+        <td>
+          1027
+          -
+          1049
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.*
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.*(-4265267296055464877L)
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          792
+        </td>
+        <td>
+          1056
+          -
+          1067
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.^
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.^(x.&gt;&gt;&gt;(33))
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          1061
+          -
+          1067
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&gt;&gt;&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.&gt;&gt;&gt;(33)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          384
+        </td>
+        <td>
+          1233
+          -
+          1233
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.hash.HashUtils.intHash32
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          HashUtils.this.intHash32(x, 8491911197113237317L)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          183
+        </td>
+        <td>
+          1430
+          -
+          1437
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.^
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.^(salt)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          445
+        </td>
+        <td>
+          1451
+          -
+          1462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.unary_~.+(x.&lt;&lt;(18))
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          849
+        </td>
+        <td>
+          1456
+          -
+          1461
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.&lt;&lt;(18)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          1483
+          -
+          1483
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          31
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          919
+        </td>
+        <td>
+          1492
+          -
+          1497
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.&lt;&lt;(33)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          482
+        </td>
+        <td>
+          1487
+          -
+          1498
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.&gt;&gt;&gt;(31).|(x.&lt;&lt;(33))
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          1473
+          -
+          1499
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.^
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.^(x.&gt;&gt;&gt;(31).|(x.&lt;&lt;(33)))
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          797
+        </td>
+        <td>
+          1510
+          -
+          1514
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.*
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.*(21)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          1544
+          -
+          1549
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.&lt;&lt;(53)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          426
+        </td>
+        <td>
+          1525
+          -
+          1551
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.^
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.^(x.&gt;&gt;&gt;(11).|(x.&lt;&lt;(53)))
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          829
+        </td>
+        <td>
+          1539
+          -
+          1550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.&gt;&gt;&gt;(11).|(x.&lt;&lt;(53))
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          386
+        </td>
+        <td>
+          1535
+          -
+          1535
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          11
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          1567
+          -
+          1571
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.&lt;&lt;(6)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          921
+        </td>
+        <td>
+          1562
+          -
+          1572
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.+(x.&lt;&lt;(6))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          364
+        </td>
+        <td>
+          1583
+          -
+          1609
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.^
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.^(x.&gt;&gt;&gt;(22).|(x.&lt;&lt;(42)))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          761
+        </td>
+        <td>
+          1597
+          -
+          1608
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.&gt;&gt;&gt;(22).|(x.&lt;&lt;(42))
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          1602
+          -
+          1607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.&lt;&lt;(42)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          535
+        </td>
+        <td>
+          1593
+          -
+          1593
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          22
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          203
+        </td>
+        <td>
+          1616
+          -
+          1616
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x.toInt
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          412
+        </td>
+        <td>
+          1671
+          -
+          1683
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          v.+(4294967296L)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          540
+        </td>
+        <td>
+          1689
+          -
+          1689
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          v.toLong
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          719
+        </td>
+        <td>
+          1689
+          -
+          1689
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          v.toLong
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          1671
+          -
+          1683
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          v.+(4294967296L)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          876
+        </td>
+        <td>
+          1664
+          -
+          1667
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          v.&lt;(0)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

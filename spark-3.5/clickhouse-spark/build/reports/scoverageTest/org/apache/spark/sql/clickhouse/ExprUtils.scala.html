@@ -1,0 +1,4567 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          org/apache/spark/sql/clickhouse/ExprUtils.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package org.apache.spark.sql.clickhouse
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.exception.CHClientException
+</span>18 <span style=''>import com.clickhouse.spark.expr.{Expr, FieldRef, FuncExpr, OrderExpr, SQLExpr, StringLiteral}
+</span>19 <span style=''>import com.clickhouse.spark.func.FunctionRegistry
+</span>20 <span style=''>import com.clickhouse.spark.spec.ClusterSpec
+</span>21 <span style=''>import org.apache.spark.sql.AnalysisException
+</span>22 <span style=''>import org.apache.spark.sql.catalyst.analysis.{AnsiTypeCoercion, NoSuchFunctionException, TypeCoercion}
+</span>23 <span style=''>import org.apache.spark.sql.catalyst.expressions.{Attribute, BoundReference, Expression, ListQuery, Literal}
+</span>24 <span style=''>import org.apache.spark.sql.catalyst.expressions.{TimeZoneAwareExpression, TransformExpression, V2ExpressionUtils}
+</span>25 <span style=''>import org.apache.spark.sql.catalyst.plans.logical.{LeafNode, LogicalPlan}
+</span>26 <span style=''>import org.apache.spark.sql.catalyst.rules.{Rule, RuleExecutor}
+</span>27 <span style=''>import org.apache.spark.sql.catalyst.trees.TreePattern.{LIST_SUBQUERY, TIME_ZONE_AWARE_EXPRESSION}
+</span>28 <span style=''>import org.apache.spark.sql.catalyst.{expressions, SQLConfHelper}
+</span>29 <span style=''>import org.apache.spark.sql.clickhouse.ClickHouseSQLConf.IGNORE_UNSUPPORTED_TRANSFORM
+</span>30 <span style=''>import org.apache.spark.sql.connector.catalog.Identifier
+</span>31 <span style=''>import org.apache.spark.sql.connector.catalog.functions.{BoundFunction, ScalarFunction, UnboundFunction}
+</span>32 <span style=''>import org.apache.spark.sql.connector.expressions.Expressions._
+</span>33 <span style=''>import org.apache.spark.sql.connector.expressions.{Expression =&gt; V2Expression, SortOrder =&gt; V2SortOrder, _}
+</span>34 <span style=''>import org.apache.spark.sql.types.{StructField, StructType}
+</span>35 <span style=''>import com.clickhouse.spark.expr._
+</span>36 <span style=''>
+</span>37 <span style=''>import scala.util.{Failure, Success, Try}
+</span>38 <span style=''>
+</span>39 <span style=''>object ExprUtils extends SQLConfHelper with Serializable {
+</span>40 <span style=''>
+</span>41 <span style=''>  def toSparkPartitions(
+</span>42 <span style=''>    partitionKey: Option[List[Expr]],
+</span>43 <span style=''>    functionRegistry: FunctionRegistry
+</span>44 <span style=''>  ): Array[Transform] =
+</span>45 <span style=''>    partitionKey.seq.flatten.flatten(toSparkTransformOpt(_, functionRegistry)).toArray
+</span>46 <span style=''>
+</span>47 <span style=''>  def toSparkSplits(
+</span>48 <span style=''>    shardingKey: Option[Expr],
+</span>49 <span style=''>    partitionKey: Option[List[Expr]],
+</span>50 <span style=''>    functionRegistry: FunctionRegistry
+</span>51 <span style=''>  ): Array[Transform] =
+</span>52 <span style=''>    (shardingKey.seq ++ partitionKey.seq.flatten).flatten(toSparkTransformOpt(_, functionRegistry)).toArray
+</span>53 <span style=''>
+</span>54 <span style=''>  def toSparkSortOrders(
+</span>55 <span style=''>    shardingKeyIgnoreRand: Option[Expr],
+</span>56 <span style=''>    partitionKey: Option[List[Expr]],
+</span>57 <span style=''>    sortingKey: Option[List[OrderExpr]],
+</span>58 <span style=''>    cluster: Option[ClusterSpec],
+</span>59 <span style=''>    functionRegistry: FunctionRegistry
+</span>60 <span style=''>  ): Array[V2SortOrder] =
+</span>61 <span style=''>    toSparkSplits(
+</span>62 <span style=''>      shardingKeyIgnoreRand,
+</span>63 <span style=''>      partitionKey,
+</span>64 <span style=''>      functionRegistry
+</span>65 <span style=''>    ).map(Expressions.sort(_, SortDirection.ASCENDING)) </span><span style='background: #F0ADAD'>++:
+</span>66 <span style=''></span><span style='background: #F0ADAD'>      sortingKey.seq.flatten.flatten { case OrderExpr(expr, asc, nullFirst) =&gt;
+</span>67 <span style=''></span><span style='background: #F0ADAD'>        val direction = if (asc) SortDirection.ASCENDING else SortDirection.DESCENDING
+</span>68 <span style=''></span><span style='background: #F0ADAD'>        val nullOrder = if (nullFirst) NullOrdering.NULLS_FIRST else NullOrdering.NULLS_LAST
+</span>69 <span style=''></span><span style='background: #F0ADAD'>        toSparkTransformOpt(expr, functionRegistry).map(trans =&gt;
+</span>70 <span style=''></span><span style='background: #F0ADAD'>          Expressions.sort(trans, direction, nullOrder)
+</span>71 <span style=''></span><span style='background: #F0ADAD'>        )
+</span>72 <span style=''></span><span style='background: #F0ADAD'>      }.toArray</span><span style=''>
+</span>73 <span style=''>
+</span>74 <span style=''>  private def loadV2FunctionOpt(
+</span>75 <span style=''>    name: String,
+</span>76 <span style=''>    args: Seq[Expression],
+</span>77 <span style=''>    functionRegistry: FunctionRegistry
+</span>78 <span style=''>  ): Option[BoundFunction] = {
+</span>79 <span style=''>    def loadFunction(ident: Identifier): UnboundFunction =
+</span>80 <span style=''>      functionRegistry.load(ident.name).getOrElse(throw new NoSuchFunctionException(ident))
+</span>81 <span style=''>    val inputType = StructType(args.zipWithIndex.map {
+</span>82 <span style=''>      case (exp, pos) =&gt; StructField(s&quot;_$pos&quot;, exp.dataType, exp.nullable)
+</span>83 <span style=''>    })
+</span>84 <span style=''>    try {
+</span>85 <span style=''>      val unbound = loadFunction(Identifier.of(Array.empty, name))
+</span>86 <span style=''>      Some(unbound.bind(inputType))
+</span>87 <span style=''>    } catch {
+</span>88 <span style=''>      case e: NoSuchFunctionException =&gt;
+</span>89 <span style=''>        throw e
+</span>90 <span style=''>      case _: UnsupportedOperationException if conf.getConf(IGNORE_UNSUPPORTED_TRANSFORM) =&gt;
+</span>91 <span style=''>        None
+</span>92 <span style=''>      case e: UnsupportedOperationException =&gt;
+</span>93 <span style=''>        throw new AnalysisException(e.getMessage, cause = Some(e))
+</span>94 <span style=''>    }
+</span>95 <span style=''>  }
+</span>96 <span style=''>
+</span>97 <span style=''>  def resolveTransformCatalyst(
+</span>98 <span style=''>    catalystExpr: Expression,
+</span>99 <span style=''>    timeZoneId: Option[String] = None
+</span>100 <span style=''>  ): Expression =
+</span>101 <span style=''>    new TypeCoercionExecutor(timeZoneId)
+</span>102 <span style=''>      .execute(DummyLeafNode(resolveTransformExpression(catalystExpr)))
+</span>103 <span style=''>      .asInstanceOf[DummyLeafNode].expr
+</span>104 <span style=''>
+</span>105 <span style=''>  private case class DummyLeafNode(expr: Expression) extends LeafNode {
+</span>106 <span style=''>    override def output: Seq[Attribute] = Nil
+</span>107 <span style=''>  }
+</span>108 <span style=''>
+</span>109 <span style=''>  private class CustomResolveTimeZone(timeZoneId: Option[String]) extends Rule[LogicalPlan] {
+</span>110 <span style=''>    override def apply(plan: LogicalPlan): LogicalPlan =
+</span>111 <span style=''>      plan.resolveExpressionsWithPruning(_.containsAnyPattern(LIST_SUBQUERY, TIME_ZONE_AWARE_EXPRESSION)) {
+</span>112 <span style=''>        case e: TimeZoneAwareExpression if e.timeZoneId.isEmpty =&gt;
+</span>113 <span style=''>          e.withTimeZone(timeZoneId.getOrElse(conf.sessionLocalTimeZone))
+</span>114 <span style=''>        // Casts could be added in the subquery plan through the rule TypeCoercion while coercing
+</span>115 <span style=''>        // the types between the value expression and list query expression of IN expression.
+</span>116 <span style=''>        // We need to subject the subquery plan through ResolveTimeZone again to setup timezone
+</span>117 <span style=''>        // information for time zone aware expressions.
+</span>118 <span style=''>        case e: ListQuery =&gt; e.withNewPlan(apply(e.plan))
+</span>119 <span style=''>      }
+</span>120 <span style=''>  }
+</span>121 <span style=''>
+</span>122 <span style=''>  private class TypeCoercionExecutor(timeZoneId: Option[String]) extends RuleExecutor[LogicalPlan] {
+</span>123 <span style=''>    override val batches =
+</span>124 <span style=''>      Batch(&quot;Resolve TypeCoercion&quot;, FixedPoint(1), typeCoercionRules: _*) </span><span style='background: #F0ADAD'>::
+</span>125 <span style=''></span><span style='background: #F0ADAD'>        Batch(&quot;Resolve TimeZone&quot;, FixedPoint(1), new CustomResolveTimeZone(timeZoneId)) :: Nil</span><span style=''>
+</span>126 <span style=''>  }
+</span>127 <span style=''>
+</span>128 <span style=''>  private def resolveTransformExpression(expr: Expression): Expression = expr.transform {
+</span>129 <span style=''>    case TransformExpression(scalarFunc: ScalarFunction[_], arguments, Some(numBuckets)) =&gt;
+</span>130 <span style=''>      V2ExpressionUtils.resolveScalarFunction(scalarFunc, Seq(Literal(numBuckets)) </span><span style='background: #F0ADAD'>++ arguments</span><span style=''>)
+</span>131 <span style=''>    case TransformExpression(scalarFunc: ScalarFunction[_], arguments, None) =&gt;
+</span>132 <span style=''>      V2ExpressionUtils.resolveScalarFunction(scalarFunc, arguments)
+</span>133 <span style=''>  }
+</span>134 <span style=''>
+</span>135 <span style=''>  private def typeCoercionRules: List[Rule[LogicalPlan]] = if (conf.ansiEnabled) {
+</span>136 <span style=''>    AnsiTypeCoercion.typeCoercionRules
+</span>137 <span style=''>  } else {
+</span>138 <span style=''>    TypeCoercion.typeCoercionRules
+</span>139 <span style=''>  }
+</span>140 <span style=''>
+</span>141 <span style=''>  def toCatalyst(
+</span>142 <span style=''>    v2Expr: V2Expression,
+</span>143 <span style=''>    fields: Array[StructField],
+</span>144 <span style=''>    functionRegistry: FunctionRegistry
+</span>145 <span style=''>  ): Expression =
+</span>146 <span style=''>    v2Expr match {
+</span>147 <span style=''>      case IdentityTransform(ref) =&gt; toCatalyst(ref, fields, functionRegistry)
+</span>148 <span style=''>      case ref: NamedReference if ref.fieldNames.length </span><span style='background: #F0ADAD'>== 1</span><span style=''> =&gt;
+</span>149 <span style=''>        val (field, ordinal) = fields
+</span>150 <span style=''>          .zipWithIndex
+</span>151 <span style=''>          .find { case (field, _) =&gt; field.name == ref.fieldNames.head }
+</span>152 <span style=''>          .getOrElse(throw CHClientException(s&quot;Invalid field reference: $ref&quot;))
+</span>153 <span style=''>        BoundReference(ordinal, field.dataType, field.nullable)
+</span>154 <span style=''>      case t: Transform =&gt;
+</span>155 <span style=''>        val catalystArgs = t.arguments().map(toCatalyst(_, fields, functionRegistry))
+</span>156 <span style=''>        loadV2FunctionOpt(t.name(), catalystArgs, functionRegistry)
+</span>157 <span style=''>          .map(bound =&gt; TransformExpression(bound, catalystArgs)).getOrElse {
+</span>158 <span style=''>            throw CHClientException(s&quot;Unsupported expression: $v2Expr&quot;)
+</span>159 <span style=''>          }
+</span>160 <span style=''>      case literal: LiteralValue[Any] =&gt; expressions.Literal(literal.value)
+</span>161 <span style=''>      case _ =&gt; throw CHClientException(
+</span>162 <span style=''>          s&quot;Unsupported expression: $v2Expr&quot;
+</span>163 <span style=''>        )
+</span>164 <span style=''>    }
+</span>165 <span style=''>
+</span>166 <span style=''>  def toSparkTransformOpt(expr: Expr, functionRegistry: FunctionRegistry): Option[Transform] =
+</span>167 <span style=''>    Try(toSparkExpression(expr, functionRegistry)) match {
+</span>168 <span style=''>      // need this function because spark `Table`'s `partitioning` field should be `Transform`
+</span>169 <span style=''>      case Success(t: Transform) =&gt; Some(t)
+</span>170 <span style=''>      case Success(_) =&gt; None
+</span>171 <span style=''>      case Failure(_) if conf.getConf(IGNORE_UNSUPPORTED_TRANSFORM) =&gt; None
+</span>172 <span style=''>      case Failure(rethrow) =&gt; throw new AnalysisException(rethrow.getMessage, cause = Some(rethrow))
+</span>173 <span style=''>    }
+</span>174 <span style=''>
+</span>175 <span style=''>  def toSparkExpression(expr: Expr, functionRegistry: FunctionRegistry): V2Expression =
+</span>176 <span style=''>    expr match {
+</span>177 <span style=''>      case FieldRef(col) =&gt; identity(col)
+</span>178 <span style=''>      case StringLiteral(value) =&gt; literal(value) // TODO LiteralTransform
+</span>179 <span style=''>      case FuncExpr(&quot;rand&quot;, Nil) =&gt; apply(&quot;rand&quot;)
+</span>180 <span style=''>      case FuncExpr(&quot;toYYYYMMDD&quot;, List(FuncExpr(&quot;toDate&quot;, List(FieldRef(col))))) =&gt; identity(col)
+</span>181 <span style=''>      case FuncExpr(funName, args) if functionRegistry.clickHouseToSparkFunc.contains(funName) =&gt;
+</span>182 <span style=''>        apply(functionRegistry.clickHouseToSparkFunc(funName), args.map(toSparkExpression(_, functionRegistry)): _*)
+</span>183 <span style=''>      case unsupported =&gt; throw CHClientException(s&quot;Unsupported ClickHouse expression: $unsupported&quot;)
+</span>184 <span style=''>    }
+</span>185 <span style=''>
+</span>186 <span style=''>  def toClickHouse(
+</span>187 <span style=''>    transform: Transform,
+</span>188 <span style=''>    functionRegistry: FunctionRegistry
+</span>189 <span style=''>  ): Expr = transform match {
+</span>190 <span style=''>    case IdentityTransform(fieldRefs) =&gt; FieldRef(fieldRefs.describe)
+</span>191 <span style=''>    case ApplyTransform(name, args) if functionRegistry.sparkToClickHouseFunc.contains(name) =&gt;
+</span>192 <span style=''>      FuncExpr(functionRegistry.sparkToClickHouseFunc(name), args.map(arg =&gt; SQLExpr(arg.describe)).toList)
+</span>193 <span style=''>    case bucket: BucketTransform =&gt; throw CHClientException(s&quot;Bucket transform not support yet: $bucket&quot;)
+</span>194 <span style=''>    case other: Transform =&gt; throw CHClientException(s&quot;Unsupported transform: $other&quot;)
+</span>195 <span style=''>  }
+</span>196 <span style=''>
+</span>197 <span style=''>  def inferTransformSchema(
+</span>198 <span style=''>    primarySchema: StructType,
+</span>199 <span style=''>    secondarySchema: StructType,
+</span>200 <span style=''>    transform: Transform,
+</span>201 <span style=''>    functionRegistry: FunctionRegistry
+</span>202 <span style=''>  ): StructField = transform match {
+</span>203 <span style=''>    case IdentityTransform(FieldReference(Seq(col))) =&gt; primarySchema.find(_.name </span><span style='background: #F0ADAD'>== col</span><span style=''>)
+</span>204 <span style=''>        .orElse(secondarySchema.find(_.name </span><span style='background: #F0ADAD'>== col</span><span style=''>))
+</span>205 <span style=''>        .getOrElse(throw CHClientException(s&quot;Invalid partition column: $col&quot;))
+</span>206 <span style=''>    case t @ ApplyTransform(transformName, _) if functionRegistry.load(transformName).isDefined =&gt;
+</span>207 <span style=''>      val resType = functionRegistry.load(transformName) match {
+</span>208 <span style=''>        case Some(f: ScalarFunction[_]) =&gt; f.resultType
+</span>209 <span style=''>        case other =&gt; throw CHClientException(s&quot;Unsupported function: $other&quot;)
+</span>210 <span style=''>      }
+</span>211 <span style=''>      StructField(t.toString, resType)
+</span>212 <span style=''>    case bucket: BucketTransform =&gt; throw CHClientException(s&quot;Bucket transform not support yet: $bucket&quot;)
+</span>213 <span style=''>    case other: Transform =&gt; throw CHClientException(s&quot;Unsupported transform: $other&quot;)
+</span>214 <span style=''>  }
+</span>215 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1940
+        </td>
+        <td>
+          2295
+          -
+          2295
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.$conforms[List[com.clickhouse.spark.expr.Expr]]
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          5
+        </td>
+        <td>
+          2330
+          -
+          2330
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[org.apache.spark.sql.connector.expressions.Transform](ExprUtils.this.toSparkTransformOpt(x$1, functionRegistry))
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          2086
+        </td>
+        <td>
+          2353
+          -
+          2353
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[List[com.clickhouse.spark.expr.Expr]](partitionKey).seq.flatten[com.clickhouse.spark.expr.Expr](scala.Predef.$conforms[List[com.clickhouse.spark.expr.Expr]]).flatten[org.apache.spark.sql.connector.expressions.Transform](((x$1: com.clickhouse.spark.expr.Expr) =&gt; scala.this.Option.option2Iterable[org.apache.spark.sql.connector.expressions.Transform](ExprUtils.this.toSparkTransformOpt(x$1, functionRegistry)))).toArray[org.apache.spark.sql.connector.expressions.Transform]((ClassTag.apply[org.apache.spark.sql.connector.expressions.Transform](classOf[org.apache.spark.sql.connector.expressions.Transform]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.Transform]))
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1056
+        </td>
+        <td>
+          2330
+          -
+          2330
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkTransformOpt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.toSparkTransformOpt(x$1, functionRegistry)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          414
+        </td>
+        <td>
+          2592
+          -
+          2592
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[org.apache.spark.sql.connector.expressions.Transform](ExprUtils.this.toSparkTransformOpt(x$2, functionRegistry))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1942
+        </td>
+        <td>
+          2615
+          -
+          2615
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[com.clickhouse.spark.expr.Expr](shardingKey).seq.++[com.clickhouse.spark.expr.Expr, Iterable[com.clickhouse.spark.expr.Expr]](scala.this.Option.option2Iterable[List[com.clickhouse.spark.expr.Expr]](partitionKey).seq.flatten[com.clickhouse.spark.expr.Expr](scala.Predef.$conforms[List[com.clickhouse.spark.expr.Expr]]))(collection.this.Iterable.canBuildFrom[com.clickhouse.spark.expr.Expr]).flatten[org.apache.spark.sql.connector.expressions.Transform](((x$2: com.clickhouse.spark.expr.Expr) =&gt; scala.this.Option.option2Iterable[org.apache.spark.sql.connector.expressions.Transform](ExprUtils.this.toSparkTransformOpt(x$2, functionRegistry)))).toArray[org.apache.spark.sql.connector.expressions.Transform]((ClassTag.apply[org.apache.spark.sql.connector.expressions.Transform](classOf[org.apache.spark.sql.connector.expressions.Transform]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.Transform]))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          895
+        </td>
+        <td>
+          2592
+          -
+          2592
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkTransformOpt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.toSparkTransformOpt(x$2, functionRegistry)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          243
+        </td>
+        <td>
+          2556
+          -
+          2556
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.generic.GenericTraversableTemplate.flatten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[List[com.clickhouse.spark.expr.Expr]](partitionKey).seq.flatten[com.clickhouse.spark.expr.Expr](scala.Predef.$conforms[List[com.clickhouse.spark.expr.Expr]])
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1828
+        </td>
+        <td>
+          2536
+          -
+          2536
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Iterable.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Iterable.canBuildFrom[com.clickhouse.spark.expr.Expr]
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1113
+        </td>
+        <td>
+          2556
+          -
+          2556
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.$conforms[List[com.clickhouse.spark.expr.Expr]]
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          866
+        </td>
+        <td>
+          3015
+          -
+          3015
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.connector.expressions.SortOrder]((ClassTag.apply[org.apache.spark.sql.connector.expressions.SortOrder](classOf[org.apache.spark.sql.connector.expressions.SortOrder]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.SortOrder]))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          459
+        </td>
+        <td>
+          3015
+          -
+          3424
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.++:
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.connector.expressions.SortOrder](scala.this.Option.option2Iterable[List[com.clickhouse.spark.expr.OrderExpr]](sortingKey).seq.flatten[com.clickhouse.spark.expr.OrderExpr](scala.Predef.$conforms[List[com.clickhouse.spark.expr.OrderExpr]]).flatten[org.apache.spark.sql.connector.expressions.SortOrder](((x0$1: com.clickhouse.spark.expr.OrderExpr) =&gt; x0$1 match {
+  case (expr: com.clickhouse.spark.expr.Expr, asc: Boolean, nullFirst: Boolean)com.clickhouse.spark.expr.OrderExpr((expr @ _), (asc @ _), (nullFirst @ _)) =&gt; {
+    val direction: org.apache.spark.sql.connector.expressions.SortDirection = if (asc)
+      ASCENDING
+    else
+      DESCENDING;
+    val nullOrder: org.apache.spark.sql.connector.expressions.NullOrdering = if (nullFirst)
+      NULLS_FIRST
+    else
+      NULLS_LAST;
+    scala.this.Option.option2Iterable[org.apache.spark.sql.connector.expressions.SortOrder](ExprUtils.this.toSparkTransformOpt(expr, functionRegistry).map[org.apache.spark.sql.connector.expressions.SortOrder](((trans: org.apache.spark.sql.connector.expressions.Transform) =&gt; org.apache.spark.sql.connector.expressions.Expressions.sort(trans, direction, nullOrder))))
+  }
+})).toArray[org.apache.spark.sql.connector.expressions.SortOrder]((ClassTag.apply[org.apache.spark.sql.connector.expressions.SortOrder](classOf[org.apache.spark.sql.connector.expressions.SortOrder]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.SortOrder]))).++:[org.apache.spark.sql.connector.expressions.SortOrder, Array[org.apache.spark.sql.connector.expressions.SortOrder]](scala.Predef.wrapRefArray[org.apache.spark.sql.connector.expressions.SortOrder](x$4))(scala.this.Array.canBuildFrom[org.apache.spark.sql.connector.expressions.SortOrder]((ClassTag.apply[org.apache.spark.sql.connector.expressions.SortOrder](classOf[org.apache.spark.sql.connector.expressions.SortOrder]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.SortOrder])))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1720
+        </td>
+        <td>
+          2968
+          -
+          2968
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapRefArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.wrapRefArray[org.apache.spark.sql.connector.expressions.SortOrder](x$4)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1015
+        </td>
+        <td>
+          3040
+          -
+          3040
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.$conforms[List[com.clickhouse.spark.expr.OrderExpr]]
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1103
+        </td>
+        <td>
+          3095
+          -
+          3095
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val direction: org.apache.spark.sql.connector.expressions.SortDirection = if (asc)
+    ASCENDING
+  else
+    DESCENDING;
+  val nullOrder: org.apache.spark.sql.connector.expressions.NullOrdering = if (nullFirst)
+    NULLS_FIRST
+  else
+    NULLS_LAST;
+  scala.this.Option.option2Iterable[org.apache.spark.sql.connector.expressions.SortOrder](ExprUtils.this.toSparkTransformOpt(expr, functionRegistry).map[org.apache.spark.sql.connector.expressions.SortOrder](((trans: org.apache.spark.sql.connector.expressions.Transform) =&gt; org.apache.spark.sql.connector.expressions.Expressions.sort(trans, direction, nullOrder))))
+}
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1097
+        </td>
+        <td>
+          3174
+          -
+          3174
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DESCENDING
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1668
+        </td>
+        <td>
+          3145
+          -
+          3145
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ASCENDING
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          246
+        </td>
+        <td>
+          3174
+          -
+          3174
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DESCENDING
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          75
+        </td>
+        <td>
+          3145
+          -
+          3145
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ASCENDING
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1833
+        </td>
+        <td>
+          3237
+          -
+          3237
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NULLS_FIRST
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          421
+        </td>
+        <td>
+          3267
+          -
+          3267
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NULLS_LAST
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1865
+        </td>
+        <td>
+          3267
+          -
+          3267
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NULLS_LAST
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          860
+        </td>
+        <td>
+          3237
+          -
+          3237
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NULLS_FIRST
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          80
+        </td>
+        <td>
+          3333
+          -
+          3333
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.toSparkTransformOpt(expr, functionRegistry).map[org.apache.spark.sql.connector.expressions.SortOrder](((trans: org.apache.spark.sql.connector.expressions.Transform) =&gt; org.apache.spark.sql.connector.expressions.Expressions.sort(trans, direction, nullOrder)))
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1648
+        </td>
+        <td>
+          3333
+          -
+          3333
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[org.apache.spark.sql.connector.expressions.SortOrder](ExprUtils.this.toSparkTransformOpt(expr, functionRegistry).map[org.apache.spark.sql.connector.expressions.SortOrder](((trans: org.apache.spark.sql.connector.expressions.Transform) =&gt; org.apache.spark.sql.connector.expressions.Expressions.sort(trans, direction, nullOrder))))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1018
+        </td>
+        <td>
+          3369
+          -
+          3369
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.sort
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.sort(trans, direction, nullOrder)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          206
+        </td>
+        <td>
+          3417
+          -
+          3417
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[List[com.clickhouse.spark.expr.OrderExpr]](sortingKey).seq.flatten[com.clickhouse.spark.expr.OrderExpr](scala.Predef.$conforms[List[com.clickhouse.spark.expr.OrderExpr]]).flatten[org.apache.spark.sql.connector.expressions.SortOrder](((x0$1: com.clickhouse.spark.expr.OrderExpr) =&gt; x0$1 match {
+  case (expr: com.clickhouse.spark.expr.Expr, asc: Boolean, nullFirst: Boolean)com.clickhouse.spark.expr.OrderExpr((expr @ _), (asc @ _), (nullFirst @ _)) =&gt; {
+    val direction: org.apache.spark.sql.connector.expressions.SortDirection = if (asc)
+      ASCENDING
+    else
+      DESCENDING;
+    val nullOrder: org.apache.spark.sql.connector.expressions.NullOrdering = if (nullFirst)
+      NULLS_FIRST
+    else
+      NULLS_LAST;
+    scala.this.Option.option2Iterable[org.apache.spark.sql.connector.expressions.SortOrder](ExprUtils.this.toSparkTransformOpt(expr, functionRegistry).map[org.apache.spark.sql.connector.expressions.SortOrder](((trans: org.apache.spark.sql.connector.expressions.Transform) =&gt; org.apache.spark.sql.connector.expressions.Expressions.sort(trans, direction, nullOrder))))
+  }
+})).toArray[org.apache.spark.sql.connector.expressions.SortOrder]((ClassTag.apply[org.apache.spark.sql.connector.expressions.SortOrder](classOf[org.apache.spark.sql.connector.expressions.SortOrder]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.SortOrder]))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          144
+        </td>
+        <td>
+          3682
+          -
+          3682
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          functionRegistry.load(ident.name()).getOrElse[org.apache.spark.sql.connector.catalog.functions.UnboundFunction](throw new org.apache.spark.sql.catalyst.analysis.NoSuchFunctionException(ident))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          954
+        </td>
+        <td>
+          3683
+          -
+          3683
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchFunctionException(ident)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1872
+        </td>
+        <td>
+          3667
+          -
+          3667
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.catalog.Identifier.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ident.name()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1013
+        </td>
+        <td>
+          3778
+          -
+          3778
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          args.zipWithIndex[org.apache.spark.sql.catalyst.expressions.Expression, Seq[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]](collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]).map[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](((x0$1: (org.apache.spark.sql.catalyst.expressions.Expression, Int)) =&gt; x0$1 match {
+  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: Int)(org.apache.spark.sql.catalyst.expressions.Expression, Int)((exp @ _), (pos @ _)) =&gt; org.apache.spark.sql.types.StructField.apply(scala.StringContext.apply(&quot;_&quot;, &quot;&quot;).s(pos), exp.dataType, exp.nullable, org.apache.spark.sql.types.StructField.apply$default$4)
+}))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField])
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1653
+        </td>
+        <td>
+          3761
+          -
+          3761
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          3755
+          -
+          3755
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructType.apply(args.zipWithIndex[org.apache.spark.sql.catalyst.expressions.Expression, Seq[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]](collection.this.Seq.canBuildFrom[(org.apache.spark.sql.catalyst.expressions.Expression, Int)]).map[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](((x0$1: (org.apache.spark.sql.catalyst.expressions.Expression, Int)) =&gt; x0$1 match {
+  case (_1: org.apache.spark.sql.catalyst.expressions.Expression, _2: Int)(org.apache.spark.sql.catalyst.expressions.Expression, Int)((exp @ _), (pos @ _)) =&gt; org.apache.spark.sql.types.StructField.apply(scala.StringContext.apply(&quot;_&quot;, &quot;&quot;).s(pos), exp.dataType, exp.nullable, org.apache.spark.sql.types.StructField.apply$default$4)
+}))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1878
+        </td>
+        <td>
+          3778
+          -
+          3778
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          183
+        </td>
+        <td>
+          3831
+          -
+          3831
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          exp.dataType
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1825
+        </td>
+        <td>
+          3845
+          -
+          3845
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Expression.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          exp.nullable
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          2324
+        </td>
+        <td>
+          3816
+          -
+          3816
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructField.apply(scala.StringContext.apply(&quot;_&quot;, &quot;&quot;).s(pos), exp.dataType, exp.nullable, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          912
+        </td>
+        <td>
+          3816
+          -
+          3816
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructField.apply(scala.StringContext.apply(&quot;_&quot;, &quot;&quot;).s(pos), exp.dataType, exp.nullable, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1220
+        </td>
+        <td>
+          3817
+          -
+          3817
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;_&quot;, &quot;&quot;).s(pos)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          2410
+        </td>
+        <td>
+          3866
+          -
+          3866
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val unbound: org.apache.spark.sql.connector.catalog.functions.UnboundFunction = loadFunction(org.apache.spark.sql.connector.catalog.Identifier.of(scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])), name));
+  scala.Some.apply[org.apache.spark.sql.connector.catalog.functions.BoundFunction](unbound.bind(inputType))
+}
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1225
+        </td>
+        <td>
+          3918
+          -
+          3918
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.catalog.Identifier.of
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.catalog.Identifier.of(scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])), name)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1642
+        </td>
+        <td>
+          3925
+          -
+          3925
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          188
+        </td>
+        <td>
+          3904
+          -
+          3904
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.loadFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          loadFunction(org.apache.spark.sql.connector.catalog.Identifier.of(scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])), name))
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          914
+        </td>
+        <td>
+          3949
+          -
+          3949
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[org.apache.spark.sql.connector.catalog.functions.BoundFunction](unbound.bind(inputType))
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1792
+        </td>
+        <td>
+          3962
+          -
+          3962
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.catalog.functions.UnboundFunction.bind
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          unbound.bind(inputType)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1016
+        </td>
+        <td>
+          4038
+          -
+          4038
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw e
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1987
+        </td>
+        <td>
+          4038
+          -
+          4038
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw e
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          4106
+          -
+          4106
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.IGNORE_UNSUPPORTED_TRANSFORM
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.IGNORE_UNSUPPORTED_TRANSFORM
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1646
+        </td>
+        <td>
+          4105
+          -
+          4105
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.getConf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.conf.getConf[Boolean](org.apache.spark.sql.clickhouse.ClickHouseSQLConf.IGNORE_UNSUPPORTED_TRANSFORM)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1178
+        </td>
+        <td>
+          4147
+          -
+          4147
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          220
+        </td>
+        <td>
+          4147
+          -
+          4147
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          899
+        </td>
+        <td>
+          4207
+          -
+          4207
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw {
+  &lt;artifact&gt; val x$1: String = e.getMessage();
+  &lt;artifact&gt; val x$2: Some[UnsupportedOperationException] @scala.reflect.internal.annotations.uncheckedBounds = scala.Some.apply[UnsupportedOperationException](e);
+  &lt;artifact&gt; val x$3: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$2;
+  &lt;artifact&gt; val x$4: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$3;
+  &lt;artifact&gt; val x$5: Option[String] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$5;
+  &lt;artifact&gt; val x$6: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$6;
+  &lt;artifact&gt; val x$7: Array[org.apache.spark.QueryContext] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$7;
+  new org.apache.spark.sql.AnalysisException(x$1, x$3, x$4, x$2, x$5, x$6, x$7)
+}
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1798
+        </td>
+        <td>
+          4207
+          -
+          4207
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw {
+  &lt;artifact&gt; val x$1: String = e.getMessage();
+  &lt;artifact&gt; val x$2: Some[UnsupportedOperationException] @scala.reflect.internal.annotations.uncheckedBounds = scala.Some.apply[UnsupportedOperationException](e);
+  &lt;artifact&gt; val x$3: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$2;
+  &lt;artifact&gt; val x$4: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$3;
+  &lt;artifact&gt; val x$5: Option[String] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$5;
+  &lt;artifact&gt; val x$6: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$6;
+  &lt;artifact&gt; val x$7: Array[org.apache.spark.QueryContext] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$7;
+  new org.apache.spark.sql.AnalysisException(x$1, x$3, x$4, x$2, x$5, x$6, x$7)
+}
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          2398
+        </td>
+        <td>
+          4491
+          -
+          4491
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.resolveTransformExpression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.resolveTransformExpression(catalystExpr)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1921
+        </td>
+        <td>
+          4464
+          -
+          4464
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.DummyLeafNode.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.DummyLeafNode.apply(ExprUtils.this.resolveTransformExpression(catalystExpr))
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          979
+        </td>
+        <td>
+          4543
+          -
+          4543
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.DummyLeafNode.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new ExprUtils.this.TypeCoercionExecutor(timeZoneId).execute(ExprUtils.this.DummyLeafNode.apply(ExprUtils.this.resolveTransformExpression(catalystExpr))).asInstanceOf[org.apache.spark.sql.clickhouse.ExprUtils.DummyLeafNode].expr
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          4663
+          -
+          4663
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.Nil
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.Nil
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1650
+        </td>
+        <td>
+          4885
+          -
+          4885
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreePattern.LIST_SUBQUERY
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.trees.TreePattern.LIST_SUBQUERY
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          181
+        </td>
+        <td>
+          4884
+          -
+          4884
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreePatternBits.containsAnyPattern
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$5.containsAnyPattern(org.apache.spark.sql.catalyst.trees.TreePattern.LIST_SUBQUERY, org.apache.spark.sql.catalyst.trees.TreePattern.TIME_ZONE_AWARE_EXPRESSION)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          827
+        </td>
+        <td>
+          4929
+          -
+          4929
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.plans.logical.AnalysisHelper.resolveExpressionsWithPruning
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          plan.resolveExpressionsWithPruning(((x$5: org.apache.spark.sql.catalyst.trees.TreePatternBits) =&gt; x$5.containsAnyPattern(org.apache.spark.sql.catalyst.trees.TreePattern.LIST_SUBQUERY, org.apache.spark.sql.catalyst.trees.TreePattern.TIME_ZONE_AWARE_EXPRESSION)), plan.resolveExpressionsWithPruning$default$2)(({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.TimeZoneAwareExpression)) if e.timeZoneId.isEmpty =&gt; e.withTimeZone(CustomResolveTimeZone.this.timeZoneId.getOrElse[String](CustomResolveTimeZone.this.conf.sessionLocalTimeZone))
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.ListQuery)) =&gt; e.withNewPlan(CustomResolveTimeZone.this.apply(e.plan))
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.TimeZoneAwareExpression)) if e.timeZoneId.isEmpty =&gt; true
+      case (e @ (_: org.apache.spark.sql.catalyst.expressions.ListQuery)) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          706
+        </td>
+        <td>
+          4900
+          -
+          4900
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreePattern.TIME_ZONE_AWARE_EXPRESSION
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.trees.TreePattern.TIME_ZONE_AWARE_EXPRESSION
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1699
+        </td>
+        <td>
+          4929
+          -
+          4929
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.CustomResolveTimeZone.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          1754
+        </td>
+        <td>
+          4987
+          -
+          4987
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          e.timeZoneId.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          2399
+        </td>
+        <td>
+          5043
+          -
+          5043
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          CustomResolveTimeZone.this.timeZoneId.getOrElse[String](CustomResolveTimeZone.this.conf.sessionLocalTimeZone)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1977
+        </td>
+        <td>
+          5022
+          -
+          5022
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.TimeZoneAwareExpression.withTimeZone
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          e.withTimeZone(CustomResolveTimeZone.this.timeZoneId.getOrElse[String](CustomResolveTimeZone.this.conf.sessionLocalTimeZone))
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          939
+        </td>
+        <td>
+          5022
+          -
+          5022
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.TimeZoneAwareExpression.withTimeZone
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          e.withTimeZone(CustomResolveTimeZone.this.timeZoneId.getOrElse[String](CustomResolveTimeZone.this.conf.sessionLocalTimeZone))
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          825
+        </td>
+        <td>
+          5049
+          -
+          5049
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.sessionLocalTimeZone
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          CustomResolveTimeZone.this.conf.sessionLocalTimeZone
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          5467
+          -
+          5467
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.ListQuery.plan
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          e.plan
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          1611
+        </td>
+        <td>
+          5464
+          -
+          5464
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.CustomResolveTimeZone.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          CustomResolveTimeZone.this.apply(e.plan)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          707
+        </td>
+        <td>
+          5458
+          -
+          5458
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.ListQuery.withNewPlan
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          e.withNewPlan(CustomResolveTimeZone.this.apply(e.plan))
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          293
+        </td>
+        <td>
+          5458
+          -
+          5458
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.ListQuery.withNewPlan
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          e.withNewPlan(CustomResolveTimeZone.this.apply(e.plan))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          2372
+        </td>
+        <td>
+          5689
+          -
+          5786
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.::
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  &lt;synthetic&gt; &lt;artifact&gt; val x$6: TypeCoercionExecutor.this.Batch = TypeCoercionExecutor.this.Batch.apply(&quot;Resolve TimeZone&quot;, TypeCoercionExecutor.this.FixedPoint.apply(1, TypeCoercionExecutor.this.FixedPoint.apply$default$2, TypeCoercionExecutor.this.FixedPoint.apply$default$3), new ExprUtils.this.CustomResolveTimeZone(TypeCoercionExecutor.this.timeZoneId));
+  scala.collection.immutable.Nil.::[TypeCoercionExecutor.this.Batch](x$6)
+}.::[TypeCoercionExecutor.this.Batch](x$7)
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          2376
+        </td>
+        <td>
+          5880
+          -
+          5880
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.trees.TreeNode.transform
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          expr.transform(({
+  @SerialVersionUID(value = 0) final &lt;synthetic&gt; class $anonfun extends scala.runtime.AbstractPartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression] with Serializable {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.catalyst.expressions.Expression =&gt; org.apache.spark.sql.catalyst.expressions.Expression&gt; = {
+      $anonfun.super.&lt;init&gt;();
+      ()
+    };
+    final override def applyOrElse[A1 &lt;: org.apache.spark.sql.catalyst.expressions.Expression, B1 &gt;: org.apache.spark.sql.catalyst.expressions.Expression](x1: A1, default: A1 =&gt; B1): B1 = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (function: org.apache.spark.sql.connector.catalog.functions.BoundFunction, children: Seq[org.apache.spark.sql.catalyst.expressions.Expression], numBucketsOpt: Option[Int])org.apache.spark.sql.catalyst.expressions.TransformExpression((scalarFunc @ (_: org.apache.spark.sql.connector.catalog.functions.ScalarFunction[_])), (arguments @ _), (value: Int)Some[Int]((numBuckets @ _))) =&gt; org.apache.spark.sql.catalyst.expressions.V2ExpressionUtils.resolveScalarFunction(scalarFunc, scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Literal](org.apache.spark.sql.catalyst.expressions.Literal.apply(numBuckets)).++[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](arguments)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]))
+      case (function: org.apache.spark.sql.connector.catalog.functions.BoundFunction, children: Seq[org.apache.spark.sql.catalyst.expressions.Expression], numBucketsOpt: Option[Int])org.apache.spark.sql.catalyst.expressions.TransformExpression((scalarFunc @ (_: org.apache.spark.sql.connector.catalog.functions.ScalarFunction[_])), (arguments @ _), scala.None) =&gt; org.apache.spark.sql.catalyst.expressions.V2ExpressionUtils.resolveScalarFunction(scalarFunc, arguments)
+      case (defaultCase$ @ _) =&gt; default.apply(x1)
+    };
+    final def isDefinedAt(x1: org.apache.spark.sql.catalyst.expressions.Expression): Boolean = ((x1.asInstanceOf[org.apache.spark.sql.catalyst.expressions.Expression]: org.apache.spark.sql.catalyst.expressions.Expression): org.apache.spark.sql.catalyst.expressions.Expression @unchecked) match {
+      case (function: org.apache.spark.sql.connector.catalog.functions.BoundFunction, children: Seq[org.apache.spark.sql.catalyst.expressions.Expression], numBucketsOpt: Option[Int])org.apache.spark.sql.catalyst.expressions.TransformExpression((scalarFunc @ (_: org.apache.spark.sql.connector.catalog.functions.ScalarFunction[_])), (arguments @ _), (value: Int)Some[Int]((numBuckets @ _))) =&gt; true
+      case (function: org.apache.spark.sql.connector.catalog.functions.BoundFunction, children: Seq[org.apache.spark.sql.catalyst.expressions.Expression], numBucketsOpt: Option[Int])org.apache.spark.sql.catalyst.expressions.TransformExpression((scalarFunc @ (_: org.apache.spark.sql.connector.catalog.functions.ScalarFunction[_])), (arguments @ _), scala.None) =&gt; true
+      case (defaultCase$ @ _) =&gt; false
+    }
+  };
+  new $anonfun()
+}: PartialFunction[org.apache.spark.sql.catalyst.expressions.Expression,org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          897
+        </td>
+        <td>
+          5880
+          -
+          5880
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.$anonfun.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new $anonfun()
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          1416
+        </td>
+        <td>
+          6043
+          -
+          6043
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(numBuckets)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          1616
+        </td>
+        <td>
+          6019
+          -
+          6019
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.V2ExpressionUtils.resolveScalarFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.V2ExpressionUtils.resolveScalarFunction(scalarFunc, scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Literal](org.apache.spark.sql.catalyst.expressions.Literal.apply(numBuckets)).++[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](arguments)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          757
+        </td>
+        <td>
+          6019
+          -
+          6019
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.V2ExpressionUtils.resolveScalarFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.V2ExpressionUtils.resolveScalarFunction(scalarFunc, scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Literal](org.apache.spark.sql.catalyst.expressions.Literal.apply(numBuckets)).++[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](arguments)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          123
+        </td>
+        <td>
+          6057
+          -
+          6069
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[org.apache.spark.sql.catalyst.expressions.Literal](org.apache.spark.sql.catalyst.expressions.Literal.apply(numBuckets)).++[org.apache.spark.sql.catalyst.expressions.Expression, Seq[org.apache.spark.sql.catalyst.expressions.Expression]](arguments)(collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          1062
+        </td>
+        <td>
+          6057
+          -
+          6057
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          1703
+        </td>
+        <td>
+          6196
+          -
+          6196
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.V2ExpressionUtils.resolveScalarFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.V2ExpressionUtils.resolveScalarFunction(scalarFunc, arguments)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          302
+        </td>
+        <td>
+          6196
+          -
+          6196
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.V2ExpressionUtils.resolveScalarFunction
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.V2ExpressionUtils.resolveScalarFunction(scalarFunc, arguments)
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1526
+        </td>
+        <td>
+          6293
+          -
+          6293
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.ansiEnabled
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.conf.ansiEnabled
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          125
+        </td>
+        <td>
+          6329
+          -
+          6329
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.AnsiTypeCoercion.typeCoercionRules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.analysis.AnsiTypeCoercion.typeCoercionRules
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          1071
+        </td>
+        <td>
+          6329
+          -
+          6329
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.AnsiTypeCoercion.typeCoercionRules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.analysis.AnsiTypeCoercion.typeCoercionRules
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          762
+        </td>
+        <td>
+          6375
+          -
+          6375
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCoercion.typeCoercionRules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.analysis.TypeCoercion.typeCoercionRules
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1670
+        </td>
+        <td>
+          6375
+          -
+          6375
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.analysis.TypeCoercion.typeCoercionRules
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.analysis.TypeCoercion.typeCoercionRules
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1751
+        </td>
+        <td>
+          6597
+          -
+          6597
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toCatalyst
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.toCatalyst(ref, fields, functionRegistry)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          251
+        </td>
+        <td>
+          6597
+          -
+          6597
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toCatalyst
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.toCatalyst(ref, fields, functionRegistry)
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          684
+        </td>
+        <td>
+          6690
+          -
+          6690
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$8: (org.apache.spark.sql.types.StructField, Int) = (scala.Predef.refArrayOps[(org.apache.spark.sql.types.StructField, Int)](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](fields).zipWithIndex[org.apache.spark.sql.types.StructField, Array[(org.apache.spark.sql.types.StructField, Int)]](scala.this.Array.canBuildFrom[(org.apache.spark.sql.types.StructField, Int)]((ClassTag.apply[(org.apache.spark.sql.types.StructField, Int)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(org.apache.spark.sql.types.StructField, Int)])))).find(((x0$1: (org.apache.spark.sql.types.StructField, Int)) =&gt; x0$1 match {
+  case (_1: org.apache.spark.sql.types.StructField, _2: Int)(org.apache.spark.sql.types.StructField, Int)((field @ _), _) =&gt; field.name.==(scala.Predef.refArrayOps[String](ref.fieldNames()).head)
+})).getOrElse[(org.apache.spark.sql.types.StructField, Int)](throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Invalid field reference: &quot;, &quot;&quot;).s(ref), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)): (org.apache.spark.sql.types.StructField, Int) @unchecked) match {
+    case (_1: org.apache.spark.sql.types.StructField, _2: Int)(org.apache.spark.sql.types.StructField, Int)((field @ _), (ordinal @ _)) =&gt; scala.Tuple2.apply[org.apache.spark.sql.types.StructField, Int](field, ordinal)
+  };
+  val field: org.apache.spark.sql.types.StructField = x$8._1;
+  val ordinal: Int = x$8._2;
+  org.apache.spark.sql.catalyst.expressions.BoundReference.apply(ordinal, field.dataType, field.nullable)
+}
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          900
+        </td>
+        <td>
+          6685
+          -
+          6689
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ref.fieldNames().length.==(1)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          2365
+        </td>
+        <td>
+          6706
+          -
+          6706
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$8._1
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          1530
+        </td>
+        <td>
+          6713
+          -
+          6713
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$8._2
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          1671
+        </td>
+        <td>
+          6930
+          -
+          6930
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.BoundReference.apply(ordinal, field.dataType, field.nullable)
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          1077
+        </td>
+        <td>
+          6946
+          -
+          6946
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          field.dataType
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          84
+        </td>
+        <td>
+          6962
+          -
+          6962
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          field.nullable
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          1723
+        </td>
+        <td>
+          6996
+          -
+          6996
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val catalystArgs: Array[org.apache.spark.sql.catalyst.expressions.Expression] = scala.Predef.refArrayOps[org.apache.spark.sql.connector.expressions.Expression](t.arguments()).map[org.apache.spark.sql.catalyst.expressions.Expression, Array[org.apache.spark.sql.catalyst.expressions.Expression]](((x$9: org.apache.spark.sql.connector.expressions.Expression) =&gt; ExprUtils.this.toCatalyst(x$9, fields, functionRegistry)))(scala.this.Array.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]((ClassTag.apply[org.apache.spark.sql.catalyst.expressions.Expression](classOf[org.apache.spark.sql.catalyst.expressions.Expression]): scala.reflect.ClassTag[org.apache.spark.sql.catalyst.expressions.Expression])));
+  ExprUtils.this.loadV2FunctionOpt(t.name(), scala.Predef.wrapRefArray[org.apache.spark.sql.catalyst.expressions.Expression](catalystArgs), functionRegistry).map[org.apache.spark.sql.catalyst.expressions.TransformExpression](((bound: org.apache.spark.sql.connector.catalog.functions.BoundFunction) =&gt; org.apache.spark.sql.catalyst.expressions.TransformExpression.apply(bound, scala.Predef.wrapRefArray[org.apache.spark.sql.catalyst.expressions.Expression](catalystArgs), org.apache.spark.sql.catalyst.expressions.TransformExpression.apply$default$3))).getOrElse[org.apache.spark.sql.catalyst.expressions.TransformExpression](throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported expression: &quot;, &quot;&quot;).s(v2Expr), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3))
+}
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          873
+        </td>
+        <td>
+          7043
+          -
+          7043
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]((ClassTag.apply[org.apache.spark.sql.catalyst.expressions.Expression](classOf[org.apache.spark.sql.catalyst.expressions.Expression]): scala.reflect.ClassTag[org.apache.spark.sql.catalyst.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          1757
+        </td>
+        <td>
+          7054
+          -
+          7054
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toCatalyst
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.toCatalyst(x$9, fields, functionRegistry)
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          2370
+        </td>
+        <td>
+          7043
+          -
+          7043
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.connector.expressions.Expression](t.arguments()).map[org.apache.spark.sql.catalyst.expressions.Expression, Array[org.apache.spark.sql.catalyst.expressions.Expression]](((x$9: org.apache.spark.sql.connector.expressions.Expression) =&gt; ExprUtils.this.toCatalyst(x$9, fields, functionRegistry)))(scala.this.Array.canBuildFrom[org.apache.spark.sql.catalyst.expressions.Expression]((ClassTag.apply[org.apache.spark.sql.catalyst.expressions.Expression](classOf[org.apache.spark.sql.catalyst.expressions.Expression]): scala.reflect.ClassTag[org.apache.spark.sql.catalyst.expressions.Expression])))
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          2292
+        </td>
+        <td>
+          7037
+          -
+          7037
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Transform.arguments
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          t.arguments()
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          957
+        </td>
+        <td>
+          7121
+          -
+          7121
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapRefArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.wrapRefArray[org.apache.spark.sql.catalyst.expressions.Expression](catalystArgs)
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          1435
+        </td>
+        <td>
+          7117
+          -
+          7117
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Transform.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          t.name()
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          1656
+        </td>
+        <td>
+          7196
+          -
+          7196
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.TransformExpression.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.TransformExpression.apply(bound, scala.Predef.wrapRefArray[org.apache.spark.sql.catalyst.expressions.Expression](catalystArgs), org.apache.spark.sql.catalyst.expressions.TransformExpression.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          90
+        </td>
+        <td>
+          7204
+          -
+          7204
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapRefArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.wrapRefArray[org.apache.spark.sql.catalyst.expressions.Expression](catalystArgs)
+        </td>
+      </tr><tr>
+        <td>
+          157
+        </td>
+        <td>
+          2198
+        </td>
+        <td>
+          7229
+          -
+          7229
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.loadV2FunctionOpt(t.name(), scala.Predef.wrapRefArray[org.apache.spark.sql.catalyst.expressions.Expression](catalystArgs), functionRegistry).map[org.apache.spark.sql.catalyst.expressions.TransformExpression](((bound: org.apache.spark.sql.connector.catalog.functions.BoundFunction) =&gt; org.apache.spark.sql.catalyst.expressions.TransformExpression.apply(bound, scala.Predef.wrapRefArray[org.apache.spark.sql.catalyst.expressions.Expression](catalystArgs), org.apache.spark.sql.catalyst.expressions.TransformExpression.apply$default$3))).getOrElse[org.apache.spark.sql.catalyst.expressions.TransformExpression](throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported expression: &quot;, &quot;&quot;).s(v2Expr), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3))
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          687
+        </td>
+        <td>
+          7243
+          -
+          7243
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported expression: &quot;, &quot;&quot;).s(v2Expr), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          2329
+        </td>
+        <td>
+          7375
+          -
+          7375
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(literal.value)
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          1436
+        </td>
+        <td>
+          7375
+          -
+          7375
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.Literal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.Literal.apply(literal.value)
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          879
+        </td>
+        <td>
+          7384
+          -
+          7384
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.LiteralValue.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          literal.value
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          1070
+        </td>
+        <td>
+          7407
+          -
+          7407
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported expression: &quot;, &quot;&quot;).s(v2Expr), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          47
+        </td>
+        <td>
+          7407
+          -
+          7407
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported expression: &quot;, &quot;&quot;).s(v2Expr), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          1569
+        </td>
+        <td>
+          7614
+          -
+          7614
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkExpression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.toSparkExpression(expr, functionRegistry)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          691
+        </td>
+        <td>
+          7596
+          -
+          7596
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[org.apache.spark.sql.connector.expressions.Expression](ExprUtils.this.toSparkExpression(expr, functionRegistry))
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          2287
+        </td>
+        <td>
+          7783
+          -
+          7783
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[org.apache.spark.sql.connector.expressions.Transform](t)
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          1838
+        </td>
+        <td>
+          7783
+          -
+          7783
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[org.apache.spark.sql.connector.expressions.Transform](t)
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          2332
+        </td>
+        <td>
+          7812
+          -
+          7812
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          835
+        </td>
+        <td>
+          7812
+          -
+          7812
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          1438
+        </td>
+        <td>
+          7855
+          -
+          7855
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.IGNORE_UNSUPPORTED_TRANSFORM
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.IGNORE_UNSUPPORTED_TRANSFORM
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          612
+        </td>
+        <td>
+          7854
+          -
+          7854
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.getConf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.conf.getConf[Boolean](org.apache.spark.sql.clickhouse.ClickHouseSQLConf.IGNORE_UNSUPPORTED_TRANSFORM)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          1688
+        </td>
+        <td>
+          7888
+          -
+          7888
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          7888
+          -
+          7888
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          2290
+        </td>
+        <td>
+          7924
+          -
+          7924
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw {
+  &lt;artifact&gt; val x$1: String = rethrow.getMessage();
+  &lt;artifact&gt; val x$2: Some[Throwable] @scala.reflect.internal.annotations.uncheckedBounds = scala.Some.apply[Throwable](rethrow);
+  &lt;artifact&gt; val x$3: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$2;
+  &lt;artifact&gt; val x$4: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$3;
+  &lt;artifact&gt; val x$5: Option[String] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$5;
+  &lt;artifact&gt; val x$6: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$6;
+  &lt;artifact&gt; val x$7: Array[org.apache.spark.QueryContext] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$7;
+  new org.apache.spark.sql.AnalysisException(x$1, x$3, x$4, x$2, x$5, x$6, x$7)
+}
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          662
+        </td>
+        <td>
+          7924
+          -
+          7924
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw {
+  &lt;artifact&gt; val x$1: String = rethrow.getMessage();
+  &lt;artifact&gt; val x$2: Some[Throwable] @scala.reflect.internal.annotations.uncheckedBounds = scala.Some.apply[Throwable](rethrow);
+  &lt;artifact&gt; val x$3: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$2;
+  &lt;artifact&gt; val x$4: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$3;
+  &lt;artifact&gt; val x$5: Option[String] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$5;
+  &lt;artifact&gt; val x$6: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$6;
+  &lt;artifact&gt; val x$7: Array[org.apache.spark.QueryContext] @scala.reflect.internal.annotations.uncheckedBounds = sql.this.AnalysisException.&lt;init&gt;$default$7;
+  new org.apache.spark.sql.AnalysisException(x$1, x$3, x$4, x$2, x$5, x$6, x$7)
+}
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          871
+        </td>
+        <td>
+          8143
+          -
+          8143
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.identity
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.identity(col)
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          1803
+        </td>
+        <td>
+          8143
+          -
+          8143
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.identity
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.identity(col)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          2336
+        </td>
+        <td>
+          8191
+          -
+          8191
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.literal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.literal[String](value)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          1489
+        </td>
+        <td>
+          8191
+          -
+          8191
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.literal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.literal[String](value)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          614
+        </td>
+        <td>
+          8265
+          -
+          8265
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.apply(&quot;rand&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          132
+        </td>
+        <td>
+          8265
+          -
+          8265
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.apply(&quot;rand&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          666
+        </td>
+        <td>
+          8366
+          -
+          8366
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.identity
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.identity(col)
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          1655
+        </td>
+        <td>
+          8366
+          -
+          8366
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.identity
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.identity(col)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          2253
+        </td>
+        <td>
+          8457
+          -
+          8457
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          functionRegistry.clickHouseToSparkFunc.contains(funName)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          1387
+        </td>
+        <td>
+          8522
+          -
+          8522
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          functionRegistry.clickHouseToSparkFunc.apply(funName)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          46
+        </td>
+        <td>
+          8483
+          -
+          8483
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.apply(functionRegistry.clickHouseToSparkFunc.apply(funName), (args.map[org.apache.spark.sql.connector.expressions.Expression, List[org.apache.spark.sql.connector.expressions.Expression]](((x$10: com.clickhouse.spark.expr.Expr) =&gt; ExprUtils.this.toSparkExpression(x$10, functionRegistry)))(immutable.this.List.canBuildFrom[org.apache.spark.sql.connector.expressions.Expression]): _*))
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          877
+        </td>
+        <td>
+          8559
+          -
+          8559
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkExpression
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ExprUtils.this.toSparkExpression(x$10, functionRegistry)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          1493
+        </td>
+        <td>
+          8541
+          -
+          8541
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.immutable.List.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          args.map[org.apache.spark.sql.connector.expressions.Expression, List[org.apache.spark.sql.connector.expressions.Expression]](((x$10: com.clickhouse.spark.expr.Expr) =&gt; ExprUtils.this.toSparkExpression(x$10, functionRegistry)))(immutable.this.List.canBuildFrom[org.apache.spark.sql.connector.expressions.Expression])
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          2402
+        </td>
+        <td>
+          8541
+          -
+          8541
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.List.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.List.canBuildFrom[org.apache.spark.sql.connector.expressions.Expression]
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          586
+        </td>
+        <td>
+          8483
+          -
+          8483
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.apply(functionRegistry.clickHouseToSparkFunc.apply(funName), (args.map[org.apache.spark.sql.connector.expressions.Expression, List[org.apache.spark.sql.connector.expressions.Expression]](((x$10: com.clickhouse.spark.expr.Expr) =&gt; ExprUtils.this.toSparkExpression(x$10, functionRegistry)))(immutable.this.List.canBuildFrom[org.apache.spark.sql.connector.expressions.Expression]): _*))
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          654
+        </td>
+        <td>
+          8613
+          -
+          8613
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported ClickHouse expression: &quot;, &quot;&quot;).s(unsupported), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          1660
+        </td>
+        <td>
+          8613
+          -
+          8613
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported ClickHouse expression: &quot;, &quot;&quot;).s(unsupported), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          1365
+        </td>
+        <td>
+          8860
+          -
+          8860
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.FieldRef.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.expr.FieldRef.apply(fieldRefs.describe())
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          832
+        </td>
+        <td>
+          8860
+          -
+          8860
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.expr.FieldRef.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.expr.FieldRef.apply(fieldRefs.describe())
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          2255
+        </td>
+        <td>
+          8871
+          -
+          8871
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expression.describe
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          fieldRefs.describe()
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          2404
+        </td>
+        <td>
+          8967
+          -
+          8967
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          functionRegistry.sparkToClickHouseFunc.contains(name)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          660
+        </td>
+        <td>
+          9077
+          -
+          9077
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          args.map[com.clickhouse.spark.expr.SQLExpr, Seq[com.clickhouse.spark.expr.SQLExpr]](((arg: org.apache.spark.sql.connector.expressions.Expression) =&gt; com.clickhouse.spark.expr.SQLExpr.apply(arg.describe())))(collection.this.Seq.canBuildFrom[com.clickhouse.spark.expr.SQLExpr]).toList
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          9061
+          -
+          9061
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.SQLExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.expr.SQLExpr.apply(arg.describe())
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          1623
+        </td>
+        <td>
+          9046
+          -
+          9046
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[com.clickhouse.spark.expr.SQLExpr]
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          1278
+        </td>
+        <td>
+          8991
+          -
+          8991
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.expr.FuncExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.expr.FuncExpr.apply(functionRegistry.sparkToClickHouseFunc.apply(name), args.map[com.clickhouse.spark.expr.SQLExpr, Seq[com.clickhouse.spark.expr.SQLExpr]](((arg: org.apache.spark.sql.connector.expressions.Expression) =&gt; com.clickhouse.spark.expr.SQLExpr.apply(arg.describe())))(collection.this.Seq.canBuildFrom[com.clickhouse.spark.expr.SQLExpr]).toList)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          590
+        </td>
+        <td>
+          9066
+          -
+          9066
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expression.describe
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          arg.describe()
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          1418
+        </td>
+        <td>
+          9030
+          -
+          9030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          functionRegistry.sparkToClickHouseFunc.apply(name)
+        </td>
+      </tr><tr>
+        <td>
+          192
+        </td>
+        <td>
+          2168
+        </td>
+        <td>
+          8991
+          -
+          8991
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.expr.FuncExpr.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.expr.FuncExpr.apply(functionRegistry.sparkToClickHouseFunc.apply(name), args.map[com.clickhouse.spark.expr.SQLExpr, Seq[com.clickhouse.spark.expr.SQLExpr]](((arg: org.apache.spark.sql.connector.expressions.Expression) =&gt; com.clickhouse.spark.expr.SQLExpr.apply(arg.describe())))(collection.this.Seq.canBuildFrom[com.clickhouse.spark.expr.SQLExpr]).toList)
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          841
+        </td>
+        <td>
+          9121
+          -
+          9121
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Bucket transform not support yet: &quot;, &quot;&quot;).s(bucket), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          2440
+        </td>
+        <td>
+          9121
+          -
+          9121
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Bucket transform not support yet: &quot;, &quot;&quot;).s(bucket), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          478
+        </td>
+        <td>
+          9220
+          -
+          9220
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported transform: &quot;, &quot;&quot;).s(other), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          1420
+        </td>
+        <td>
+          9220
+          -
+          9220
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported transform: &quot;, &quot;&quot;).s(other), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          2065
+        </td>
+        <td>
+          9559
+          -
+          9565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$11.name.==(col)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          1631
+        </td>
+        <td>
+          9611
+          -
+          9617
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$12.name.==(col)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          766
+        </td>
+        <td>
+          9603
+          -
+          9603
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.find
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          secondarySchema.find(((x$12: org.apache.spark.sql.types.StructField) =&gt; x$12.name.==(col)))
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          797
+        </td>
+        <td>
+          9638
+          -
+          9638
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          primarySchema.find(((x$11: org.apache.spark.sql.types.StructField) =&gt; x$11.name.==(col))).orElse[org.apache.spark.sql.types.StructField](secondarySchema.find(((x$12: org.apache.spark.sql.types.StructField) =&gt; x$12.name.==(col)))).getOrElse[org.apache.spark.sql.types.StructField](throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Invalid partition column: &quot;, &quot;&quot;).s(col), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3))
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          2169
+        </td>
+        <td>
+          9639
+          -
+          9639
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Invalid partition column: &quot;, &quot;&quot;).s(col), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          1385
+        </td>
+        <td>
+          9638
+          -
+          9638
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          primarySchema.find(((x$11: org.apache.spark.sql.types.StructField) =&gt; x$11.name.==(col))).orElse[org.apache.spark.sql.types.StructField](secondarySchema.find(((x$12: org.apache.spark.sql.types.StructField) =&gt; x$12.name.==(col)))).getOrElse[org.apache.spark.sql.types.StructField](throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Invalid partition column: &quot;, &quot;&quot;).s(col), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3))
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          2298
+        </td>
+        <td>
+          9785
+          -
+          9785
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.isDefined
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          functionRegistry.load(transformName).isDefined
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          907
+        </td>
+        <td>
+          9795
+          -
+          9795
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val resType: org.apache.spark.sql.types.DataType = functionRegistry.load(transformName) match {
+    case (value: org.apache.spark.sql.connector.catalog.functions.UnboundFunction)Some[org.apache.spark.sql.connector.catalog.functions.UnboundFunction]((f @ (_: org.apache.spark.sql.connector.catalog.functions.ScalarFunction[_]))) =&gt; f.resultType()
+    case (other @ _) =&gt; throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported function: &quot;, &quot;&quot;).s(other), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+  };
+  org.apache.spark.sql.types.StructField.apply(t.toString(), resType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+}
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1536
+        </td>
+        <td>
+          9839
+          -
+          9839
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.FunctionRegistry.load
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          functionRegistry.load(transformName)
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          2147
+        </td>
+        <td>
+          9908
+          -
+          9908
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.connector.catalog.functions.BoundFunction.resultType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          f.resultType()
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          584
+        </td>
+        <td>
+          9908
+          -
+          9908
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.catalog.functions.BoundFunction.resultType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          f.resultType()
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          1582
+        </td>
+        <td>
+          9941
+          -
+          9941
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported function: &quot;, &quot;&quot;).s(other), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          622
+        </td>
+        <td>
+          9941
+          -
+          9941
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported function: &quot;, &quot;&quot;).s(other), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          1363
+        </td>
+        <td>
+          10023
+          -
+          10023
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructField.apply(t.toString(), resType, org.apache.spark.sql.types.StructField.apply$default$3, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          2172
+        </td>
+        <td>
+          10026
+          -
+          10026
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.ApplyTransform.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          t.toString()
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          2418
+        </td>
+        <td>
+          10081
+          -
+          10081
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Bucket transform not support yet: &quot;, &quot;&quot;).s(bucket), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          1392
+        </td>
+        <td>
+          10081
+          -
+          10081
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Bucket transform not support yet: &quot;, &quot;&quot;).s(bucket), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          2131
+        </td>
+        <td>
+          10180
+          -
+          10180
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported transform: &quot;, &quot;&quot;).s(other), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          213
+        </td>
+        <td>
+          588
+        </td>
+        <td>
+          10180
+          -
+          10180
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported transform: &quot;, &quot;&quot;).s(other), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

@@ -1,0 +1,296 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/func/MurmurHash2.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.func
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.hash.{HashUtils, Murmurhash2_32, Murmurhash2_64}
+</span>18 <span style=''>import com.clickhouse.spark.hash
+</span>19 <span style=''>
+</span>20 <span style=''>// https://github.com/ClickHouse/ClickHouse/blob/v23.5.3.24-stable/src/Functions/FunctionsHashing.h#L460
+</span>21 <span style=''>object MurmurHash2_64 extends MultiStringArgsHash {
+</span>22 <span style=''>
+</span>23 <span style=''>  override protected def funcName: String = &quot;clickhouse_murmurHash2_64&quot;
+</span>24 <span style=''>
+</span>25 <span style=''>  override val ckFuncNames: Array[String] = Array(&quot;murmurHash2_64&quot;)
+</span>26 <span style=''>
+</span>27 <span style=''>  override def applyHash(input: Array[Any]): Long = Murmurhash2_64(input)
+</span>28 <span style=''>}
+</span>29 <span style=''>
+</span>30 <span style=''>// https://github.com/ClickHouse/ClickHouse/blob/v23.5.3.24-stable/src/Functions/FunctionsHashing.h#L519
+</span>31 <span style=''>object MurmurHash2_32 extends MultiStringArgsHash {
+</span>32 <span style=''>
+</span>33 <span style=''>  override protected def funcName: String = &quot;clickhouse_murmurHash2_32&quot;
+</span>34 <span style=''>
+</span>35 <span style=''>  override val ckFuncNames: Array[String] = Array(&quot;murmurHash2_32&quot;)
+</span>36 <span style=''>
+</span>37 <span style=''>  override def applyHash(input: Array[Any]): Long = HashUtils.toUInt32(Murmurhash2_32(input))
+</span>38 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          88
+        </td>
+        <td>
+          912
+          -
+          912
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;clickhouse_murmurHash2_64&quot;
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          2062
+        </td>
+        <td>
+          991
+          -
+          991
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;murmurHash2_64&quot;
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          1112
+        </td>
+        <td>
+          990
+          -
+          990
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[String](&quot;murmurHash2_64&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          264
+        </td>
+        <td>
+          1076
+          -
+          1076
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.hash.HashFunc.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.hash.Murmurhash2_64.apply(input)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1810
+        </td>
+        <td>
+          1289
+          -
+          1289
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;clickhouse_murmurHash2_32&quot;
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          391
+        </td>
+        <td>
+          1367
+          -
+          1367
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[String](&quot;murmurHash2_32&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          876
+        </td>
+        <td>
+          1368
+          -
+          1368
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;murmurHash2_32&quot;
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1035
+        </td>
+        <td>
+          1457
+          -
+          1457
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.hash.HashUtils.toUInt32
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.hash.HashUtils.toUInt32(com.clickhouse.spark.hash.Murmurhash2_32.apply(input))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1881
+        </td>
+        <td>
+          1472
+          -
+          1472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.hash.HashFunc.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.hash.Murmurhash2_32.apply(input)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

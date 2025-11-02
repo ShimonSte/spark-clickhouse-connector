@@ -1,0 +1,842 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/spec/ShardUtils.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.spec
+</span>16 <span style=''>
+</span>17 <span style=''>import java.lang.{Long =&gt; JLong}
+</span>18 <span style=''>
+</span>19 <span style=''>object ShardUtils {
+</span>20 <span style=''>
+</span>21 <span style=''>  def calcShard(cluster: ClusterSpec, hashVal: Long): ShardSpec = {
+</span>22 <span style=''>    val shards = cluster.shards.sorted
+</span>23 <span style=''>    val weights = shards.map(_.weight)
+</span>24 <span style=''>    val lowerBounds = weights.indices.map(i =&gt; weights.slice(0, i).sum)
+</span>25 <span style=''>    val upperBounds = weights.indices.map(i =&gt; weights.slice(0, i </span><span style='background: #AEF1AE'>+ 1</span><span style=''>).sum)
+</span>26 <span style=''>    val ranges = (lowerBounds zip upperBounds).map { case (l, u) =&gt; l </span><span style='background: #AEF1AE'>until u</span><span style=''> }
+</span>27 <span style=''>    val rem = JLong.remainderUnsigned(hashVal, weights.sum)
+</span>28 <span style=''>    (shards </span><span style='background: #AEF1AE'>zip ranges</span><span style=''>).find(_._2 </span><span style='background: #AEF1AE'>contains rem</span><span style=''>).map(_._1).get
+</span>29 <span style=''>  }
+</span>30 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          941
+        </td>
+        <td>
+          747
+          -
+          747
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ClusterSpec.shards
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          cluster.shards
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          699
+        </td>
+        <td>
+          754
+          -
+          754
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[com.clickhouse.spark.spec.ShardSpec]
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          1014
+        </td>
+        <td>
+          754
+          -
+          754
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.SeqLike.sorted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[com.clickhouse.spark.spec.ShardSpec](cluster.shards).sorted[com.clickhouse.spark.spec.ShardSpec](math.this.Ordering.ordered[com.clickhouse.spark.spec.ShardSpec](scala.Predef.$conforms[com.clickhouse.spark.spec.ShardSpec]))
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          323
+        </td>
+        <td>
+          754
+          -
+          754
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.math.LowPriorityOrderingImplicits.ordered
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Ordering.ordered[com.clickhouse.spark.spec.ShardSpec](scala.Predef.$conforms[com.clickhouse.spark.spec.ShardSpec])
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          594
+        </td>
+        <td>
+          792
+          -
+          792
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ShardSpec.weight
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.weight
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          1045
+        </td>
+        <td>
+          789
+          -
+          789
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[com.clickhouse.spark.spec.ShardSpec](shards).map[Int, Array[Int]](((x$1: com.clickhouse.spark.spec.ShardSpec) =&gt; x$1.weight))(scala.this.Array.canBuildFrom[Int]((ClassTag.Int: scala.reflect.ClassTag[Int])))
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          195
+        </td>
+        <td>
+          789
+          -
+          789
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[Int]((ClassTag.Int: scala.reflect.ClassTag[Int]))
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          669
+        </td>
+        <td>
+          860
+          -
+          860
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.slice
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intArrayOps(weights).slice(0, i)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          944
+        </td>
+        <td>
+          867
+          -
+          867
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.sum
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intArrayOps(scala.Predef.intArrayOps(weights).slice(0, i)).sum[Int](math.this.Numeric.IntIsIntegral)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          292
+        </td>
+        <td>
+          841
+          -
+          841
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intArrayOps(weights).indices.map[Int, scala.collection.immutable.IndexedSeq[Int]](((i: Int) =&gt; scala.Predef.intArrayOps(scala.Predef.intArrayOps(weights).slice(0, i)).sum[Int](math.this.Numeric.IntIsIntegral)))(immutable.this.IndexedSeq.canBuildFrom[Int])
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          225
+        </td>
+        <td>
+          867
+          -
+          867
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Numeric.IntIsIntegral
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Numeric.IntIsIntegral
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          509
+        </td>
+        <td>
+          841
+          -
+          841
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.IndexedSeq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.IndexedSeq.canBuildFrom[Int]
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          149
+        </td>
+        <td>
+          932
+          -
+          932
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.slice
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intArrayOps(weights).slice(0, i.+(1))
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          226
+        </td>
+        <td>
+          913
+          -
+          913
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.IndexedSeq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.IndexedSeq.canBuildFrom[Int]
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          573
+        </td>
+        <td>
+          938
+          -
+          941
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          i.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          635
+        </td>
+        <td>
+          943
+          -
+          943
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.sum
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intArrayOps(scala.Predef.intArrayOps(weights).slice(0, i.+(1))).sum[Int](math.this.Numeric.IntIsIntegral)
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          978
+        </td>
+        <td>
+          933
+          -
+          933
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          1050
+        </td>
+        <td>
+          943
+          -
+          943
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Numeric.IntIsIntegral
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Numeric.IntIsIntegral
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          948
+        </td>
+        <td>
+          913
+          -
+          913
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intArrayOps(weights).indices.map[Int, scala.collection.immutable.IndexedSeq[Int]](((i: Int) =&gt; scala.Predef.intArrayOps(scala.Predef.intArrayOps(weights).slice(0, i.+(1))).sum[Int](math.this.Numeric.IntIsIntegral)))(immutable.this.IndexedSeq.canBuildFrom[Int])
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          1010
+        </td>
+        <td>
+          1018
+          -
+          1025
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.runtime.RichInt.until
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(l).until(u)
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          576
+        </td>
+        <td>
+          999
+          -
+          999
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.IndexedSeq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.IndexedSeq.canBuildFrom[scala.collection.immutable.Range]
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          999
+          -
+          999
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lowerBounds.zip[Int, Int, scala.collection.immutable.IndexedSeq[(Int, Int)]](upperBounds)(immutable.this.IndexedSeq.canBuildFrom[(Int, Int)]).map[scala.collection.immutable.Range, scala.collection.immutable.IndexedSeq[scala.collection.immutable.Range]](((x0$1: (Int, Int)) =&gt; x0$1 match {
+  case (_1: Int, _2: Int)(Int, Int)((l @ _), (u @ _)) =&gt; scala.Predef.intWrapper(l).until(u)
+}))(immutable.this.IndexedSeq.canBuildFrom[scala.collection.immutable.Range])
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          491
+        </td>
+        <td>
+          978
+          -
+          978
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.IndexedSeq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          immutable.this.IndexedSeq.canBuildFrom[(Int, Int)]
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          296
+        </td>
+        <td>
+          1018
+          -
+          1025
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.runtime.RichInt.until
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intWrapper(l).until(u)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          265
+        </td>
+        <td>
+          1065
+          -
+          1065
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Long.remainderUnsigned
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.Long.remainderUnsigned(hashVal, scala.Predef.intArrayOps(weights).sum[Int](math.this.Numeric.IntIsIntegral).toLong)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1086
+        </td>
+        <td>
+          1083
+          -
+          1083
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Numeric.IntIsIntegral
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          math.this.Numeric.IntIsIntegral
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          664
+        </td>
+        <td>
+          1083
+          -
+          1083
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.intArrayOps(weights).sum[Int](math.this.Numeric.IntIsIntegral).toLong
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          1013
+        </td>
+        <td>
+          1142
+          -
+          1142
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$3._1
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          492
+        </td>
+        <td>
+          1100
+          -
+          1110
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.zip
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[com.clickhouse.spark.spec.ShardSpec](shards).zip[com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range, Array[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)]](ranges)(scala.this.Array.canBuildFrom[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)]((ClassTag.apply[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)])))
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          341
+        </td>
+        <td>
+          1122
+          -
+          1134
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$2._2.contains[AnyVal](rem)
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          927
+        </td>
+        <td>
+          1100
+          -
+          1100
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.this.Array.canBuildFrom[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)]((ClassTag.apply[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)]))
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          625
+        </td>
+        <td>
+          1146
+          -
+          1146
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.refArrayOps[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)](scala.Predef.refArrayOps[com.clickhouse.spark.spec.ShardSpec](shards).zip[com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range, Array[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)]](ranges)(scala.this.Array.canBuildFrom[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)]((ClassTag.apply[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)](classOf[scala.Tuple2]): scala.reflect.ClassTag[(com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)])))).find(((x$2: (com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)) =&gt; x$2._2.contains[AnyVal](rem))).map[com.clickhouse.spark.spec.ShardSpec](((x$3: (com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Range)) =&gt; x$3._1)).get
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
