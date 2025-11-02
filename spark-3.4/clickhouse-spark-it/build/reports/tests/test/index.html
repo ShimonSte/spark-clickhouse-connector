@@ -1,0 +1,381 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html
+PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xml:lang="en" lang="en" xmlns="http://www.w3.org/1999/xhtml">
+      <head>
+        <title>ScalaTest Results</title>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <meta http-equiv="Expires" content="-1"/>
+        <meta http-equiv="Pragma" content="no-cache"/>
+        <link href="css/styles.css" rel="stylesheet"/>
+        
+        <script type="text/javascript" src="js/d3.v2.min.js"></script>
+        <script type="text/javascript" src="js/sorttable.js"></script>
+        <script type="text/javascript">
+          
+            var tagMap = {};     
+            var SUCCEEDED_BIT = 1; 
+            var FAILED_BIT = 2; 
+            var IGNORED_BIT = 4; 
+            var PENDING_BIT = 8;
+            var CANCELED_BIT = 16;
+            function applyFilter() {
+              var mask = 0;
+              if (document.getElementById('succeeded_checkbox').checked) 
+                mask |= SUCCEEDED_BIT;  
+              if (document.getElementById('failed_checkbox').checked) 
+                mask |= FAILED_BIT; 
+              if (document.getElementById('ignored_checkbox').checked) 
+                mask |= IGNORED_BIT; 
+              if (document.getElementById('pending_checkbox').checked) 
+                mask |= PENDING_BIT; 
+              if (document.getElementById('canceled_checkbox').checked)
+                mask |= CANCELED_BIT;
+              for (var key in tagMap) { 
+                if (tagMap.hasOwnProperty(key)) { 
+                  var bitSet = tagMap[key]; 
+                  var element = document.getElementById(key);
+                  if ((bitSet & mask) != 0) 
+                    element.style.display = "table-row"; 
+                  else  
+                    element.style.display = "none";
+                }
+              }
+            }
+            function showDetails(suiteName) {
+              document.getElementById('details_view').innerHTML = "<iframe src='" + suiteName + ".html' width='100%' height='100%'></iframe>";
+            }
+            function resizeDetailsView() {
+              var headerView = document.getElementById('scalatest-header'); 
+              var detailsView = document.getElementById('details_view'); 
+              var summaryView = document.getElementById('summary_view');
+              var left = summaryView.offsetWidth + 30;
+              detailsView.style.left = left + "px"; 
+              detailsView.style.width = (window.innerWidth - left - 30) + "px";
+              detailsView.style.height = (window.innerHeight - headerView.offsetHeight - 20) + "px";
+            }
+        </script>
+      </head>
+      <body onresize="resizeDetailsView()">
+        <div class="scalatest-report"> 
+          <div id="scalatest-header" class="scalatest-header-passed">
+      <div id="title">
+        ScalaTest Results
+      </div>
+
+      <div id="summary">
+        <p id="duration">Run completed in 1 minute, 16 seconds.</p>
+        <p id="totalTests">Total number of tests run: 74</p>
+        <p id="suiteSummary">Suites: completed 19, aborted 0</p>
+        <p id="testSummary">Tests: succeeded 74, failed 0, canceled 0, ignored 0, pending 0</p>
+      </div>
+    </div>
+          <table id="summary_view">
+            <tr id="summary_view_row_1">
+              <td id="summary_view_row_1_chart">
+                <div id="chart_div"></div>
+              </td>
+              <td id="summary_view_row_1_legend">
+                <table id="summary_view_row_1_legend_table">
+                  <tr id="summary_view_row_1_legend_table_row_succeeded">
+                    <td id="summary_view_row_1_legend_succeeded_label">Succeeded</td>
+                    <td id="summary_view_row_1_legend_succeeded_count">74</td>
+                    <td id="summary_view_row_1_legend_succeeded_percent">(100%)</td>
+                  </tr>
+                  <tr id="summary_view_row_1_legend_table_row_failed">
+                    <td id="summary_view_row_1_legend_failed_label">Failed</td>
+                    <td id="summary_view_row_1_legend_failed_count">0</td>
+                    <td id="summary_view_row_1_legend_failed_percent">(0%)</td>
+                  </tr>
+                  <tr id="summary_view_row_1_legend_table_row_canceled">
+                    <td id="summary_view_row_1_legend_canceled_label">Canceled</td>
+                    <td id="summary_view_row_1_legend_canceled_count">0</td>
+                    <td id="summary_view_row_1_legend_canceled_percent">(0%)</td>
+                  </tr>
+                  <tr id="summary_view_row_1_legend_table_row_ignored">
+                    <td id="summary_view_row_1_legend_ignored_label">Ignored</td>
+                    <td id="summary_view_row_1_legend_ignored_count">0</td>
+                    <td id="summary_view_row_1_legend_ignored_percent">(0%)</td>
+                  </tr>
+                  <tr id="summary_view_row_1_legend_table_row_pending">
+                    <td id="summary_view_row_1_legend_pending_label">Pending</td>
+                    <td id="summary_view_row_1_legend_pending_count">0</td>
+                    <td id="summary_view_row_1_legend_pending_percent">(0%)</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr id="summary_view_row_2">
+              <td id="summary_view_row_2_results" colspan="2">
+                <div id="display-filters">
+      <input id="succeeded_checkbox" name="succeeded_checkbox" type="checkbox" checked="checked" onchange="applyFilter()"/> <label id="succeeded_checkbox_label" for="passed_checkbox">Succeeded</label>
+      <input id="failed_checkbox" name="failed_checkbox" type="checkbox" checked="checked" onchange="applyFilter()"/> <label id="failed_checkbox_label" for="failed_checkbox">Failed</label>
+      <input id="canceled_checkbox" name="canceled_checkbox" type="checkbox" checked="checked" onchange="applyFilter()"/> <label id="canceled_checkbox_label" for="canceled_checkbox">Canceled</label>
+      <input id="ignored_checkbox" name="ignored_checkbox" type="checkbox" checked="checked" onchange="applyFilter()"/> <label id="ignored_checkbox_label" for="ignored_checkbox">Ignored</label>
+      <input id="pending_checkbox" name="pending_checkbox" type="checkbox" checked="checked" onchange="applyFilter()"/> <label id="pending_checkbox_label" for="pending_checkbox">Pending</label>
+    </div>
+                <table class="sortable">
+      <tr>
+        <td>Suite</td>
+        <td>Duration (ms.)</td>
+        <td>Succeeded</td>
+        <td>Failed</td>
+        <td>Canceled</td>
+        <td>Ignored</td>
+        <td>Pending</td>
+        <td>Total</td>
+      </tr>
+    <tr id="fa549024-5d55-4f50-85a5-bf688824d6a7">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.single.ClickHouseCloudDataTypeSuite')">ClickHouseCloudDataTypeSuite</a></td>
+      <td class="duration_passed_all">1</td>
+      <td class="succeeded_zero">0</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">0</td>
+    </tr><tr id="484d3e62-1bf0-47d2-98f3-7789babe1c7f">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.single.ClickHouseCloudGenericSuite')">ClickHouseCloudGenericSuite</a></td>
+      <td class="duration_passed_all">2</td>
+      <td class="succeeded_zero">0</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">0</td>
+    </tr><tr id="8f21c8a1-35c1-4776-b594-31f07245a704">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.single.ClickHouseCloudTPCDSSuite')">ClickHouseCloudTPCDSSuite</a></td>
+      <td class="duration_passed_all">0</td>
+      <td class="succeeded_zero">0</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">0</td>
+    </tr><tr id="242037ed-954e-4cf8-84e2-14d926fa5ab0">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.single.ClickHouseCloudTableDDLSuite')">ClickHouseCloudTableDDLSuite</a></td>
+      <td class="duration_passed_all">0</td>
+      <td class="succeeded_zero">0</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">0</td>
+    </tr><tr id="071bdc3e-fb65-4974-9619-eee6c0061711">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.single.ClickHouseCloudsWriteDistributionAndOrderingSuite')">ClickHouseCloudsWriteDistributionAndOrderingSuite</a></td>
+      <td class="duration_passed_all">2</td>
+      <td class="succeeded_zero">0</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">0</td>
+    </tr><tr id="231d5807-c890-4526-b7b8-f621ea1ee868">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.cluster.ClickHouseClusterHashUDFSuite')">ClickHouseClusterHashUDFSuite</a></td>
+      <td class="duration_passed_all">6247</td>
+      <td class="succeeded">12</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">12</td>
+    </tr><tr id="fb6546bd-0bba-49a1-a2d1-9b4c59829d00">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.cluster.ClickHouseClusterReadSuite')">ClickHouseClusterReadSuite</a></td>
+      <td class="duration_passed_all">7445</td>
+      <td class="succeeded">4</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">4</td>
+    </tr><tr id="45520ebb-2356-4c66-bca3-03b6883917e0">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.single.ClickHouseSingleDataTypeSuite')">ClickHouseSingleDataTypeSuite</a></td>
+      <td class="duration_passed_all">8081</td>
+      <td class="succeeded">18</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">18</td>
+    </tr><tr id="737502b7-0c2f-4f8b-8e47-bcfd4901f837">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.single.ClickHouseSingleGenericSuite')">ClickHouseSingleGenericSuite</a></td>
+      <td class="duration_passed_all">11456</td>
+      <td class="succeeded">18</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">18</td>
+    </tr><tr id="5eec2eb4-c37e-4d31-bb95-a8bec34d82fe">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.single.ClickHouseSingleTPCDSSuite')">ClickHouseSingleTPCDSSuite</a></td>
+      <td class="duration_passed_all">0</td>
+      <td class="succeeded_zero">0</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">0</td>
+    </tr><tr id="7454fd84-3187-4e58-aa0b-249254d68391">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.single.ClickHouseSingleTableDDLSuite')">ClickHouseSingleTableDDLSuite</a></td>
+      <td class="duration_passed_all">734</td>
+      <td class="succeeded">1</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">1</td>
+    </tr><tr id="4f7f268c-304c-484f-a684-4e2912a01c60">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.single.ClickHouseSinglesWriteDistributionAndOrderingSuite')">ClickHouseSinglesWriteDistributionAndOrderingSuite</a></td>
+      <td class="duration_passed_all">5484</td>
+      <td class="succeeded">8</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">8</td>
+    </tr><tr id="5e327416-d1ce-4eac-ba03-d797b5e820e8">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.cluster.ClusterDeleteSuite')">ClusterDeleteSuite</a></td>
+      <td class="duration_passed_all">6047</td>
+      <td class="succeeded">3</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">3</td>
+    </tr><tr id="e51345e9-e0c0-4e37-93d6-1d56a4694de1">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.cluster.ClusterNodesWriteSuite')">ClusterNodesWriteSuite</a></td>
+      <td class="duration_passed_all">5277</td>
+      <td class="succeeded">2</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">2</td>
+    </tr><tr id="dd0cc689-a6d7-4ccf-af67-25be472398af">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.cluster.ClusterPartitionManagementSuite')">ClusterPartitionManagementSuite</a></td>
+      <td class="duration_passed_all">5327</td>
+      <td class="succeeded">2</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">2</td>
+    </tr><tr id="751bfcd2-e2d3-440f-95f9-6b93ed98490c">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.cluster.ClusterShardByRandSuite')">ClusterShardByRandSuite</a></td>
+      <td class="duration_passed_all">5344</td>
+      <td class="succeeded">2</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">2</td>
+    </tr><tr id="840ad787-e2d5-4953-802e-1ca1bf68646d">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.cluster.ClusterTableManagementSuite')">ClusterTableManagementSuite</a></td>
+      <td class="duration_passed_all">4267</td>
+      <td class="succeeded">2</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">2</td>
+    </tr><tr id="4f361320-3e13-4fa0-8af4-e212a3d18c45">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.cluster.ConvertDistToLocalWriteSuite')">ConvertDistToLocalWriteSuite</a></td>
+      <td class="duration_passed_all">5130</td>
+      <td class="succeeded">2</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">2</td>
+    </tr><tr id="82fafb59-0995-4f2b-9884-ef7e70e1928e">
+      <td class="suite_name_passed_all"><a href="javascript: showDetails('org.apache.spark.sql.clickhouse.cluster.TPCDSClusterSuite')">TPCDSClusterSuite</a></td>
+      <td class="duration_passed_all">0</td>
+      <td class="succeeded_zero">0</td>
+      <td class="failed_zero">0</td>
+      <td class="canceled_zero">0</td>
+      <td class="ignored_zero">0</td>
+      <td class="pending_zero">0</td>
+      <td class="total_passed_all">0</td>
+    </tr>
+    </table>
+              </td>
+            </tr>
+          </table>
+          <div id="details_view">
+            <span id="click_suite_hint">Click on suite name to view details.</span> <br/>
+            <span id="click_column_hint">Click on column name to sort.</span>
+          </div>
+        </div>
+        <script type="text/javascript">
+          /* modified from http://www.permadi.com/tutorial/cssGettingBackgroundColor/index.html - */
+function getBgColor(elementId)
+{
+  var element = document.getElementById(elementId);
+  if (element.currentStyle)
+    return element.currentStyle.backgroundColor;
+  if (window.getComputedStyle)
+  {
+    var elementStyle=window.getComputedStyle(element,"");
+    if (elementStyle)
+      return elementStyle.getPropertyValue("background-color");
+  }
+  // Return 0 if both methods failed.
+  return 0;
+}
+var data = [74, 0, 0, 0, 0];
+var color = [getBgColor('summary_view_row_1_legend_succeeded_label'), 
+             getBgColor('summary_view_row_1_legend_failed_label'), 
+             getBgColor('summary_view_row_1_legend_ignored_label'), 
+             getBgColor('summary_view_row_1_legend_pending_label'), 
+             getBgColor('summary_view_row_1_legend_canceled_label')
+            ];
+var width = document.getElementById('chart_div').offsetWidth,
+    height = document.getElementById('chart_div').offsetHeight,
+    outerRadius = Math.min(width, height) / 2,
+    innerRadius = 0,
+    donut = d3.layout.pie(),
+    arc = d3.svg.arc().innerRadius(innerRadius).outerRadius(outerRadius);
+var vis = d3.select("#chart_div")
+            .append("svg")
+            .data([data])
+            .attr("width", width)
+            .attr("height", height);
+var arcs = vis.selectAll("g.arc")
+              .data(donut)
+              .enter().append("g")
+              .attr("class", "arc")
+              .attr("transform", "translate(" + outerRadius + "," + outerRadius + ")");
+arcs.append("path")
+    .attr("fill", function(d, i) { return color[i]; })
+    .attr("d", arc);
+
+        </script>
+        <script type="text/javascript">
+          tagMap = { 
+"5e327416-d1ce-4eac-ba03-d797b5e820e8": 1, 
+"8f21c8a1-35c1-4776-b594-31f07245a704": 1, 
+"840ad787-e2d5-4953-802e-1ca1bf68646d": 1, 
+"484d3e62-1bf0-47d2-98f3-7789babe1c7f": 1, 
+"fa549024-5d55-4f50-85a5-bf688824d6a7": 1, 
+"5eec2eb4-c37e-4d31-bb95-a8bec34d82fe": 1, 
+"45520ebb-2356-4c66-bca3-03b6883917e0": 1, 
+"751bfcd2-e2d3-440f-95f9-6b93ed98490c": 1, 
+"82fafb59-0995-4f2b-9884-ef7e70e1928e": 1, 
+"071bdc3e-fb65-4974-9619-eee6c0061711": 1, 
+"231d5807-c890-4526-b7b8-f621ea1ee868": 1, 
+"4f7f268c-304c-484f-a684-4e2912a01c60": 1, 
+"4f361320-3e13-4fa0-8af4-e212a3d18c45": 1, 
+"fb6546bd-0bba-49a1-a2d1-9b4c59829d00": 1, 
+"737502b7-0c2f-4f8b-8e47-bcfd4901f837": 1, 
+"dd0cc689-a6d7-4ccf-af67-25be472398af": 1, 
+"242037ed-954e-4cf8-84e2-14d926fa5ab0": 1, 
+"e51345e9-e0c0-4e37-93d6-1d56a4694de1": 1, 
+"7454fd84-3187-4e58-aa0b-249254d68391": 1};
+applyFilter();
+        </script>
+        <script type="text/javascript">
+          resizeDetailsView();
+        </script>
+      </body>
+    </html>

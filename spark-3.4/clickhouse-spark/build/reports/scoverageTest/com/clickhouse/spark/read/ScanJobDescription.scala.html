@@ -1,0 +1,380 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/read/ScanJobDescription.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.read
+</span>16 <span style=''>
+</span>17 <span style=''>import org.apache.spark.sql.clickhouse.ReadOptions
+</span>18 <span style=''>import org.apache.spark.sql.types.StructType
+</span>19 <span style=''>import com.clickhouse.spark.spec._
+</span>20 <span style=''>
+</span>21 <span style=''>import java.time.ZoneId
+</span>22 <span style=''>
+</span>23 <span style=''>case class ScanJobDescription(
+</span>24 <span style=''>  node: NodeSpec,
+</span>25 <span style=''>  tz: ZoneId,
+</span>26 <span style=''>  tableSpec: TableSpec,
+</span>27 <span style=''>  tableEngineSpec: TableEngineSpec,
+</span>28 <span style=''>  cluster: Option[ClusterSpec],
+</span>29 <span style=''>  localTableSpec: Option[TableSpec],
+</span>30 <span style=''>  localTableEngineSpec: Option[TableEngineSpec],
+</span>31 <span style=''>  readOptions: ReadOptions,
+</span>32 <span style=''>  // Below fields will be constructed in ScanBuilder.
+</span>33 <span style=''>  readSchema: StructType = new StructType,
+</span>34 <span style=''>  // We should pass compiled ClickHouse SQL snippets(or ClickHouse SQL AST data structure) instead of Spark Expression
+</span>35 <span style=''>  // into Scan tasks because the check happens in planing phase on driver side.
+</span>36 <span style=''>  filtersExpr: String = &quot;1=1&quot;,
+</span>37 <span style=''>  groupByClause: Option[String] = None,
+</span>38 <span style=''>  limit: Option[Int] = None
+</span>39 <span style=''>) {
+</span>40 <span style=''>
+</span>41 <span style=''>  def database: String = tableEngineSpec match {
+</span>42 <span style=''>    case dist: DistributedEngineSpec if readOptions.convertDistributedToLocal =&gt; dist.local_db
+</span>43 <span style=''>    case _ =&gt; tableSpec.database
+</span>44 <span style=''>  }
+</span>45 <span style=''>
+</span>46 <span style=''>  def table: String = tableEngineSpec match {
+</span>47 <span style=''>    case dist: DistributedEngineSpec if readOptions.convertDistributedToLocal =&gt; dist.local_table
+</span>48 <span style=''>    case _ =&gt; tableSpec.name
+</span>49 <span style=''>  }
+</span>50 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1066
+        </td>
+        <td>
+          1450
+          -
+          1450
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.tableEngineSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ScanJobDescription.this.tableEngineSpec
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          2096
+        </td>
+        <td>
+          1560
+          -
+          1560
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec.local_db
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dist.local_db
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1147
+        </td>
+        <td>
+          1560
+          -
+          1560
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec.local_db
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dist.local_db
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          535
+        </td>
+        <td>
+          1526
+          -
+          1526
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ReadOptions.convertDistributedToLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ScanJobDescription.this.readOptions.convertDistributedToLocal
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          1748
+        </td>
+        <td>
+          1593
+          -
+          1593
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.database
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ScanJobDescription.this.tableSpec.database
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          249
+        </td>
+        <td>
+          1593
+          -
+          1593
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.database
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ScanJobDescription.this.tableSpec.database
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1317
+        </td>
+        <td>
+          1629
+          -
+          1629
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.tableEngineSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ScanJobDescription.this.tableEngineSpec
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          333
+        </td>
+        <td>
+          1705
+          -
+          1705
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ReadOptions.convertDistributedToLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ScanJobDescription.this.readOptions.convertDistributedToLocal
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1074
+        </td>
+        <td>
+          1739
+          -
+          1739
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec.local_table
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dist.local_table
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1905
+        </td>
+        <td>
+          1739
+          -
+          1739
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec.local_table
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dist.local_table
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          2101
+        </td>
+        <td>
+          1775
+          -
+          1775
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ScanJobDescription.this.tableSpec.name
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          1775
+          -
+          1775
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ScanJobDescription.this.tableSpec.name
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

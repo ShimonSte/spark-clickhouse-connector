@@ -1,0 +1,985 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/expr/Expressions.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.expr
+</span>16 <span style=''>
+</span>17 <span style=''>trait Expr extends Serializable {
+</span>18 <span style=''>  def sql: String // ClickHouse dialect
+</span>19 <span style=''>  def sparkSql: String = sql
+</span>20 <span style=''>  def desc: String = s&quot;${this.getClass.getSimpleName.stripSuffix(&quot;$&quot;)}[$sql]&quot;
+</span>21 <span style=''>  override def toString: String = desc
+</span>22 <span style=''>}
+</span>23 <span style=''>
+</span>24 <span style=''>case class StringLiteral(value: String) extends Expr {
+</span>25 <span style=''>  override def sql: String = s&quot;'$value'&quot;
+</span>26 <span style=''>}
+</span>27 <span style=''>
+</span>28 <span style=''>case class FieldRef(name: String) extends Expr {
+</span>29 <span style=''>  override def sql: String = name
+</span>30 <span style=''>}
+</span>31 <span style=''>
+</span>32 <span style=''>case class SQLExpr(sqlText: String) extends Expr {
+</span>33 <span style=''>  override def sql: String = sqlText
+</span>34 <span style=''>}
+</span>35 <span style=''>
+</span>36 <span style=''>case class FuncExpr(name: String, args: List[Expr]) extends Expr {
+</span>37 <span style=''>  override def sql: String = s&quot;$name(${args.map(_.sql).mkString(&quot;,&quot;)})&quot;
+</span>38 <span style=''>}
+</span>39 <span style=''>
+</span>40 <span style=''>// If the direction is not specified, ASC is assumed ...
+</span>41 <span style=''>// By default or with the NULLS LAST modifier: first the values, then NaN, then NULL ...
+</span>42 <span style=''>// https://clickhouse.com/docs/en/sql-reference/statements/select/order-by
+</span>43 <span style=''>case class OrderExpr(expr: Expr, asc: Boolean = true, nullFirst: Boolean = false) extends Expr {
+</span>44 <span style=''>  override def sql: String = s&quot;$expr ${if (asc) &quot;ASC&quot; else &quot;DESC&quot;} NULLS ${if (nullFirst) &quot;FIRST&quot; else &quot;LAST&quot;}&quot;
+</span>45 <span style=''>}
+</span>46 <span style=''>
+</span>47 <span style=''>case class TupleExpr(exprList: List[Expr]) extends Expr {
+</span>48 <span style=''>  override def sql: String = exprList.mkString(&quot;(&quot;, &quot;,&quot;, &quot;)&quot;)
+</span>49 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          19
+        </td>
+        <td>
+          693
+        </td>
+        <td>
+          698
+          -
+          698
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.Expr.sql
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Expr.this.sql
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          1070
+        </td>
+        <td>
+          774
+          -
+          774
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.Expr.sql
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Expr.this.sql
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          600
+        </td>
+        <td>
+          777
+          -
+          777
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]&quot;
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          654
+        </td>
+        <td>
+          723
+          -
+          723
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;[&quot;, &quot;]&quot;).s(scala.Predef.augmentString(this.getClass().getSimpleName()).stripSuffix(&quot;$&quot;), Expr.this.sql)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          313
+        </td>
+        <td>
+          725
+          -
+          725
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          187
+        </td>
+        <td>
+          766
+          -
+          766
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripSuffix
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(this.getClass().getSimpleName()).stripSuffix(&quot;$&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          20
+        </td>
+        <td>
+          1021
+        </td>
+        <td>
+          772
+          -
+          772
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;[&quot;
+        </td>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          274
+        </td>
+        <td>
+          814
+          -
+          814
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.Expr.desc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Expr.this.desc
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          1022
+        </td>
+        <td>
+          906
+          -
+          906
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(StringLiteral.this.value)
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          316
+        </td>
+        <td>
+          910
+          -
+          910
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.StringLiteral.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          StringLiteral.this.value
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          949
+        </td>
+        <td>
+          908
+          -
+          908
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          730
+        </td>
+        <td>
+          915
+          -
+          915
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          577
+        </td>
+        <td>
+          999
+          -
+          999
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.FieldRef.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          FieldRef.this.name
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          190
+        </td>
+        <td>
+          1087
+          -
+          1087
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.SQLExpr.sqlText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLExpr.this.sqlText
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1087
+        </td>
+        <td>
+          1196
+          -
+          1196
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          231
+        </td>
+        <td>
+          1234
+          -
+          1234
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          658
+        </td>
+        <td>
+          1201
+          -
+          1201
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          299
+        </td>
+        <td>
+          1194
+          -
+          1194
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;(&quot;, &quot;)&quot;).s(FuncExpr.this.name, FuncExpr.this.args.map[String, List[String]](((x$1: com.clickhouse.spark.expr.Expr) =&gt; x$1.sql))(immutable.this.List.canBuildFrom[String]).mkString(&quot;,&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          930
+        </td>
+        <td>
+          1197
+          -
+          1197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.FuncExpr.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          FuncExpr.this.name
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          493
+        </td>
+        <td>
+          1228
+          -
+          1228
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          FuncExpr.this.args.map[String, List[String]](((x$1: com.clickhouse.spark.expr.Expr) =&gt; x$1.sql))(immutable.this.List.canBuildFrom[String]).mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          209
+        </td>
+        <td>
+          1648
+          -
+          1648
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;FIRST&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1091
+        </td>
+        <td>
+          1668
+          -
+          1668
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1019
+        </td>
+        <td>
+          1617
+          -
+          1617
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;DESC&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          343
+        </td>
+        <td>
+          1617
+          -
+          1617
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;DESC&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1034
+        </td>
+        <td>
+          1648
+          -
+          1648
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;FIRST&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          178
+        </td>
+        <td>
+          1624
+          -
+          1624
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; NULLS &quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          692
+        </td>
+        <td>
+          1661
+          -
+          1661
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;LAST&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          219
+        </td>
+        <td>
+          1601
+          -
+          1601
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.OrderExpr.asc
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          OrderExpr.this.asc
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1005
+        </td>
+        <td>
+          1589
+          -
+          1589
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          272
+        </td>
+        <td>
+          1661
+          -
+          1661
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;LAST&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          912
+        </td>
+        <td>
+          1587
+          -
+          1587
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; &quot;, &quot; NULLS &quot;, &quot;&quot;).s(OrderExpr.this.expr, if (OrderExpr.this.asc)
+  &quot;ASC&quot;
+else
+  &quot;DESC&quot;, if (OrderExpr.this.nullFirst)
+  &quot;FIRST&quot;
+else
+  &quot;LAST&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          933
+        </td>
+        <td>
+          1606
+          -
+          1606
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ASC&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          565
+        </td>
+        <td>
+          1637
+          -
+          1637
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.OrderExpr.nullFirst
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          OrderExpr.this.nullFirst
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          547
+        </td>
+        <td>
+          1606
+          -
+          1606
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ASC&quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          583
+        </td>
+        <td>
+          1594
+          -
+          1594
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; &quot;
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          637
+        </td>
+        <td>
+          1590
+          -
+          1590
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.expr.OrderExpr.expr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          OrderExpr.this.expr
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          552
+        </td>
+        <td>
+          1777
+          -
+          1777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TupleExpr.this.exprList.mkString(&quot;(&quot;, &quot;,&quot;, &quot;)&quot;)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

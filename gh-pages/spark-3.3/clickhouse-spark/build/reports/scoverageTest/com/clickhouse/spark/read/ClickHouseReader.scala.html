@@ -1,0 +1,834 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/read/ClickHouseReader.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.read
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.client.ClickHouseResponse
+</span>18 <span style=''>import com.clickhouse.data.ClickHouseCompression
+</span>19 <span style=''>import org.apache.spark.sql.catalyst.{InternalRow, SQLConfHelper}
+</span>20 <span style=''>import org.apache.spark.sql.clickhouse.ClickHouseSQLConf._
+</span>21 <span style=''>import org.apache.spark.sql.connector.metric.CustomTaskMetric
+</span>22 <span style=''>import org.apache.spark.sql.connector.read.PartitionReader
+</span>23 <span style=''>import org.apache.spark.sql.types._
+</span>24 <span style=''>import com.clickhouse.spark.Metrics.{BLOCKS_READ, BYTES_READ}
+</span>25 <span style=''>import com.clickhouse.spark.client.{NodeClient, NodesClient}
+</span>26 <span style=''>import com.clickhouse.spark.format.StreamOutput
+</span>27 <span style=''>import com.clickhouse.spark.{ClickHouseHelper, Logging, TaskMetric}
+</span>28 <span style=''>
+</span>29 <span style=''>abstract class ClickHouseReader[Record](
+</span>30 <span style=''>  scanJob: ScanJobDescription,
+</span>31 <span style=''>  part: ClickHouseInputPartition
+</span>32 <span style=''>) extends PartitionReader[InternalRow]
+</span>33 <span style=''>    with ClickHouseHelper
+</span>34 <span style=''>    with SQLConfHelper
+</span>35 <span style=''>    with Logging {
+</span>36 <span style=''>
+</span>37 <span style=''>  val readDistributedUseClusterNodes: Boolean = conf.getConf(READ_DISTRIBUTED_USE_CLUSTER_NODES)
+</span>38 <span style=''>  val readDistributedConvertLocal: Boolean = conf.getConf(READ_DISTRIBUTED_CONVERT_LOCAL)
+</span>39 <span style=''>  private val readSettings: Option[String] = conf.getConf(READ_SETTINGS)
+</span>40 <span style=''>
+</span>41 <span style=''>  val database: String = part.table.database
+</span>42 <span style=''>  val table: String = part.table.name
+</span>43 <span style=''>  val codec: ClickHouseCompression = scanJob.readOptions.compressionCodec
+</span>44 <span style=''>  val readSchema: StructType = scanJob.readSchema
+</span>45 <span style=''>
+</span>46 <span style=''>  private lazy val nodesClient = NodesClient(part.candidateNodes)
+</span>47 <span style=''>
+</span>48 <span style=''>  def nodeClient: NodeClient = nodesClient.node
+</span>49 <span style=''>
+</span>50 <span style=''>  lazy val scanQuery: String = {
+</span>51 <span style=''>    val selectItems =
+</span>52 <span style=''>      if (readSchema.isEmpty) {
+</span>53 <span style=''>        &quot;1&quot; // for case like COUNT(*) which prunes all columns
+</span>54 <span style=''>      } else {
+</span>55 <span style=''>        readSchema.map {
+</span>56 <span style=''>          field =&gt; if (scanJob.groupByClause.isDefined) field.name else s&quot;`${field.name}`&quot;
+</span>57 <span style=''>        }.mkString(&quot;, &quot;)
+</span>58 <span style=''>      }
+</span>59 <span style=''>    s&quot;&quot;&quot;SELECT $selectItems
+</span>60 <span style=''>       |FROM `$database`.`$table`
+</span>61 <span style=''>       |WHERE (${part.partFilterExpr}) AND (${scanJob.filtersExpr})
+</span>62 <span style=''>       |${scanJob.groupByClause.getOrElse(&quot;&quot;)}
+</span>63 <span style=''>       |${scanJob.limit.map(n =&gt; s&quot;LIMIT $n&quot;).getOrElse(&quot;&quot;)}
+</span>64 <span style=''>       |${readSettings.map(settings =&gt; s&quot;SETTINGS $settings&quot;).getOrElse(&quot;&quot;)}
+</span>65 <span style=''>       |&quot;&quot;&quot;.stripMargin
+</span>66 <span style=''>  }
+</span>67 <span style=''>
+</span>68 <span style=''>  def format: String
+</span>69 <span style=''>
+</span>70 <span style=''>  lazy val resp: ClickHouseResponse = nodeClient.queryAndCheck(scanQuery, format, codec)
+</span>71 <span style=''>
+</span>72 <span style=''>  def totalBlocksRead: Long = resp.getSummary.getStatistics.getBlocks
+</span>73 <span style=''>
+</span>74 <span style=''>  def totalBytesRead: Long = resp.getSummary.getReadBytes
+</span>75 <span style=''>
+</span>76 <span style=''>  override def currentMetricsValues: Array[CustomTaskMetric] = Array(
+</span>77 <span style=''>    TaskMetric(BLOCKS_READ, totalBlocksRead),
+</span>78 <span style=''>    TaskMetric(BYTES_READ, totalBytesRead)
+</span>79 <span style=''>  )
+</span>80 <span style=''>
+</span>81 <span style=''>  def streamOutput: Iterator[Record]
+</span>82 <span style=''>
+</span>83 <span style=''>  private var currentRecord: Record = _
+</span>84 <span style=''>
+</span>85 <span style=''>  override def next(): Boolean = {
+</span>86 <span style=''>    val hasNext = streamOutput.hasNext
+</span>87 <span style=''>    if (hasNext) currentRecord = streamOutput.next
+</span>88 <span style=''>    hasNext
+</span>89 <span style=''>  }
+</span>90 <span style=''>
+</span>91 <span style=''>  override def get: InternalRow = decode(currentRecord)
+</span>92 <span style=''>
+</span>93 <span style=''>  def decode(record: Record): InternalRow
+</span>94 <span style=''>
+</span>95 <span style=''>  override def close(): Unit = nodesClient.close()
+</span>96 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          582
+        </td>
+        <td>
+          1491
+          -
+          1491
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.getConf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.conf.getConf[Boolean](org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_DISTRIBUTED_USE_CLUSTER_NODES)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1435
+        </td>
+        <td>
+          1492
+          -
+          1492
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_DISTRIBUTED_USE_CLUSTER_NODES
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_DISTRIBUTED_USE_CLUSTER_NODES
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1646
+        </td>
+        <td>
+          1585
+          -
+          1585
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.getConf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.conf.getConf[Boolean](org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_DISTRIBUTED_CONVERT_LOCAL)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          2097
+        </td>
+        <td>
+          1586
+          -
+          1586
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_DISTRIBUTED_CONVERT_LOCAL
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_DISTRIBUTED_CONVERT_LOCAL
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          2143
+        </td>
+        <td>
+          1675
+          -
+          1675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.getConf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.conf.getConf[String](org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_SETTINGS)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          785
+        </td>
+        <td>
+          1676
+          -
+          1676
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_SETTINGS
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.READ_SETTINGS
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1355
+        </td>
+        <td>
+          1728
+          -
+          1728
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.database
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.part.table.database
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          550
+        </td>
+        <td>
+          1770
+          -
+          1770
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.part.table.name
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          60
+        </td>
+        <td>
+          1832
+          -
+          1832
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ReadOptions.compressionCodec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.scanJob.readOptions.compressionCodec
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1521
+        </td>
+        <td>
+          1888
+          -
+          1888
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.readSchema
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.scanJob.readSchema
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          592
+        </td>
+        <td>
+          2010
+          -
+          2010
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodesClient.node
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.nodesClient.node
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          2056
+        </td>
+        <td>
+          2846
+          -
+          2846
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseResponseSummary.Statistics.getBlocks
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.resp.getSummary().getStatistics().getBlocks()
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1653
+        </td>
+        <td>
+          2902
+          -
+          2902
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseResponseSummary.getReadBytes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.resp.getSummary().getReadBytes()
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          574
+        </td>
+        <td>
+          2984
+          -
+          2984
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[org.apache.spark.sql.connector.metric.CustomTaskMetric](com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.BLOCKS_READ, ClickHouseReader.this.totalBlocksRead), com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.BYTES_READ, ClickHouseReader.this.totalBytesRead))((ClassTag.apply[org.apache.spark.sql.connector.metric.CustomTaskMetric](classOf[org.apache.spark.sql.connector.metric.CustomTaskMetric]): scala.reflect.ClassTag[org.apache.spark.sql.connector.metric.CustomTaskMetric]))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          791
+        </td>
+        <td>
+          3001
+          -
+          3001
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.BLOCKS_READ
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Metrics.BLOCKS_READ
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1359
+        </td>
+        <td>
+          3000
+          -
+          3000
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.TaskMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.BLOCKS_READ, ClickHouseReader.this.totalBlocksRead)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          2219
+        </td>
+        <td>
+          3014
+          -
+          3014
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseReader.totalBlocksRead
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.totalBlocksRead
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          3059
+          -
+          3059
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseReader.totalBytesRead
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.totalBytesRead
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          509
+        </td>
+        <td>
+          3047
+          -
+          3047
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.BYTES_READ
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Metrics.BYTES_READ
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1522
+        </td>
+        <td>
+          3046
+          -
+          3046
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.TaskMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.BYTES_READ, ClickHouseReader.this.totalBytesRead)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          2064
+        </td>
+        <td>
+          3225
+          -
+          3225
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.Iterator.hasNext
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.streamOutput.hasNext
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1288
+        </td>
+        <td>
+          3237
+          -
+          3237
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          749
+        </td>
+        <td>
+          3264
+          -
+          3264
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseReader.currentRecord_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.currentRecord_=(ClickHouseReader.this.streamOutput.next())
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1586
+        </td>
+        <td>
+          3279
+          -
+          3279
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.Iterator.next
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.streamOutput.next()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          515
+        </td>
+        <td>
+          3237
+          -
+          3237
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          2222
+        </td>
+        <td>
+          3264
+          -
+          3264
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseReader.currentRecord_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.currentRecord_=(ClickHouseReader.this.streamOutput.next())
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1485
+        </td>
+        <td>
+          3341
+          -
+          3341
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseReader.decode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.decode(ClickHouseReader.this.currentRecord)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          3342
+          -
+          3342
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseReader.currentRecord
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.currentRecord
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          579
+        </td>
+        <td>
+          3449
+          -
+          3449
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodesClient.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseReader.this.nodesClient.close()
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

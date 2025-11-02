@@ -1,0 +1,2847 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/client/NodeClient.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.client
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.Logging
+</span>18 <span style=''>import com.clickhouse.client._
+</span>19 <span style=''>import com.clickhouse.client.config.ClickHouseClientOption
+</span>20 <span style=''>import com.clickhouse.data.{ClickHouseCompression, ClickHouseFormat}
+</span>21 <span style=''>import com.clickhouse.spark.exception.{CHClientException, CHException, CHServerException}
+</span>22 <span style=''>import com.clickhouse.spark.format.{
+</span>23 <span style=''>  JSONCompactEachRowWithNamesAndTypesSimpleOutput,
+</span>24 <span style=''>  JSONEachRowSimpleOutput,
+</span>25 <span style=''>  NamesAndTypes,
+</span>26 <span style=''>  SimpleOutput
+</span>27 <span style=''>}
+</span>28 <span style=''>import com.clickhouse.spark.spec.NodeSpec
+</span>29 <span style=''>import com.fasterxml.jackson.databind.JsonNode
+</span>30 <span style=''>import com.fasterxml.jackson.databind.node.ObjectNode
+</span>31 <span style=''>import com.clickhouse.spark.format._
+</span>32 <span style=''>
+</span>33 <span style=''>import java.io.InputStream
+</span>34 <span style=''>import java.util.UUID
+</span>35 <span style=''>import scala.util.{Failure, Success, Try}
+</span>36 <span style=''>
+</span>37 <span style=''>object NodeClient {
+</span>38 <span style=''>  def apply(node: NodeSpec): NodeClient = new NodeClient(node)
+</span>39 <span style=''>}
+</span>40 <span style=''>
+</span>41 <span style=''>class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
+</span>42 <span style=''>  // TODO: add configurable timeout
+</span>43 <span style=''>  private val timeout: Int = 30000
+</span>44 <span style=''>
+</span>45 <span style=''>  private lazy val userAgent = {
+</span>46 <span style=''>    val title = getClass.getPackage.getImplementationTitle
+</span>47 <span style=''>    val version = getClass.getPackage.getImplementationVersion
+</span>48 <span style=''>    if (version != null &amp;&amp; title != null) {
+</span>49 <span style=''>      val versions = version.split(&quot;_&quot;)
+</span>50 <span style=''>      if (versions.length &lt; 3) {
+</span>51 <span style=''>        &quot;Spark-ClickHouse-Connector&quot;
+</span>52 <span style=''>      } else {
+</span>53 <span style=''>        val sparkVersion = versions(0)
+</span>54 <span style=''>        val scalaVersion = versions(1)
+</span>55 <span style=''>        val connectorVersion = versions(2)
+</span>56 <span style=''>        s&quot;${title}/${connectorVersion} (fv:spark/${sparkVersion}, lv:scala/${scalaVersion})&quot;
+</span>57 <span style=''>      }
+</span>58 <span style=''>    } else {
+</span>59 <span style=''>      &quot;Spark-ClickHouse-Connector&quot;
+</span>60 <span style=''>    }
+</span>61 <span style=''>  }
+</span>62 <span style=''>  private val node: ClickHouseNode = ClickHouseNode.builder()
+</span>63 <span style=''>    .options(nodeSpec.options)
+</span>64 <span style=''>    .host(nodeSpec.host)
+</span>65 <span style=''>    .port(nodeSpec.protocol, nodeSpec.port)
+</span>66 <span style=''>    .database(nodeSpec.database)
+</span>67 <span style=''>    .credentials(ClickHouseCredentials.fromUserAndPassword(nodeSpec.username, nodeSpec.password))
+</span>68 <span style=''>    .build()
+</span>69 <span style=''>
+</span>70 <span style=''>  private val client: ClickHouseClient = ClickHouseClient.builder()
+</span>71 <span style=''>    .option(ClickHouseClientOption.FORMAT, ClickHouseFormat.RowBinary)
+</span>72 <span style=''>    .option(
+</span>73 <span style=''>      ClickHouseClientOption.PRODUCT_NAME,
+</span>74 <span style=''>      userAgent
+</span>75 <span style=''>    )
+</span>76 <span style=''>    .nodeSelector(ClickHouseNodeSelector.of(node.getProtocol))
+</span>77 <span style=''>    .build()
+</span>78 <span style=''>
+</span>79 <span style=''>  override def close(): Unit = client.close()
+</span>80 <span style=''>
+</span>81 <span style=''>  private def nextQueryId(): String = UUID.randomUUID.toString
+</span>82 <span style=''>
+</span>83 <span style=''>  // //////////////////////////////////////////////////////////////////////////////
+</span>84 <span style=''>  // ///////////////////////// Synchronized Normal API ////////////////////////////
+</span>85 <span style=''>  // //////////////////////////////////////////////////////////////////////////////
+</span>86 <span style=''>
+</span>87 <span style=''>  def syncQueryOutputJSONEachRow(
+</span>88 <span style=''>    sql: String,
+</span>89 <span style=''>    settings: Map[String, String] = Map.empty
+</span>90 <span style=''>  ): Either[CHException, SimpleOutput[ObjectNode]] =
+</span>91 <span style=''>    syncQuery(sql, &quot;JSONEachRow&quot;, JSONEachRowSimpleOutput.deserialize, settings)
+</span>92 <span style=''>
+</span>93 <span style=''>  def syncQueryAndCheckOutputJSONEachRow(
+</span>94 <span style=''>    sql: String,
+</span>95 <span style=''>    settings: Map[String, String] = Map.empty
+</span>96 <span style=''>  ): SimpleOutput[ObjectNode] =
+</span>97 <span style=''>    syncQueryAndCheck(sql, &quot;JSONEachRow&quot;, JSONEachRowSimpleOutput.deserialize, settings)
+</span>98 <span style=''>
+</span>99 <span style=''>  def syncInsertOutputJSONEachRow(
+</span>100 <span style=''>    database: String,
+</span>101 <span style=''>    table: String,
+</span>102 <span style=''>    inputFormat: String,
+</span>103 <span style=''>    inputCompressionType: ClickHouseCompression = ClickHouseCompression.NONE,
+</span>104 <span style=''>    data: InputStream,
+</span>105 <span style=''>    settings: Map[String, String] = Map.empty
+</span>106 <span style=''>  ): Either[CHException, SimpleOutput[ObjectNode]] =
+</span>107 <span style=''>    syncInsert(
+</span>108 <span style=''>      database,
+</span>109 <span style=''>      table,
+</span>110 <span style=''>      inputFormat,
+</span>111 <span style=''>      inputCompressionType,
+</span>112 <span style=''>      data,
+</span>113 <span style=''>      &quot;JSONEachRow&quot;,
+</span>114 <span style=''>      JSONEachRowSimpleOutput.deserialize,
+</span>115 <span style=''>      settings
+</span>116 <span style=''>    )
+</span>117 <span style=''>
+</span>118 <span style=''>  def syncQueryAndCheckOutputJSONCompactEachRowWithNamesAndTypes(
+</span>119 <span style=''>    sql: String,
+</span>120 <span style=''>    settings: Map[String, String] = Map.empty
+</span>121 <span style=''>  ): SimpleOutput[Array[JsonNode]] with NamesAndTypes =
+</span>122 <span style=''>    syncQueryAndCheck(
+</span>123 <span style=''>      sql,
+</span>124 <span style=''>      &quot;JSONCompactEachRowWithNamesAndTypes&quot;,
+</span>125 <span style=''>      JSONCompactEachRowWithNamesAndTypesSimpleOutput.deserialize,
+</span>126 <span style=''>      settings
+</span>127 <span style=''>    ).asInstanceOf[SimpleOutput[Array[JsonNode]] with NamesAndTypes]
+</span>128 <span style=''>
+</span>129 <span style=''>  def syncInsert[OUT](
+</span>130 <span style=''>    database: String,
+</span>131 <span style=''>    table: String,
+</span>132 <span style=''>    inputFormat: String,
+</span>133 <span style=''>    inputCompressionType: ClickHouseCompression,
+</span>134 <span style=''>    data: InputStream,
+</span>135 <span style=''>    outputFormat: String,
+</span>136 <span style=''>    deserializer: InputStream =&gt; SimpleOutput[OUT],
+</span>137 <span style=''>    settings: Map[String, String]
+</span>138 <span style=''>  ): Either[CHException, SimpleOutput[OUT]] = {
+</span>139 <span style=''>    val queryId = nextQueryId()
+</span>140 <span style=''>    val sql = s&quot;INSERT INTO `$database`.`$table` FORMAT $inputFormat&quot;
+</span>141 <span style=''>    onExecuteQuery(queryId, sql)
+</span>142 <span style=''>    val req = client.write(node)
+</span>143 <span style=''>      .query(sql, queryId)
+</span>144 <span style=''>      .decompressClientRequest(inputCompressionType)
+</span>145 <span style=''>      .format(ClickHouseFormat.valueOf(outputFormat))
+</span>146 <span style=''>    settings.foreach { case (k, v) =&gt; req.set(k, v) }
+</span>147 <span style=''>    Try(req.data(data).executeAndWait()) match {
+</span>148 <span style=''>      case Success(resp) =&gt; Right(deserializer(resp.getInputStream))
+</span>149 <span style=''>      case Failure(ex: ClickHouseException) =&gt;
+</span>150 <span style=''>        Left(CHServerException(ex.getErrorCode, ex.getMessage, Some(nodeSpec), Some(ex)))
+</span>151 <span style=''>      case Failure(ex) =&gt; Left(CHClientException(ex.getMessage, Some(nodeSpec), Some(ex)))
+</span>152 <span style=''>    }
+</span>153 <span style=''>  }
+</span>154 <span style=''>
+</span>155 <span style=''>  def syncQuery[OUT](
+</span>156 <span style=''>    sql: String,
+</span>157 <span style=''>    outputFormat: String,
+</span>158 <span style=''>    deserializer: InputStream =&gt; SimpleOutput[OUT],
+</span>159 <span style=''>    settings: Map[String, String]
+</span>160 <span style=''>  ): Either[CHException, SimpleOutput[OUT]] = {
+</span>161 <span style=''>    val queryId = nextQueryId()
+</span>162 <span style=''>    onExecuteQuery(queryId, sql)
+</span>163 <span style=''>    val req = client.read(node)
+</span>164 <span style=''>      .query(sql, queryId).asInstanceOf[ClickHouseRequest[_]]
+</span>165 <span style=''>      .format(ClickHouseFormat.valueOf(outputFormat)).asInstanceOf[ClickHouseRequest[_]]
+</span>166 <span style=''>      .option(ClickHouseClientOption.CONNECTION_TIMEOUT, timeout).asInstanceOf[ClickHouseRequest[_]]
+</span>167 <span style=''>    settings.foreach { case (k, v) =&gt; req.set(k, v).asInstanceOf[ClickHouseRequest[_]] }
+</span>168 <span style=''>    Try(req.executeAndWait()) match {
+</span>169 <span style=''>      case Success(resp) =&gt; Right(deserializer(resp.getInputStream))
+</span>170 <span style=''>      case Failure(ex: ClickHouseException) =&gt;
+</span>171 <span style=''>        Left(CHServerException(ex.getErrorCode, ex.getMessage, Some(nodeSpec), Some(ex)))
+</span>172 <span style=''>      case Failure(ex) =&gt; Left(CHClientException(ex.getMessage, Some(nodeSpec), Some(ex)))
+</span>173 <span style=''>    }
+</span>174 <span style=''>  }
+</span>175 <span style=''>
+</span>176 <span style=''>  def syncQueryAndCheck[OUT](
+</span>177 <span style=''>    sql: String,
+</span>178 <span style=''>    outputFormat: String,
+</span>179 <span style=''>    deserializer: InputStream =&gt; SimpleOutput[OUT],
+</span>180 <span style=''>    settings: Map[String, String]
+</span>181 <span style=''>  ): SimpleOutput[OUT] = syncQuery[OUT](sql, outputFormat, deserializer, settings) match {
+</span>182 <span style=''>    case Left(rethrow) =&gt; throw rethrow
+</span>183 <span style=''>    case Right(output) =&gt; output
+</span>184 <span style=''>  }
+</span>185 <span style=''>
+</span>186 <span style=''>  // //////////////////////////////////////////////////////////////////////////////
+</span>187 <span style=''>  // ///////////////////////// ret ClickHouseResponse /////////////////////////////
+</span>188 <span style=''>  // //////////////////////////////////////////////////////////////////////////////
+</span>189 <span style=''>
+</span>190 <span style=''>  def queryAndCheck(
+</span>191 <span style=''>    sql: String,
+</span>192 <span style=''>    outputFormat: String,
+</span>193 <span style=''>    outputCompressionType: ClickHouseCompression,
+</span>194 <span style=''>    settings: Map[String, String] = Map.empty
+</span>195 <span style=''>  ): ClickHouseResponse = {
+</span>196 <span style=''>    val queryId = nextQueryId()
+</span>197 <span style=''>    onExecuteQuery(queryId, sql)
+</span>198 <span style=''>    val req = client.read(node)
+</span>199 <span style=''>      .query(sql, queryId).asInstanceOf[ClickHouseRequest[_]]
+</span>200 <span style=''>      .compressServerResponse(outputCompressionType).asInstanceOf[ClickHouseRequest[_]]
+</span>201 <span style=''>      .format(ClickHouseFormat.valueOf(outputFormat)).asInstanceOf[ClickHouseRequest[_]]
+</span>202 <span style=''>      .option(ClickHouseClientOption.CONNECTION_TIMEOUT, timeout).asInstanceOf[ClickHouseRequest[_]]
+</span>203 <span style=''>    settings.foreach { case (k, v) =&gt; req.set(k, v).asInstanceOf[ClickHouseRequest[_]] }
+</span>204 <span style=''>    Try(req.executeAndWait()) match {
+</span>205 <span style=''>      case Success(resp) =&gt; resp
+</span>206 <span style=''>      case Failure(ex: ClickHouseException) =&gt;
+</span>207 <span style=''>        throw CHServerException(ex.getErrorCode, ex.getMessage, Some(nodeSpec), Some(ex))
+</span>208 <span style=''>      case Failure(ex) =&gt; throw CHClientException(ex.getMessage, Some(nodeSpec), Some(ex))
+</span>209 <span style=''>    }
+</span>210 <span style=''>  }
+</span>211 <span style=''>
+</span>212 <span style=''>  // //////////////////////////////////////////////////////////////////////////////
+</span>213 <span style=''>  // /////////////////////////////////// Hook /////////////////////////////////////
+</span>214 <span style=''>  // //////////////////////////////////////////////////////////////////////////////
+</span>215 <span style=''>
+</span>216 <span style=''>  def onExecuteQuery(queryId: String, sql: String): Unit = log.debug(
+</span>217 <span style=''>    s&quot;&quot;&quot;Execute ClickHouse SQL [$queryId]:
+</span>218 <span style=''>       |$sql
+</span>219 <span style=''>       |&quot;&quot;&quot;.stripMargin
+</span>220 <span style=''>  )
+</span>221 <span style=''>  def ping(timeout: Int = timeout) =
+</span>222 <span style=''>    client.ping(node, timeout)
+</span>223 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1072
+        </td>
+        <td>
+          1370
+          -
+          1370
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new NodeClient(node)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          865
+        </td>
+        <td>
+          1537
+          -
+          1537
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          30000
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          417
+        </td>
+        <td>
+          2451
+          -
+          2451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseNode.Builder.build
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.client.ClickHouseNode.builder().options(NodeClient.this.nodeSpec.options).host(NodeClient.this.nodeSpec.host).port(NodeClient.this.nodeSpec.protocol, scala.Predef.int2Integer(NodeClient.this.nodeSpec.port)).database(NodeClient.this.nodeSpec.database).credentials(com.clickhouse.client.ClickHouseCredentials.fromUserAndPassword(NodeClient.this.nodeSpec.username, NodeClient.this.nodeSpec.password)).build()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          2745
+          -
+          2745
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseClientBuilder.build
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.client.ClickHouseClient.builder().option(FORMAT, RowBinary).option(PRODUCT_NAME, NodeClient.this.userAgent).nodeSelector(com.clickhouse.client.ClickHouseNodeSelector.of(NodeClient.this.node.getProtocol())).build()
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          737
+        </td>
+        <td>
+          2792
+          -
+          2792
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseClient.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.client.close()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          319
+        </td>
+        <td>
+          2850
+          -
+          2850
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.UUID.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.util.UUID.randomUUID().toString()
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          765
+        </td>
+        <td>
+          3321
+          -
+          3321
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONEachRowSimpleOutput.deserialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.format.JSONEachRowSimpleOutput.deserialize(input)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          3282
+          -
+          3282
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;JSONEachRow&quot;
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          391
+        </td>
+        <td>
+          3276
+          -
+          3276
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQuery
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.syncQuery[com.fasterxml.jackson.databind.node.ObjectNode](sql, &quot;JSONEachRow&quot;, {
+  ((input: java.io.InputStream) =&gt; com.clickhouse.spark.format.JSONEachRowSimpleOutput.deserialize(input))
+}, settings)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          851
+        </td>
+        <td>
+          3548
+          -
+          3548
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONEachRowSimpleOutput.deserialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.format.JSONEachRowSimpleOutput.deserialize(input)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          419
+        </td>
+        <td>
+          3503
+          -
+          3503
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryAndCheck
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.syncQueryAndCheck[com.fasterxml.jackson.databind.node.ObjectNode](sql, &quot;JSONEachRow&quot;, {
+  ((input: java.io.InputStream) =&gt; com.clickhouse.spark.format.JSONEachRowSimpleOutput.deserialize(input))
+}, settings)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1059
+        </td>
+        <td>
+          3509
+          -
+          3509
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;JSONEachRow&quot;
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          306
+        </td>
+        <td>
+          3887
+          -
+          3887
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncInsert
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.syncInsert[com.fasterxml.jackson.databind.node.ObjectNode](database, table, inputFormat, inputCompressionType, data, &quot;JSONEachRow&quot;, {
+  ((input: java.io.InputStream) =&gt; com.clickhouse.spark.format.JSONEachRowSimpleOutput.deserialize(input))
+}, settings)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          3983
+          -
+          3983
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;JSONEachRow&quot;
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          696
+        </td>
+        <td>
+          4028
+          -
+          4028
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONEachRowSimpleOutput.deserialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.format.JSONEachRowSimpleOutput.deserialize(input)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          89
+        </td>
+        <td>
+          4288
+          -
+          4288
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;JSONCompactEachRowWithNamesAndTypes&quot;
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          767
+        </td>
+        <td>
+          4381
+          -
+          4381
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesSimpleOutput.deserialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesSimpleOutput.deserialize(input)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          393
+        </td>
+        <td>
+          4427
+          -
+          4427
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.syncQueryAndCheck[Array[com.fasterxml.jackson.databind.JsonNode]](sql, &quot;JSONCompactEachRowWithNamesAndTypes&quot;, {
+  ((input: java.io.InputStream) =&gt; com.clickhouse.spark.format.JSONCompactEachRowWithNamesAndTypesSimpleOutput.deserialize(input))
+}, settings).asInstanceOf[com.clickhouse.spark.format.SimpleOutput[Array[com.fasterxml.jackson.databind.JsonNode]] with com.clickhouse.spark.format.NamesAndTypes]
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          1043
+        </td>
+        <td>
+          4829
+          -
+          4829
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.nextQueryId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.nextQueryId()
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          642
+        </td>
+        <td>
+          4846
+          -
+          4846
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;INSERT INTO `&quot;, &quot;`.`&quot;, &quot;` FORMAT &quot;, &quot;&quot;).s(database, table, inputFormat)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          414
+        </td>
+        <td>
+          4920
+          -
+          4920
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.onExecuteQuery
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.onExecuteQuery(queryId, sql)
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          4962
+          -
+          4962
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.node
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.node
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          701
+        </td>
+        <td>
+          5086
+          -
+          5086
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseFormat.valueOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.data.ClickHouseFormat.valueOf(outputFormat)
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          290
+        </td>
+        <td>
+          5061
+          -
+          5061
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseRequest.Mutation.format
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.client.write(NodeClient.this.node).query(sql, queryId).decompressClientRequest(inputCompressionType).format(com.clickhouse.data.ClickHouseFormat.valueOf(outputFormat))
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          101
+        </td>
+        <td>
+          5147
+          -
+          5147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseRequest.set
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          req.set(k, v)
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          405
+        </td>
+        <td>
+          5123
+          -
+          5123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          settings.foreach[com.clickhouse.client.ClickHouseRequest.Mutation](((x0$1: (String, String)) =&gt; x0$1 match {
+  case (_1: String, _2: String)(String, String)((k @ _), (v @ _)) =&gt; req.set(k, v)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          758
+        </td>
+        <td>
+          5147
+          -
+          5147
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseRequest.set
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          req.set(k, v)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          633
+        </td>
+        <td>
+          5163
+          -
+          5163
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[com.clickhouse.client.ClickHouseResponse](req.data(data).executeAndWait())
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1047
+        </td>
+        <td>
+          5193
+          -
+          5193
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseRequest.executeAndWait
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          req.data(data).executeAndWait()
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          295
+        </td>
+        <td>
+          5238
+          -
+          5238
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, com.clickhouse.spark.format.SimpleOutput[OUT]](deserializer.apply(resp.getInputStream()))
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          25
+        </td>
+        <td>
+          5251
+          -
+          5251
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          deserializer.apply(resp.getInputStream())
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          452
+        </td>
+        <td>
+          5257
+          -
+          5257
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseResponse.getInputStream
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          resp.getInputStream()
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          748
+        </td>
+        <td>
+          5238
+          -
+          5238
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, com.clickhouse.spark.format.SimpleOutput[OUT]](deserializer.apply(resp.getInputStream()))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          430
+        </td>
+        <td>
+          5351
+          -
+          5351
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.exception.CHServerException.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.exception.CHServerException.apply(ex.getErrorCode(), ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[com.clickhouse.client.ClickHouseException](ex))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          803
+        </td>
+        <td>
+          5372
+          -
+          5372
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          752
+        </td>
+        <td>
+          5333
+          -
+          5333
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[com.clickhouse.spark.exception.CHServerException, Nothing](com.clickhouse.spark.exception.CHServerException.apply(ex.getErrorCode(), ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[com.clickhouse.client.ClickHouseException](ex)))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          1084
+        </td>
+        <td>
+          5388
+          -
+          5388
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          662
+        </td>
+        <td>
+          5404
+          -
+          5404
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.clickhouse.client.ClickHouseException](ex)
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          5355
+          -
+          5355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseException.getErrorCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getErrorCode()
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          5333
+          -
+          5333
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[com.clickhouse.spark.exception.CHServerException, Nothing](com.clickhouse.spark.exception.CHServerException.apply(ex.getErrorCode(), ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[com.clickhouse.client.ClickHouseException](ex)))
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          407
+        </td>
+        <td>
+          5389
+          -
+          5389
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.nodeSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.nodeSpec
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          432
+        </td>
+        <td>
+          5441
+          -
+          5441
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[com.clickhouse.spark.exception.CHClientException, Nothing](com.clickhouse.spark.exception.CHClientException.apply(ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[Throwable](ex)))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1090
+        </td>
+        <td>
+          5459
+          -
+          5459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.exception.CHClientException.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.exception.CHClientException.apply(ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[Throwable](ex))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          339
+        </td>
+        <td>
+          5463
+          -
+          5463
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          805
+        </td>
+        <td>
+          5479
+          -
+          5479
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          649
+        </td>
+        <td>
+          5441
+          -
+          5441
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[com.clickhouse.spark.exception.CHClientException, Nothing](com.clickhouse.spark.exception.CHClientException.apply(ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[Throwable](ex)))
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1011
+        </td>
+        <td>
+          5480
+          -
+          5480
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.nodeSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.nodeSpec
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          374
+        </td>
+        <td>
+          5495
+          -
+          5495
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Throwable](ex)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          5741
+          -
+          5741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.nextQueryId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.nextQueryId()
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          727
+        </td>
+        <td>
+          5762
+          -
+          5762
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.onExecuteQuery
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.onExecuteQuery(queryId, sql)
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          311
+        </td>
+        <td>
+          5803
+          -
+          5803
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.node
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.node
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          1016
+        </td>
+        <td>
+          5909
+          -
+          5909
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseFormat.valueOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.data.ClickHouseFormat.valueOf(outputFormat)
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          1063
+        </td>
+        <td>
+          6017
+          -
+          6017
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.int2Integer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.int2Integer(NodeClient.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          757
+        </td>
+        <td>
+          5997
+          -
+          5997
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          CONNECTION_TIMEOUT
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          377
+        </td>
+        <td>
+          6017
+          -
+          6017
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.timeout
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          166
+        </td>
+        <td>
+          652
+        </td>
+        <td>
+          6038
+          -
+          6038
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.client.read(NodeClient.this.node).query(sql, queryId).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]].format(com.clickhouse.data.ClickHouseFormat.valueOf(outputFormat)).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]].option(CONNECTION_TIMEOUT, scala.Predef.int2Integer(NodeClient.this.timeout)).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]]
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          729
+        </td>
+        <td>
+          6082
+          -
+          6082
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          settings.foreach[com.clickhouse.client.ClickHouseRequest[_$4] forSome { type _$4 &lt;: com.clickhouse.client.ClickHouseRequest[_$4] }](((x0$1: (String, String)) =&gt; x0$1 match {
+  case (_1: String, _2: String)(String, String)((k @ _), (v @ _)) =&gt; req.set(k, v).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]]
+}))
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          7
+        </td>
+        <td>
+          6125
+          -
+          6125
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          req.set(k, v).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]]
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          434
+        </td>
+        <td>
+          6125
+          -
+          6125
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          req.set(k, v).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]]
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          332
+        </td>
+        <td>
+          6176
+          -
+          6176
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseRequest.executeAndWait
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          req.executeAndWait()
+        </td>
+      </tr><tr>
+        <td>
+          168
+        </td>
+        <td>
+          996
+        </td>
+        <td>
+          6157
+          -
+          6157
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[com.clickhouse.client.ClickHouseResponse](req.executeAndWait())
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          759
+        </td>
+        <td>
+          6240
+          -
+          6240
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseResponse.getInputStream
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          resp.getInputStream()
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          636
+        </td>
+        <td>
+          6221
+          -
+          6221
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, com.clickhouse.spark.format.SimpleOutput[OUT]](deserializer.apply(resp.getInputStream()))
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          1083
+        </td>
+        <td>
+          6221
+          -
+          6221
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, com.clickhouse.spark.format.SimpleOutput[OUT]](deserializer.apply(resp.getInputStream()))
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          356
+        </td>
+        <td>
+          6234
+          -
+          6234
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          deserializer.apply(resp.getInputStream())
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          1088
+        </td>
+        <td>
+          6316
+          -
+          6316
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[com.clickhouse.spark.exception.CHServerException, Nothing](com.clickhouse.spark.exception.CHServerException.apply(ex.getErrorCode(), ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[com.clickhouse.client.ClickHouseException](ex)))
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          822
+        </td>
+        <td>
+          6334
+          -
+          6334
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.exception.CHServerException.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.exception.CHServerException.apply(ex.getErrorCode(), ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[com.clickhouse.client.ClickHouseException](ex))
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          974
+        </td>
+        <td>
+          6387
+          -
+          6387
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.clickhouse.client.ClickHouseException](ex)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          336
+        </td>
+        <td>
+          6371
+          -
+          6371
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          252
+        </td>
+        <td>
+          6338
+          -
+          6338
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseException.getErrorCode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getErrorCode()
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          359
+        </td>
+        <td>
+          6316
+          -
+          6316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[com.clickhouse.spark.exception.CHServerException, Nothing](com.clickhouse.spark.exception.CHServerException.apply(ex.getErrorCode(), ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[com.clickhouse.client.ClickHouseException](ex)))
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          709
+        </td>
+        <td>
+          6372
+          -
+          6372
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.nodeSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.nodeSpec
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          9
+        </td>
+        <td>
+          6355
+          -
+          6355
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          618
+        </td>
+        <td>
+          6424
+          -
+          6424
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[com.clickhouse.spark.exception.CHClientException, Nothing](com.clickhouse.spark.exception.CHClientException.apply(ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[Throwable](ex)))
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          686
+        </td>
+        <td>
+          6446
+          -
+          6446
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          267
+        </td>
+        <td>
+          6463
+          -
+          6463
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.nodeSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.nodeSpec
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          342
+        </td>
+        <td>
+          6442
+          -
+          6442
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.exception.CHClientException.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.exception.CHClientException.apply(ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[Throwable](ex))
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          742
+        </td>
+        <td>
+          6478
+          -
+          6478
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Throwable](ex)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          1032
+        </td>
+        <td>
+          6424
+          -
+          6424
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[com.clickhouse.spark.exception.CHClientException, Nothing](com.clickhouse.spark.exception.CHClientException.apply(ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[Throwable](ex)))
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          6462
+          -
+          6462
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec)
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          409
+        </td>
+        <td>
+          6694
+          -
+          6694
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQuery
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.syncQuery[OUT](sql, outputFormat, deserializer, settings)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          1076
+        </td>
+        <td>
+          6772
+          -
+          6772
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw rethrow
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          689
+        </td>
+        <td>
+          6772
+          -
+          6772
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw rethrow
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          247
+        </td>
+        <td>
+          6812
+          -
+          6812
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.output
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          output
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          44
+        </td>
+        <td>
+          7294
+          -
+          7294
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.nextQueryId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.nextQueryId()
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          743
+        </td>
+        <td>
+          7315
+          -
+          7315
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.onExecuteQuery
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.onExecuteQuery(queryId, sql)
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          326
+        </td>
+        <td>
+          7356
+          -
+          7356
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.node
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.node
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          993
+        </td>
+        <td>
+          7550
+          -
+          7550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.data.ClickHouseFormat.valueOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.data.ClickHouseFormat.valueOf(outputFormat)
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          355
+        </td>
+        <td>
+          7658
+          -
+          7658
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.timeout
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.timeout
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          672
+        </td>
+        <td>
+          7679
+          -
+          7679
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.client.read(NodeClient.this.node).query(sql, queryId).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]].compressServerResponse(outputCompressionType).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]].format(com.clickhouse.data.ClickHouseFormat.valueOf(outputFormat)).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]].option(CONNECTION_TIMEOUT, scala.Predef.int2Integer(NodeClient.this.timeout)).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]]
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          597
+        </td>
+        <td>
+          7638
+          -
+          7638
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          CONNECTION_TIMEOUT
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          1078
+        </td>
+        <td>
+          7658
+          -
+          7658
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.int2Integer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.int2Integer(NodeClient.this.timeout)
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          707
+        </td>
+        <td>
+          7723
+          -
+          7723
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IterableLike.foreach
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          settings.foreach[com.clickhouse.client.ClickHouseRequest[_$9] forSome { type _$9 &lt;: com.clickhouse.client.ClickHouseRequest[_$9] }](((x0$1: (String, String)) =&gt; x0$1 match {
+  case (_1: String, _2: String)(String, String)((k @ _), (v @ _)) =&gt; req.set(k, v).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]]
+}))
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          7766
+          -
+          7766
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          req.set(k, v).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]]
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          251
+        </td>
+        <td>
+          7766
+          -
+          7766
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          req.set(k, v).asInstanceOf[com.clickhouse.client.ClickHouseRequest[_]]
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          307
+        </td>
+        <td>
+          7817
+          -
+          7817
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseRequest.executeAndWait
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          req.executeAndWait()
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          979
+        </td>
+        <td>
+          7798
+          -
+          7798
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[com.clickhouse.client.ClickHouseResponse](req.executeAndWait())
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          601
+        </td>
+        <td>
+          7857
+          -
+          7857
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.resp
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          resp
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          358
+        </td>
+        <td>
+          7917
+          -
+          7917
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHServerException.apply(ex.getErrorCode(), ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[com.clickhouse.client.ClickHouseException](ex))
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1051
+        </td>
+        <td>
+          7917
+          -
+          7917
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHServerException.apply(ex.getErrorCode(), ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[com.clickhouse.client.ClickHouseException](ex))
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          228
+        </td>
+        <td>
+          8025
+          -
+          8025
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[Throwable](ex))
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          685
+        </td>
+        <td>
+          8025
+          -
+          8025
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(ex.getMessage(), scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](NodeClient.this.nodeSpec), scala.Some.apply[Throwable](ex))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          298
+        </td>
+        <td>
+          8422
+          -
+          8422
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.log.debug(scala.Predef.augmentString(scala.StringContext.apply(&quot;Execute ClickHouse SQL [&quot;, &quot;]:\n       |&quot;, &quot;\n       |&quot;).s(queryId, sql)).stripMargin)
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          904
+        </td>
+        <td>
+          8428
+          -
+          8428
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Execute ClickHouse SQL [&quot;, &quot;]:\n       |&quot;, &quot;\n       |&quot;).s(queryId, sql)
+        </td>
+      </tr><tr>
+        <td>
+          219
+        </td>
+        <td>
+          710
+        </td>
+        <td>
+          8492
+          -
+          8492
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripMargin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(scala.StringContext.apply(&quot;Execute ClickHouse SQL [&quot;, &quot;]:\n       |&quot;, &quot;\n       |&quot;).s(queryId, sql)).stripMargin
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          1029
+        </td>
+        <td>
+          8561
+          -
+          8561
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.node
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.node
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          607
+        </td>
+        <td>
+          8560
+          -
+          8560
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseClient.ping
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NodeClient.this.client.ping(NodeClient.this.node, timeout)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

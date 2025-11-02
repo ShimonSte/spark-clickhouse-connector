@@ -1,0 +1,1267 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/func/XxHash64.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.func
+</span>16 <span style=''>
+</span>17 <span style=''>import org.apache.spark.sql.catalyst.expressions.XxHash64Function
+</span>18 <span style=''>import org.apache.spark.sql.connector.catalog.functions.{BoundFunction, ScalarFunction, UnboundFunction}
+</span>19 <span style=''>import org.apache.spark.sql.types._
+</span>20 <span style=''>import org.apache.spark.unsafe.types.UTF8String
+</span>21 <span style=''>import com.clickhouse.spark.spec.{ClusterSpec, ShardUtils}
+</span>22 <span style=''>
+</span>23 <span style=''>/**
+</span>24 <span style=''> * ClickHouse equivalent function:
+</span>25 <span style=''> * {{{
+</span>26 <span style=''> *   select xxHash64(concat(project_id, toString(seq))
+</span>27 <span style=''> * }}}
+</span>28 <span style=''> */
+</span>29 <span style=''>object ClickHouseXxHash64 extends UnboundFunction with ScalarFunction[Long] with ClickhouseEquivFunction {
+</span>30 <span style=''>
+</span>31 <span style=''>  override def name: String = &quot;clickhouse_xxHash64&quot;
+</span>32 <span style=''>
+</span>33 <span style=''>  override def canonicalName: String = s&quot;clickhouse.$name&quot;
+</span>34 <span style=''>
+</span>35 <span style=''>  override def toString: String = name
+</span>36 <span style=''>
+</span>37 <span style=''>  override val ckFuncNames: Array[String] = Array(&quot;xxHash64&quot;)
+</span>38 <span style=''>
+</span>39 <span style=''>  override def description: String = s&quot;$name: (value: string) =&gt; hash_value: long&quot;
+</span>40 <span style=''>
+</span>41 <span style=''>  override def bind(inputType: StructType): BoundFunction = inputType.fields match {
+</span>42 <span style=''>    case Array(StructField(_, StringType, _, _)) =&gt; this
+</span>43 <span style=''>    case _ =&gt; throw new UnsupportedOperationException(s&quot;Expect 1 STRING argument. $description&quot;)
+</span>44 <span style=''>  }
+</span>45 <span style=''>
+</span>46 <span style=''>  override def inputTypes: Array[DataType] = Array(StringType)
+</span>47 <span style=''>
+</span>48 <span style=''>  override def resultType: DataType = LongType
+</span>49 <span style=''>
+</span>50 <span style=''>  override def isResultNullable: Boolean = false
+</span>51 <span style=''>
+</span>52 <span style=''>  // ignore UInt64 vs Int64
+</span>53 <span style=''>  def invoke(value: UTF8String): Long = XxHash64Function.hash(value, StringType, 0L)
+</span>54 <span style=''>}
+</span>55 <span style=''>
+</span>56 <span style=''>/**
+</span>57 <span style=''> * Create ClickHouse table with DDL:
+</span>58 <span style=''> * {{{
+</span>59 <span style=''> * CREATE TABLE ON CLUSTER cluster (
+</span>60 <span style=''> *   ...
+</span>61 <span style=''> * ) ENGINE = Distributed(
+</span>62 <span style=''> *     cluster,
+</span>63 <span style=''> *     db,
+</span>64 <span style=''> *     local_table,
+</span>65 <span style=''> *     xxHash64(concat(project_id, project_version, toString(seq))
+</span>66 <span style=''> * );
+</span>67 <span style=''> * }}}
+</span>68 <span style=''> */
+</span>69 <span style=''>class ClickHouseXxHash64Shard(clusters: Seq[ClusterSpec]) extends UnboundFunction with ScalarFunction[Int] {
+</span>70 <span style=''>
+</span>71 <span style=''>  @transient private lazy val indexedClusters =
+</span>72 <span style=''>    clusters.map(cluster =&gt; UTF8String.fromString(cluster.name) -&gt; cluster).toMap
+</span>73 <span style=''>
+</span>74 <span style=''>  override def name: String = &quot;clickhouse_shard_xxHash64&quot;
+</span>75 <span style=''>
+</span>76 <span style=''>  override def canonicalName: String = s&quot;clickhouse.$name&quot;
+</span>77 <span style=''>
+</span>78 <span style=''>  override def description: String = s&quot;$name: (cluster_name: string, value: string) =&gt; shard_num: int&quot;
+</span>79 <span style=''>
+</span>80 <span style=''>  override def bind(inputType: StructType): BoundFunction = inputType.fields match {
+</span>81 <span style=''>    case Array(StructField(_, StringType, _, _), StructField(_, StringType, _, _)) =&gt; this
+</span>82 <span style=''>    case _ =&gt; throw new UnsupportedOperationException(s&quot;Expect 2 STRING argument. $description&quot;)
+</span>83 <span style=''>  }
+</span>84 <span style=''>
+</span>85 <span style=''>  override def inputTypes: Array[DataType] = Array(StringType, StringType)
+</span>86 <span style=''>
+</span>87 <span style=''>  override def resultType: DataType = IntegerType
+</span>88 <span style=''>
+</span>89 <span style=''>  override def isResultNullable: Boolean = false
+</span>90 <span style=''>
+</span>91 <span style=''>  def invoke(clusterName: UTF8String, value: UTF8String): Int = {
+</span>92 <span style=''>    val clusterSpec =
+</span>93 <span style=''>      indexedClusters.getOrElse(clusterName, throw new RuntimeException(s&quot;Unknown cluster: $clusterName&quot;))
+</span>94 <span style=''>    val hashVal = XxHash64Function.hash(value, StringType, 0L)
+</span>95 <span style=''>    ShardUtils.calcShard(clusterSpec, hashVal).num
+</span>96 <span style=''>  }
+</span>97 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          1164
+          -
+          1164
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;clickhouse_xxHash64&quot;
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          190
+        </td>
+        <td>
+          1240
+          -
+          1240
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.ClickHouseXxHash64.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseXxHash64.this.name()
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          2029
+        </td>
+        <td>
+          1228
+          -
+          1228
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;clickhouse.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1233
+        </td>
+        <td>
+          1244
+          -
+          1244
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1800
+        </td>
+        <td>
+          1226
+          -
+          1226
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;clickhouse.&quot;, &quot;&quot;).s(ClickHouseXxHash64.this.name())
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          838
+        </td>
+        <td>
+          1281
+          -
+          1281
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.ClickHouseXxHash64.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseXxHash64.this.name()
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1997
+        </td>
+        <td>
+          1336
+          -
+          1336
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Array.apply[String](&quot;xxHash64&quot;)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          315
+        </td>
+        <td>
+          1337
+          -
+          1337
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;xxHash64&quot;
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1081
+        </td>
+        <td>
+          1387
+          -
+          1387
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: (value: string) =&gt; hash_value: long&quot;).s(ClickHouseXxHash64.this.name())
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1628
+        </td>
+        <td>
+          1390
+          -
+          1390
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.ClickHouseXxHash64.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseXxHash64.this.name()
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          129
+        </td>
+        <td>
+          1394
+          -
+          1394
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: (value: string) =&gt; hash_value: long&quot;
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1023
+        </td>
+        <td>
+          1389
+          -
+          1389
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          314
+        </td>
+        <td>
+          1504
+          -
+          1504
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          inputType.fields
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1805
+        </td>
+        <td>
+          1571
+          -
+          1571
+        </td>
+        <td>
+          This
+        </td>
+        <td>
+          com.clickhouse.spark.func.ClickHouseXxHash64
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          448
+        </td>
+        <td>
+          1590
+          -
+          1590
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(scala.StringContext.apply(&quot;Expect 1 STRING argument. &quot;, &quot;&quot;).s(ClickHouseXxHash64.this.description()))
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          902
+        </td>
+        <td>
+          1590
+          -
+          1590
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(scala.StringContext.apply(&quot;Expect 1 STRING argument. &quot;, &quot;&quot;).s(ClickHouseXxHash64.this.description()))
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          983
+        </td>
+        <td>
+          1728
+          -
+          1728
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[org.apache.spark.sql.types.DataType](org.apache.spark.sql.types.StringType)((ClassTag.apply[org.apache.spark.sql.types.DataType](classOf[org.apache.spark.sql.types.DataType]): scala.reflect.ClassTag[org.apache.spark.sql.types.DataType]))
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1848
+        </td>
+        <td>
+          1729
+          -
+          1729
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          1780
+          -
+          1780
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1657
+        </td>
+        <td>
+          1833
+          -
+          1833
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1205
+        </td>
+        <td>
+          1937
+          -
+          1937
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1761
+        </td>
+        <td>
+          1929
+          -
+          1929
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.InterpretedHashFunction.hash
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.XxHash64Function.hash(value, org.apache.spark.sql.types.StringType, 0L)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          224
+        </td>
+        <td>
+          1949
+          -
+          1949
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          904
+        </td>
+        <td>
+          2479
+          -
+          2479
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;clickhouse_shard_xxHash64&quot;
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          393
+        </td>
+        <td>
+          2549
+          -
+          2549
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;clickhouse.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          988
+        </td>
+        <td>
+          2561
+          -
+          2561
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.ClickHouseXxHash64Shard.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseXxHash64Shard.this.name()
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          2547
+          -
+          2547
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;clickhouse.&quot;, &quot;&quot;).s(ClickHouseXxHash64Shard.this.name())
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1959
+        </td>
+        <td>
+          2565
+          -
+          2565
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          211
+        </td>
+        <td>
+          2608
+          -
+          2608
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.ClickHouseXxHash64Shard.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseXxHash64Shard.this.name()
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1159
+        </td>
+        <td>
+          2612
+          -
+          2612
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: (cluster_name: string, value: string) =&gt; shard_num: int&quot;
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1619
+        </td>
+        <td>
+          2607
+          -
+          2607
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1765
+        </td>
+        <td>
+          2605
+          -
+          2605
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: (cluster_name: string, value: string) =&gt; shard_num: int&quot;).s(ClickHouseXxHash64Shard.this.name())
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          833
+        </td>
+        <td>
+          2742
+          -
+          2742
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          inputType.fields
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          2378
+        </td>
+        <td>
+          2843
+          -
+          2843
+        </td>
+        <td>
+          This
+        </td>
+        <td>
+          com.clickhouse.spark.func.ClickHouseXxHash64Shard
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          961
+        </td>
+        <td>
+          2862
+          -
+          2862
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(scala.StringContext.apply(&quot;Expect 2 STRING argument. &quot;, &quot;&quot;).s(ClickHouseXxHash64Shard.this.description()))
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1995
+        </td>
+        <td>
+          2862
+          -
+          2862
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(scala.StringContext.apply(&quot;Expect 2 STRING argument. &quot;, &quot;&quot;).s(ClickHouseXxHash64Shard.this.description()))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          103
+        </td>
+        <td>
+          3001
+          -
+          3001
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1625
+        </td>
+        <td>
+          3013
+          -
+          3013
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1128
+        </td>
+        <td>
+          3000
+          -
+          3000
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[org.apache.spark.sql.types.DataType](org.apache.spark.sql.types.StringType, org.apache.spark.sql.types.StringType)((ClassTag.apply[org.apache.spark.sql.types.DataType](classOf[org.apache.spark.sql.types.DataType]): scala.reflect.ClassTag[org.apache.spark.sql.types.DataType]))
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          312
+        </td>
+        <td>
+          3064
+          -
+          3064
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1772
+        </td>
+        <td>
+          3120
+          -
+          3120
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          792
+        </td>
+        <td>
+          3260
+          -
+          3260
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.RuntimeException(scala.StringContext.apply(&quot;Unknown cluster: &quot;, &quot;&quot;).s(clusterName))
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          2384
+        </td>
+        <td>
+          3246
+          -
+          3246
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseXxHash64Shard.this.indexedClusters.getOrElse[com.clickhouse.spark.spec.ClusterSpec](clusterName, throw new scala.`package`.RuntimeException(scala.StringContext.apply(&quot;Unknown cluster: &quot;, &quot;&quot;).s(clusterName)))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1077
+        </td>
+        <td>
+          3381
+          -
+          3381
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          3361
+          -
+          3361
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.InterpretedHashFunction.hash
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.expressions.XxHash64Function.hash(value, org.apache.spark.sql.types.StringType, 0L)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1950
+        </td>
+        <td>
+          3369
+          -
+          3369
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1577
+        </td>
+        <td>
+          3432
+          -
+          3432
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ShardSpec.num
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.ShardUtils.calcShard(clusterSpec, hashVal).num
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

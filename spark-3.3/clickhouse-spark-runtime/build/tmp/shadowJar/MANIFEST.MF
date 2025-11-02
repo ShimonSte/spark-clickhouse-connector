@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Implementation-Title: Spark-ClickHosue-Connnector
+Implementation-Version: 3.3_2.12_0.9.0-SNAPSHOT
+

@@ -1,0 +1,3534 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/read/ClickHouseRead.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.read
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.client.NodeClient
+</span>18 <span style=''>import com.clickhouse.spark.exception.CHClientException
+</span>19 <span style=''>import com.clickhouse.spark.read.format.{ClickHouseBinaryReader, ClickHouseJsonReader}
+</span>20 <span style=''>import com.clickhouse.spark.spec.{DistributedEngineSpec, NoPartitionSpec, TableEngineSpec}
+</span>21 <span style=''>import com.clickhouse.spark.{BlocksReadMetric, BytesReadMetric, ClickHouseHelper, Logging, SQLHelper, Utils}
+</span>22 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>23 <span style=''>import org.apache.spark.sql.clickhouse.ClickHouseSQLConf._
+</span>24 <span style=''>import org.apache.spark.sql.connector.expressions.{Expressions, NamedReference, Transform}
+</span>25 <span style=''>import org.apache.spark.sql.connector.expressions.aggregate.Aggregation
+</span>26 <span style=''>import org.apache.spark.sql.connector.metric.CustomMetric
+</span>27 <span style=''>import org.apache.spark.sql.connector.read._
+</span>28 <span style=''>import org.apache.spark.sql.connector.read.partitioning.{Partitioning, UnknownPartitioning}
+</span>29 <span style=''>import org.apache.spark.sql.sources.{AlwaysTrue, Filter}
+</span>30 <span style=''>import org.apache.spark.sql.types.StructType
+</span>31 <span style=''>import com.clickhouse.spark._
+</span>32 <span style=''>import com.clickhouse.spark.spec._
+</span>33 <span style=''>
+</span>34 <span style=''>import java.time.ZoneId
+</span>35 <span style=''>import scala.util.control.NonFatal
+</span>36 <span style=''>
+</span>37 <span style=''>class ClickHouseScanBuilder(
+</span>38 <span style=''>  scanJob: ScanJobDescription,
+</span>39 <span style=''>  physicalSchema: StructType,
+</span>40 <span style=''>  metadataSchema: StructType,
+</span>41 <span style=''>  partitionTransforms: Array[Transform]
+</span>42 <span style=''>) extends ScanBuilder
+</span>43 <span style=''>    with SupportsPushDownLimit
+</span>44 <span style=''>    with SupportsPushDownFilters
+</span>45 <span style=''>    with SupportsPushDownAggregates
+</span>46 <span style=''>    with SupportsPushDownRequiredColumns
+</span>47 <span style=''>    with ClickHouseHelper
+</span>48 <span style=''>    with SQLHelper
+</span>49 <span style=''>    with Logging {
+</span>50 <span style=''>
+</span>51 <span style=''>  implicit private val tz: ZoneId = scanJob.tz
+</span>52 <span style=''>
+</span>53 <span style=''>  private val reservedMetadataSchema: StructType = StructType(
+</span>54 <span style=''>    metadataSchema.dropWhile(field =&gt; physicalSchema.fields.map(_.name).contains(field.name))
+</span>55 <span style=''>  )
+</span>56 <span style=''>
+</span>57 <span style=''>  private var _readSchema: StructType = StructType(
+</span>58 <span style=''>    physicalSchema.fields </span><span style='background: #F0ADAD'>++ reservedMetadataSchema.fields</span><span style=''>
+</span>59 <span style=''>  )
+</span>60 <span style=''>
+</span>61 <span style=''>  private var _limit: Option[Int] = None
+</span>62 <span style=''>
+</span>63 <span style=''>  override def pushLimit(limit: Int): Boolean = {
+</span>64 <span style=''>    this._limit = Some(limit)
+</span>65 <span style=''>    true
+</span>66 <span style=''>  }
+</span>67 <span style=''>
+</span>68 <span style=''>  private var _pushedFilters = Array.empty[Filter]
+</span>69 <span style=''>
+</span>70 <span style=''>  override def pushedFilters: Array[Filter] = this._pushedFilters
+</span>71 <span style=''>
+</span>72 <span style=''>  override def pushFilters(filters: Array[Filter]): Array[Filter] = {
+</span>73 <span style=''>    val (pushed, unSupported) = filters.partition(f =&gt; compileFilter(f).isDefined)
+</span>74 <span style=''>    this._pushedFilters = pushed
+</span>75 <span style=''>    unSupported
+</span>76 <span style=''>  }
+</span>77 <span style=''>
+</span>78 <span style=''>  private var _pushedGroupByCols: Option[Array[String]] = None
+</span>79 <span style=''>  private var _groupByClause: Option[String] = None
+</span>80 <span style=''>
+</span>81 <span style=''>  override def pushAggregation(aggregation: Aggregation): Boolean = {
+</span>82 <span style=''>    val compiledAggs = aggregation.aggregateExpressions.flatMap(compileAggregate)
+</span>83 <span style=''>    if (compiledAggs.length </span><span style='background: #F0ADAD'>!= aggregation.aggregateExpressions.length</span><span style=''>) return false
+</span>84 <span style=''>
+</span>85 <span style=''>    val compiledGroupByCols = aggregation.groupByExpressions.map(_.toString)
+</span>86 <span style=''>
+</span>87 <span style=''>    // The column names here are already quoted and can be used to build sql string directly.
+</span>88 <span style=''>    // e.g. [`DEPT`, `NAME`, MAX(`SALARY`), MIN(`BONUS`)] =&gt;
+</span>89 <span style=''>    //        SELECT `DEPT`, `NAME`, MAX(`SALARY`), MIN(`BONUS`)
+</span>90 <span style=''>    //        FROM `test`.`employee`
+</span>91 <span style=''>    //        WHERE 1=0
+</span>92 <span style=''>    //        GROUP BY `DEPT`, `NAME`
+</span>93 <span style=''>    val compiledSelectItems = compiledGroupByCols </span><span style='background: #F0ADAD'>++ compiledAggs</span><span style=''>
+</span>94 <span style=''>    val groupByClause = if (compiledGroupByCols.nonEmpty) &quot;GROUP BY &quot; </span><span style='background: #F0ADAD'>+ compiledGroupByCols.mkString(&quot;, &quot;)</span><span style=''> else &quot;&quot;
+</span>95 <span style=''>    val aggQuery =
+</span>96 <span style=''>      s&quot;&quot;&quot;SELECT ${compiledSelectItems.mkString(&quot;, &quot;)}
+</span>97 <span style=''>         |FROM ${quoted(scanJob.tableSpec.database)}.${quoted(scanJob.tableSpec.name)}
+</span>98 <span style=''>         |WHERE 1=0
+</span>99 <span style=''>         |$groupByClause
+</span>100 <span style=''>         |&quot;&quot;&quot;.stripMargin
+</span>101 <span style=''>    try {
+</span>102 <span style=''>      _readSchema = Utils.tryWithResource(NodeClient(scanJob.node)) { implicit nodeClient: NodeClient =&gt;
+</span>103 <span style=''>        val fields = (getQueryOutputSchema(aggQuery) zip compiledSelectItems)
+</span>104 <span style=''>          .map { case (structField, colExpr) =&gt; structField.copy(name = colExpr) }
+</span>105 <span style=''>        StructType(fields)
+</span>106 <span style=''>      }
+</span>107 <span style=''>      _pushedGroupByCols = Some(compiledGroupByCols)
+</span>108 <span style=''>      _groupByClause = Some(groupByClause)
+</span>109 <span style=''>      true
+</span>110 <span style=''>    } catch {
+</span>111 <span style=''>      case NonFatal(e) =&gt;
+</span>112 <span style=''>        log.error(&quot;Failed to push down aggregation to ClickHouse&quot;, e)
+</span>113 <span style=''>        false
+</span>114 <span style=''>    }
+</span>115 <span style=''>  }
+</span>116 <span style=''>
+</span>117 <span style=''>  override def pruneColumns(requiredSchema: StructType): Unit = {
+</span>118 <span style=''>    val requiredCols = requiredSchema.map(_.name)
+</span>119 <span style=''>    this._readSchema = StructType(_readSchema.filter(field =&gt; requiredCols.contains(field.name)))
+</span>120 <span style=''>  }
+</span>121 <span style=''>
+</span>122 <span style=''>  override def build(): Scan = new ClickHouseBatchScan(scanJob.copy(
+</span>123 <span style=''>    readSchema = _readSchema,
+</span>124 <span style=''>    filtersExpr = compileFilters(AlwaysTrue </span><span style='background: #F0ADAD'>:: pushedFilters.toList</span><span style=''>),
+</span>125 <span style=''>    groupByClause = _groupByClause,
+</span>126 <span style=''>    limit = _limit
+</span>127 <span style=''>  ))
+</span>128 <span style=''>}
+</span>129 <span style=''>
+</span>130 <span style=''>class ClickHouseBatchScan(scanJob: ScanJobDescription) extends Scan with Batch
+</span>131 <span style=''>    with SupportsReportPartitioning
+</span>132 <span style=''>    with SupportsRuntimeFiltering
+</span>133 <span style=''>    with PartitionReaderFactory
+</span>134 <span style=''>    with ClickHouseHelper
+</span>135 <span style=''>    with SQLHelper {
+</span>136 <span style=''>
+</span>137 <span style=''>  implicit private val tz: ZoneId = scanJob.tz
+</span>138 <span style=''>
+</span>139 <span style=''>  private var runtimeFilters: Array[Filter] = Array.empty
+</span>140 <span style=''>
+</span>141 <span style=''>  val database: String = scanJob.database
+</span>142 <span style=''>  val table: String = scanJob.table
+</span>143 <span style=''>
+</span>144 <span style=''>  lazy val inputPartitions: Array[ClickHouseInputPartition] = scanJob.tableEngineSpec match {
+</span>145 <span style=''>    case DistributedEngineSpec(_, _, local_db, local_table, _, _) if scanJob.readOptions.convertDistributedToLocal =&gt;
+</span>146 <span style=''>      scanJob.cluster.get.shards.flatMap { shardSpec =&gt;
+</span>147 <span style=''>        Utils.tryWithResource(NodeClient(shardSpec.nodes.head)) { implicit nodeClient: NodeClient =&gt;
+</span>148 <span style=''>          queryPartitionSpec(local_db, local_table).map { partitionSpec =&gt;
+</span>149 <span style=''>            ClickHouseInputPartition(
+</span>150 <span style=''>              scanJob.localTableSpec.get,
+</span>151 <span style=''>              partitionSpec,
+</span>152 <span style=''>              scanJob.readOptions.splitByPartitionId,
+</span>153 <span style=''>              shardSpec // TODO pickup preferred
+</span>154 <span style=''>            )
+</span>155 <span style=''>          }
+</span>156 <span style=''>        }
+</span>157 <span style=''>      }
+</span>158 <span style=''>    case _: DistributedEngineSpec if scanJob.readOptions.useClusterNodesForDistributed =&gt;
+</span>159 <span style=''>      throw CHClientException(
+</span>160 <span style=''>        s&quot;${READ_DISTRIBUTED_USE_CLUSTER_NODES.key} is not supported yet.&quot;
+</span>161 <span style=''>      )
+</span>162 <span style=''>    case _: DistributedEngineSpec =&gt;
+</span>163 <span style=''>      // we can not collect all partitions from single node, thus should treat table as no partitioned table
+</span>164 <span style=''>      Array(ClickHouseInputPartition(
+</span>165 <span style=''>        scanJob.tableSpec,
+</span>166 <span style=''>        NoPartitionSpec,
+</span>167 <span style=''>        scanJob.readOptions.splitByPartitionId,
+</span>168 <span style=''>        scanJob.node
+</span>169 <span style=''>      ))
+</span>170 <span style=''>    case _: TableEngineSpec =&gt;
+</span>171 <span style=''>      Utils.tryWithResource(NodeClient(scanJob.node)) { implicit nodeClient: NodeClient =&gt;
+</span>172 <span style=''>        queryPartitionSpec(database, table).map { partitionSpec =&gt;
+</span>173 <span style=''>          ClickHouseInputPartition(
+</span>174 <span style=''>            scanJob.tableSpec,
+</span>175 <span style=''>            partitionSpec,
+</span>176 <span style=''>            scanJob.readOptions.splitByPartitionId,
+</span>177 <span style=''>            scanJob.node // TODO pickup preferred
+</span>178 <span style=''>          )
+</span>179 <span style=''>        }
+</span>180 <span style=''>      }.toArray
+</span>181 <span style=''>  }
+</span>182 <span style=''>
+</span>183 <span style=''>  override def toBatch: Batch = this
+</span>184 <span style=''>
+</span>185 <span style=''>  // may contains meta columns
+</span>186 <span style=''>  override def readSchema(): StructType = scanJob.readSchema
+</span>187 <span style=''>
+</span>188 <span style=''>  override def planInputPartitions: Array[InputPartition] = inputPartitions.toArray
+</span>189 <span style=''>
+</span>190 <span style=''>  // TODO KeyGroupedPartitioning
+</span>191 <span style=''>  override def outputPartitioning(): Partitioning = new UnknownPartitioning(inputPartitions.length)
+</span>192 <span style=''>
+</span>193 <span style=''>  override def createReaderFactory: PartitionReaderFactory = this
+</span>194 <span style=''>
+</span>195 <span style=''>  override def createReader(_partition: InputPartition): PartitionReader[InternalRow] = {
+</span>196 <span style=''>    val format = scanJob.readOptions.format
+</span>197 <span style=''>    val partition = _partition.asInstanceOf[ClickHouseInputPartition]
+</span>198 <span style=''>    val finalScanJob = scanJob.copy(filtersExpr =
+</span>199 <span style=''>      scanJob.filtersExpr </span><span style='background: #F0ADAD'>+ &quot; AND &quot;
+</span>200 <span style=''></span><span style='background: #F0ADAD'>        + compileFilters(AlwaysTrue :: runtimeFilters.toList)</span><span style=''>
+</span>201 <span style=''>    )
+</span>202 <span style=''>    format match {
+</span>203 <span style=''>      case &quot;json&quot; =&gt; new ClickHouseJsonReader(finalScanJob, partition)
+</span>204 <span style=''>      case &quot;binary&quot; =&gt; new ClickHouseBinaryReader(finalScanJob, partition)
+</span>205 <span style=''>      case unsupported =&gt; throw CHClientException(s&quot;Unsupported read format: $unsupported&quot;)
+</span>206 <span style=''>    }
+</span>207 <span style=''>  }
+</span>208 <span style=''>
+</span>209 <span style=''>  override def supportedCustomMetrics(): Array[CustomMetric] = Array(
+</span>210 <span style=''>    BlocksReadMetric(),
+</span>211 <span style=''>    BytesReadMetric()
+</span>212 <span style=''>  )
+</span>213 <span style=''>
+</span>214 <span style=''>  override def filterAttributes(): Array[NamedReference] =
+</span>215 <span style=''>    if (scanJob.readOptions.runtimeFilterEnabled) {
+</span>216 <span style=''>      scanJob.readSchema.fields.map(field =&gt; Expressions.column(field.name))
+</span>217 <span style=''>    } else {
+</span>218 <span style=''>      Array.empty
+</span>219 <span style=''>    }
+</span>220 <span style=''>
+</span>221 <span style=''>  override def filter(filters: Array[Filter]): Unit =
+</span>222 <span style=''>    runtimeFilters = filters
+</span>223 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1040
+        </td>
+        <td>
+          2114
+          -
+          2114
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.tz
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.scanJob.tz
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1500
+        </td>
+        <td>
+          2179
+          -
+          2179
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructType.apply(ClickHouseScanBuilder.this.metadataSchema.dropWhile(((field: org.apache.spark.sql.types.StructField) =&gt; scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ClickHouseScanBuilder.this.physicalSchema.fields).map[String, Array[String]](((x$1: org.apache.spark.sql.types.StructField) =&gt; x$1.name))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).contains[String](field.name))))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          774
+        </td>
+        <td>
+          2261
+          -
+          2261
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ClickHouseScanBuilder.this.physicalSchema.fields).map[String, Array[String]](((x$1: org.apache.spark.sql.types.StructField) =&gt; x$1.name))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).contains[String](field.name)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          675
+        </td>
+        <td>
+          2244
+          -
+          2244
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1817
+        </td>
+        <td>
+          2268
+          -
+          2268
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          field.name
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1544
+        </td>
+        <td>
+          2247
+          -
+          2247
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.name
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          2306
+        </td>
+        <td>
+          2209
+          -
+          2209
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.dropWhile
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.metadataSchema.dropWhile(((field: org.apache.spark.sql.types.StructField) =&gt; scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ClickHouseScanBuilder.this.physicalSchema.fields).map[String, Array[String]](((x$1: org.apache.spark.sql.types.StructField) =&gt; x$1.name))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).contains[String](field.name)))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          27
+        </td>
+        <td>
+          2234
+          -
+          2234
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.physicalSchema.fields
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          2258
+        </td>
+        <td>
+          2244
+          -
+          2244
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ClickHouseScanBuilder.this.physicalSchema.fields).map[String, Array[String]](((x$1: org.apache.spark.sql.types.StructField) =&gt; x$1.name))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1774
+        </td>
+        <td>
+          2330
+          -
+          2330
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructType.apply(scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ClickHouseScanBuilder.this.physicalSchema.fields).++[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ClickHouseScanBuilder.this.reservedMetadataSchema.fields))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          995
+        </td>
+        <td>
+          2351
+          -
+          2351
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.physicalSchema.fields
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          632
+        </td>
+        <td>
+          2358
+          -
+          2358
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1547
+        </td>
+        <td>
+          2384
+          -
+          2384
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.refArrayOps
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ClickHouseScanBuilder.this.reservedMetadataSchema.fields)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          141
+        </td>
+        <td>
+          2384
+          -
+          2384
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.reservedMetadataSchema.fields
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          2264
+        </td>
+        <td>
+          2358
+          -
+          2390
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ClickHouseScanBuilder.this.physicalSchema.fields).++[org.apache.spark.sql.types.StructField, Array[org.apache.spark.sql.types.StructField]](scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ClickHouseScanBuilder.this.reservedMetadataSchema.fields))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.StructField]((ClassTag.apply[org.apache.spark.sql.types.StructField](classOf[org.apache.spark.sql.types.StructField]): scala.reflect.ClassTag[org.apache.spark.sql.types.StructField])))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          844
+        </td>
+        <td>
+          2432
+          -
+          2432
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          2310
+        </td>
+        <td>
+          2510
+          -
+          2510
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Int](limit)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1466
+        </td>
+        <td>
+          2504
+          -
+          2504
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder._limit_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this._limit_=(scala.Some.apply[Int](limit))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          599
+        </td>
+        <td>
+          2522
+          -
+          2522
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          63
+        </td>
+        <td>
+          2574
+          -
+          2574
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.empty[org.apache.spark.sql.sources.Filter]((ClassTag.apply[org.apache.spark.sql.sources.Filter](classOf[org.apache.spark.sql.sources.Filter]): scala.reflect.ClassTag[org.apache.spark.sql.sources.Filter]))
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1636
+        </td>
+        <td>
+          2635
+          -
+          2635
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder._pushedFilters
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this._pushedFilters
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          2221
+        </td>
+        <td>
+          2738
+          -
+          2738
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$2._2
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          642
+        </td>
+        <td>
+          2730
+          -
+          2730
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1783
+        </td>
+        <td>
+          2828
+          -
+          2828
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder._pushedFilters_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this._pushedFilters_=(pushed)
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          850
+        </td>
+        <td>
+          2916
+          -
+          2916
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          2390
+        </td>
+        <td>
+          2968
+          -
+          2968
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          624
+        </td>
+        <td>
+          3107
+          -
+          3107
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.connector.expressions.aggregate.AggregateFunc](aggregation.aggregateExpressions()).flatMap[String, Array[String]]({
+  ((aggFunction: org.apache.spark.sql.connector.expressions.aggregate.AggregateFunc) =&gt; scala.this.Option.option2Iterable[String](ClickHouseScanBuilder.this.compileAggregate(aggFunction)))
+})(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          555
+        </td>
+        <td>
+          3108
+          -
+          3108
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileAggregate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.compileAggregate(aggFunction)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1470
+        </td>
+        <td>
+          3079
+          -
+          3079
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.aggregate.Aggregation.aggregateExpressions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          aggregation.aggregateExpressions()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1637
+        </td>
+        <td>
+          3107
+          -
+          3107
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          3108
+          -
+          3108
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[String](ClickHouseScanBuilder.this.compileAggregate(aggFunction))
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1396
+        </td>
+        <td>
+          3130
+          -
+          3130
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1713
+        </td>
+        <td>
+          3154
+          -
+          3196
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          compiledAggs.length.!=(aggregation.aggregateExpressions().length)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          2230
+        </td>
+        <td>
+          3190
+          -
+          3190
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          aggregation.aggregateExpressions().length
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          563
+        </td>
+        <td>
+          3130
+          -
+          3130
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          2393
+        </td>
+        <td>
+          3198
+          -
+          3198
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder.pushAggregation
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          return false
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          807
+        </td>
+        <td>
+          3205
+          -
+          3205
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          29
+        </td>
+        <td>
+          3254
+          -
+          3254
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.aggregate.Aggregation.groupByExpressions
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          aggregation.groupByExpressions()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          629
+        </td>
+        <td>
+          3276
+          -
+          3276
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1598
+        </td>
+        <td>
+          3279
+          -
+          3279
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$3.toString()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          2174
+        </td>
+        <td>
+          3276
+          -
+          3276
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.connector.expressions.Expression](aggregation.groupByExpressions()).map[String, Array[String]](((x$3: org.apache.spark.sql.connector.expressions.Expression) =&gt; x$3.toString()))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          2421
+        </td>
+        <td>
+          3659
+          -
+          3674
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.++
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](compiledGroupByCols).++[String, Array[String]](scala.Predef.refArrayOps[String](compiledAggs))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          817
+        </td>
+        <td>
+          3659
+          -
+          3659
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1257
+        </td>
+        <td>
+          3662
+          -
+          3662
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.refArrayOps
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](compiledAggs)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          8
+        </td>
+        <td>
+          3775
+          -
+          3775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](compiledGroupByCols).mkString(&quot;, &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1605
+        </td>
+        <td>
+          3745
+          -
+          3781
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;GROUP BY &quot;.+(scala.Predef.refArrayOps[String](compiledGroupByCols).mkString(&quot;, &quot;))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          597
+        </td>
+        <td>
+          3733
+          -
+          3733
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;GROUP BY &quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          743
+        </td>
+        <td>
+          3745
+          -
+          3781
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;GROUP BY &quot;.+(scala.Predef.refArrayOps[String](compiledGroupByCols).mkString(&quot;, &quot;))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1374
+        </td>
+        <td>
+          3787
+          -
+          3787
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          2160
+        </td>
+        <td>
+          3787
+          -
+          3787
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1403
+        </td>
+        <td>
+          3723
+          -
+          3723
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](compiledGroupByCols).nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          2425
+        </td>
+        <td>
+          3863
+          -
+          3863
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\n         |FROM &quot;
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          2427
+        </td>
+        <td>
+          3815
+          -
+          3815
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;SELECT &quot;, &quot;\n         |FROM &quot;, &quot;.&quot;, &quot;\n         |WHERE 1=0\n         |&quot;, &quot;\n         |&quot;).s(scala.Predef.refArrayOps[String](compiledSelectItems).mkString(&quot;, &quot;), ClickHouseScanBuilder.this.quoted(ClickHouseScanBuilder.this.scanJob.tableSpec.database), ClickHouseScanBuilder.this.quoted(ClickHouseScanBuilder.this.scanJob.tableSpec.name), groupByClause)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          781
+        </td>
+        <td>
+          3819
+          -
+          3819
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;SELECT &quot;
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1669
+        </td>
+        <td>
+          3856
+          -
+          3856
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](compiledSelectItems).mkString(&quot;, &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          2224
+        </td>
+        <td>
+          3887
+          -
+          3887
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.quoted(ClickHouseScanBuilder.this.scanJob.tableSpec.database)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1339
+        </td>
+        <td>
+          3944
+          -
+          3944
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.scanJob.tableSpec.name
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          893
+        </td>
+        <td>
+          3925
+          -
+          3925
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.quoted(ClickHouseScanBuilder.this.scanJob.tableSpec.name)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1407
+        </td>
+        <td>
+          3916
+          -
+          3916
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          748
+        </td>
+        <td>
+          3906
+          -
+          3906
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.database
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.scanJob.tableSpec.database
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          3950
+          -
+          3950
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\n         |WHERE 1=0\n         |&quot;
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          3995
+          -
+          3995
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\n         |&quot;
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          1517
+        </td>
+        <td>
+          4010
+          -
+          4010
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripMargin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(scala.StringContext.apply(&quot;SELECT &quot;, &quot;\n         |FROM &quot;, &quot;.&quot;, &quot;\n         |WHERE 1=0\n         |&quot;, &quot;\n         |&quot;).s(scala.Predef.refArrayOps[String](compiledSelectItems).mkString(&quot;, &quot;), ClickHouseScanBuilder.this.quoted(ClickHouseScanBuilder.this.scanJob.tableSpec.database), ClickHouseScanBuilder.this.quoted(ClickHouseScanBuilder.this.scanJob.tableSpec.name), groupByClause)).stripMargin
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          2363
+        </td>
+        <td>
+          4026
+          -
+          4026
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ClickHouseScanBuilder.this._readSchema_=(com.clickhouse.spark.Utils.tryWithResource[com.clickhouse.spark.client.NodeClient, org.apache.spark.sql.types.StructType](com.clickhouse.spark.client.NodeClient.apply(ClickHouseScanBuilder.this.scanJob.node))(((implicit nodeClient: com.clickhouse.spark.client.NodeClient) =&gt; {
+    val fields: Seq[org.apache.spark.sql.types.StructField] = ClickHouseScanBuilder.this.getQueryOutputSchema(aggQuery)(nodeClient).zip[org.apache.spark.sql.types.StructField, String, Seq[(org.apache.spark.sql.types.StructField, String)]](scala.Predef.wrapRefArray[String](compiledSelectItems))(collection.this.Seq.canBuildFrom[(org.apache.spark.sql.types.StructField, String)]).map[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](((x0$1: (org.apache.spark.sql.types.StructField, String)) =&gt; x0$1 match {
+      case (_1: org.apache.spark.sql.types.StructField, _2: String)(org.apache.spark.sql.types.StructField, String)((structField @ _), (colExpr @ _)) =&gt; structField.copy(colExpr, structField.copy$default$2, structField.copy$default$3, structField.copy$default$4)
+    }))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]);
+    org.apache.spark.sql.types.StructType.apply(fields)
+  })));
+  ClickHouseScanBuilder.this._pushedGroupByCols_=(scala.Some.apply[Array[String]](compiledGroupByCols));
+  ClickHouseScanBuilder.this._groupByClause_=(scala.Some.apply[String](groupByClause));
+  true
+}
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          516
+        </td>
+        <td>
+          4100
+          -
+          4100
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.tryWithResource
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.tryWithResource[com.clickhouse.spark.client.NodeClient, org.apache.spark.sql.types.StructType](com.clickhouse.spark.client.NodeClient.apply(ClickHouseScanBuilder.this.scanJob.node))(((implicit nodeClient: com.clickhouse.spark.client.NodeClient) =&gt; {
+  val fields: Seq[org.apache.spark.sql.types.StructField] = ClickHouseScanBuilder.this.getQueryOutputSchema(aggQuery)(nodeClient).zip[org.apache.spark.sql.types.StructField, String, Seq[(org.apache.spark.sql.types.StructField, String)]](scala.Predef.wrapRefArray[String](compiledSelectItems))(collection.this.Seq.canBuildFrom[(org.apache.spark.sql.types.StructField, String)]).map[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](((x0$1: (org.apache.spark.sql.types.StructField, String)) =&gt; x0$1 match {
+    case (_1: org.apache.spark.sql.types.StructField, _2: String)(org.apache.spark.sql.types.StructField, String)((structField @ _), (colExpr @ _)) =&gt; structField.copy(colExpr, structField.copy$default$2, structField.copy$default$3, structField.copy$default$4)
+  }))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]);
+  org.apache.spark.sql.types.StructType.apply(fields)
+}))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          561
+        </td>
+        <td>
+          4093
+          -
+          4093
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.node
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.scanJob.node
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          2123
+        </td>
+        <td>
+          4050
+          -
+          4050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder._readSchema_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this._readSchema_=(com.clickhouse.spark.Utils.tryWithResource[com.clickhouse.spark.client.NodeClient, org.apache.spark.sql.types.StructType](com.clickhouse.spark.client.NodeClient.apply(ClickHouseScanBuilder.this.scanJob.node))(((implicit nodeClient: com.clickhouse.spark.client.NodeClient) =&gt; {
+  val fields: Seq[org.apache.spark.sql.types.StructField] = ClickHouseScanBuilder.this.getQueryOutputSchema(aggQuery)(nodeClient).zip[org.apache.spark.sql.types.StructField, String, Seq[(org.apache.spark.sql.types.StructField, String)]](scala.Predef.wrapRefArray[String](compiledSelectItems))(collection.this.Seq.canBuildFrom[(org.apache.spark.sql.types.StructField, String)]).map[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](((x0$1: (org.apache.spark.sql.types.StructField, String)) =&gt; x0$1 match {
+    case (_1: org.apache.spark.sql.types.StructField, _2: String)(org.apache.spark.sql.types.StructField, String)((structField @ _), (colExpr @ _)) =&gt; structField.copy(colExpr, structField.copy$default$2, structField.copy$default$3, structField.copy$default$4)
+  }))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]);
+  org.apache.spark.sql.types.StructType.apply(fields)
+})))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          2117
+        </td>
+        <td>
+          4084
+          -
+          4084
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.client.NodeClient.apply(ClickHouseScanBuilder.this.scanJob.node)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1593
+        </td>
+        <td>
+          4194
+          -
+          4194
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapRefArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.wrapRefArray[String](compiledSelectItems)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          754
+        </td>
+        <td>
+          4190
+          -
+          4190
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[(org.apache.spark.sql.types.StructField, String)]
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          775
+        </td>
+        <td>
+          4230
+          -
+          4230
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          2357
+        </td>
+        <td>
+          4230
+          -
+          4230
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.getQueryOutputSchema(aggQuery)(nodeClient).zip[org.apache.spark.sql.types.StructField, String, Seq[(org.apache.spark.sql.types.StructField, String)]](scala.Predef.wrapRefArray[String](compiledSelectItems))(collection.this.Seq.canBuildFrom[(org.apache.spark.sql.types.StructField, String)]).map[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](((x0$1: (org.apache.spark.sql.types.StructField, String)) =&gt; x0$1 match {
+  case (_1: org.apache.spark.sql.types.StructField, _2: String)(org.apache.spark.sql.types.StructField, String)((structField @ _), (colExpr @ _)) =&gt; structField.copy(colExpr, structField.copy$default$2, structField.copy$default$3, structField.copy$default$4)
+}))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField])
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1349
+        </td>
+        <td>
+          4279
+          -
+          4279
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          structField.copy(colExpr, structField.copy$default$2, structField.copy$default$3, structField.copy$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          2192
+        </td>
+        <td>
+          4279
+          -
+          4279
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          structField.copy(colExpr, structField.copy$default$2, structField.copy$default$3, structField.copy$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1523
+        </td>
+        <td>
+          4316
+          -
+          4316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructType.apply(fields)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          1601
+        </td>
+        <td>
+          4364
+          -
+          4364
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Array[String]](compiledGroupByCols)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          680
+        </td>
+        <td>
+          4358
+          -
+          4358
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder._pushedGroupByCols_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this._pushedGroupByCols_=(scala.Some.apply[Array[String]](compiledGroupByCols))
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          2196
+        </td>
+        <td>
+          4413
+          -
+          4413
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](groupByClause)
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          1298
+        </td>
+        <td>
+          4407
+          -
+          4407
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder._groupByClause_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this._groupByClause_=(scala.Some.apply[String](groupByClause))
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          367
+        </td>
+        <td>
+          4435
+          -
+          4435
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          2008
+        </td>
+        <td>
+          4477
+          -
+          4477
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ClickHouseScanBuilder.this.log.error(&quot;Failed to push down aggregation to ClickHouse&quot;, e);
+  false
+}
+        </td>
+      </tr><tr>
+        <td>
+          112
+        </td>
+        <td>
+          1507
+        </td>
+        <td>
+          4497
+          -
+          4497
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.error
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.log.error(&quot;Failed to push down aggregation to ClickHouse&quot;, e)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          523
+        </td>
+        <td>
+          4558
+          -
+          4558
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          1554
+        </td>
+        <td>
+          4685
+          -
+          4685
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$4.name
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          683
+        </td>
+        <td>
+          4682
+          -
+          4682
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          2274
+        </td>
+        <td>
+          4682
+          -
+          4682
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          requiredSchema.map[String, Seq[String]](((x$4: org.apache.spark.sql.types.StructField) =&gt; x$4.name))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1305
+        </td>
+        <td>
+          4781
+          -
+          4781
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          field.name
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          2321
+        </td>
+        <td>
+          4743
+          -
+          4743
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableLike.filter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this._readSchema.filter(((field: org.apache.spark.sql.types.StructField) =&gt; requiredCols.contains[String](field.name)))
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          604
+        </td>
+        <td>
+          4712
+          -
+          4712
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder._readSchema_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this._readSchema_=(org.apache.spark.sql.types.StructType.apply(ClickHouseScanBuilder.this._readSchema.filter(((field: org.apache.spark.sql.types.StructField) =&gt; requiredCols.contains[String](field.name)))))
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          374
+        </td>
+        <td>
+          4774
+          -
+          4774
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          requiredCols.contains[String](field.name)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1513
+        </td>
+        <td>
+          4724
+          -
+          4724
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructType.apply(ClickHouseScanBuilder.this._readSchema.filter(((field: org.apache.spark.sql.types.StructField) =&gt; requiredCols.contains[String](field.name))))
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1475
+        </td>
+        <td>
+          4825
+          -
+          4825
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseBatchScan.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new ClickHouseBatchScan({
+  &lt;artifact&gt; val x$1: org.apache.spark.sql.types.StructType = ClickHouseScanBuilder.this._readSchema;
+  &lt;artifact&gt; val x$2: String = ClickHouseScanBuilder.this.compileFilters({
+    &lt;synthetic&gt; &lt;artifact&gt; val x$5: org.apache.spark.sql.sources.AlwaysTrue.type = org.apache.spark.sql.sources.AlwaysTrue;
+    scala.Predef.refArrayOps[org.apache.spark.sql.sources.Filter](ClickHouseScanBuilder.this.pushedFilters()).toList.::[org.apache.spark.sql.sources.Filter](x$5)
+  })(ClickHouseScanBuilder.this.tz);
+  &lt;artifact&gt; val x$3: Option[String] @scala.reflect.internal.annotations.uncheckedBounds = ClickHouseScanBuilder.this._groupByClause;
+  &lt;artifact&gt; val x$4: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = ClickHouseScanBuilder.this._limit;
+  &lt;artifact&gt; val x$5: com.clickhouse.spark.spec.NodeSpec = ClickHouseScanBuilder.this.scanJob.copy$default$1;
+  &lt;artifact&gt; val x$6: java.time.ZoneId = ClickHouseScanBuilder.this.scanJob.copy$default$2;
+  &lt;artifact&gt; val x$7: com.clickhouse.spark.spec.TableSpec = ClickHouseScanBuilder.this.scanJob.copy$default$3;
+  &lt;artifact&gt; val x$8: com.clickhouse.spark.spec.TableEngineSpec = ClickHouseScanBuilder.this.scanJob.copy$default$4;
+  &lt;artifact&gt; val x$9: Option[com.clickhouse.spark.spec.ClusterSpec] @scala.reflect.internal.annotations.uncheckedBounds = ClickHouseScanBuilder.this.scanJob.copy$default$5;
+  &lt;artifact&gt; val x$10: Option[com.clickhouse.spark.spec.TableSpec] @scala.reflect.internal.annotations.uncheckedBounds = ClickHouseScanBuilder.this.scanJob.copy$default$6;
+  &lt;artifact&gt; val x$11: Option[com.clickhouse.spark.spec.TableEngineSpec] @scala.reflect.internal.annotations.uncheckedBounds = ClickHouseScanBuilder.this.scanJob.copy$default$7;
+  &lt;artifact&gt; val x$12: org.apache.spark.sql.clickhouse.ReadOptions = ClickHouseScanBuilder.this.scanJob.copy$default$8;
+  ClickHouseScanBuilder.this.scanJob.copy(x$5, x$6, x$7, x$8, x$9, x$10, x$11, x$12, x$1, x$2, x$3, x$4)
+})
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          2327
+        </td>
+        <td>
+          4861
+          -
+          4861
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.scanJob.copy(x$5, x$6, x$7, x$8, x$9, x$10, x$11, x$12, x$1, x$2, x$3, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          2010
+        </td>
+        <td>
+          4880
+          -
+          4880
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder._readSchema
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this._readSchema
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          1560
+        </td>
+        <td>
+          4937
+          -
+          4960
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.::
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.sources.Filter](ClickHouseScanBuilder.this.pushedFilters()).toList.::[org.apache.spark.sql.sources.Filter](x$5)
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          719
+        </td>
+        <td>
+          4925
+          -
+          4925
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder.tz
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.tz
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          2279
+        </td>
+        <td>
+          4925
+          -
+          4925
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileFilters
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this.compileFilters({
+  &lt;synthetic&gt; &lt;artifact&gt; val x$5: org.apache.spark.sql.sources.AlwaysTrue.type = org.apache.spark.sql.sources.AlwaysTrue;
+  scala.Predef.refArrayOps[org.apache.spark.sql.sources.Filter](ClickHouseScanBuilder.this.pushedFilters()).toList.::[org.apache.spark.sql.sources.Filter](x$5)
+})(ClickHouseScanBuilder.this.tz)
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1343
+        </td>
+        <td>
+          4983
+          -
+          4983
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder._groupByClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this._groupByClause
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          331
+        </td>
+        <td>
+          5011
+          -
+          5011
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseScanBuilder._limit
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseScanBuilder.this._limit
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          607
+        </td>
+        <td>
+          5299
+          -
+          5299
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.tz
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.scanJob.tz
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          2120
+        </td>
+        <td>
+          5355
+          -
+          5355
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.empty[org.apache.spark.sql.sources.Filter]((ClassTag.apply[org.apache.spark.sql.sources.Filter](classOf[org.apache.spark.sql.sources.Filter]): scala.reflect.ClassTag[org.apache.spark.sql.sources.Filter]))
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          1101
+        </td>
+        <td>
+          5395
+          -
+          5395
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.database
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.scanJob.database
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          723
+        </td>
+        <td>
+          5434
+          -
+          5434
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.table
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.scanJob.table
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          2238
+        </td>
+        <td>
+          7206
+          -
+          7206
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.readSchema
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.scanJob.readSchema
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          1295
+        </td>
+        <td>
+          7294
+          -
+          7294
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[com.clickhouse.spark.read.ClickHouseInputPartition](ClickHouseBatchScan.this.inputPartitions).toArray[org.apache.spark.sql.connector.read.InputPartition]((ClassTag.apply[org.apache.spark.sql.connector.read.InputPartition](classOf[org.apache.spark.sql.connector.read.InputPartition]): scala.reflect.ClassTag[org.apache.spark.sql.connector.read.InputPartition]))
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          2401
+        </td>
+        <td>
+          7388
+          -
+          7388
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.read.partitioning.UnknownPartitioning.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new org.apache.spark.sql.connector.read.partitioning.UnknownPartitioning(ClickHouseBatchScan.this.inputPartitions.length)
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          437
+        </td>
+        <td>
+          7428
+          -
+          7428
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.inputPartitions.length
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          1481
+        </td>
+        <td>
+          7631
+          -
+          7631
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ReadOptions.format
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.scanJob.readOptions.format
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          519
+        </td>
+        <td>
+          7681
+          -
+          7681
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          _partition.asInstanceOf[com.clickhouse.spark.read.ClickHouseInputPartition]
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          412
+        </td>
+        <td>
+          7743
+          -
+          7743
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.scanJob.copy(x$2, x$3, x$4, x$5, x$6, x$7, x$8, x$9, x$10, x$1, x$11, x$12)
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          2083
+        </td>
+        <td>
+          7786
+          -
+          7786
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; AND &quot;
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          1187
+        </td>
+        <td>
+          7830
+          -
+          7854
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.List.::
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.sources.Filter](ClickHouseBatchScan.this.runtimeFilters).toList.::[org.apache.spark.sql.sources.Filter](x$6)
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          708
+        </td>
+        <td>
+          7818
+          -
+          7818
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseBatchScan.tz
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.tz
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          1303
+        </td>
+        <td>
+          7784
+          -
+          7855
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.scanJob.filtersExpr.+(&quot; AND &quot;).+(ClickHouseBatchScan.this.compileFilters({
+  &lt;synthetic&gt; &lt;artifact&gt; val x$6: org.apache.spark.sql.sources.AlwaysTrue.type = org.apache.spark.sql.sources.AlwaysTrue;
+  scala.Predef.refArrayOps[org.apache.spark.sql.sources.Filter](ClickHouseBatchScan.this.runtimeFilters).toList.::[org.apache.spark.sql.sources.Filter](x$6)
+})(ClickHouseBatchScan.this.tz))
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          2248
+        </td>
+        <td>
+          7818
+          -
+          7818
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileFilters
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.compileFilters({
+  &lt;synthetic&gt; &lt;artifact&gt; val x$6: org.apache.spark.sql.sources.AlwaysTrue.type = org.apache.spark.sql.sources.AlwaysTrue;
+  scala.Predef.refArrayOps[org.apache.spark.sql.sources.Filter](ClickHouseBatchScan.this.runtimeFilters).toList.::[org.apache.spark.sql.sources.Filter](x$6)
+})(ClickHouseBatchScan.this.tz)
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          1455
+        </td>
+        <td>
+          7902
+          -
+          7902
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.read.format.ClickHouseJsonReader.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.read.format.ClickHouseJsonReader(finalScanJob, partition)
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          2315
+        </td>
+        <td>
+          7902
+          -
+          7902
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.format.ClickHouseJsonReader.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.read.format.ClickHouseJsonReader(finalScanJob, partition)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          490
+        </td>
+        <td>
+          7975
+          -
+          7975
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.format.ClickHouseBinaryReader.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.read.format.ClickHouseBinaryReader(finalScanJob, partition)
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2090
+        </td>
+        <td>
+          7975
+          -
+          7975
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.read.format.ClickHouseBinaryReader.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.read.format.ClickHouseBinaryReader(finalScanJob, partition)
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          645
+        </td>
+        <td>
+          8053
+          -
+          8053
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported read format: &quot;, &quot;&quot;).s(unsupported), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          1094
+        </td>
+        <td>
+          8053
+          -
+          8053
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported read format: &quot;, &quot;&quot;).s(unsupported), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          419
+        </td>
+        <td>
+          8198
+          -
+          8198
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[org.apache.spark.sql.connector.metric.CustomMetric](com.clickhouse.spark.BlocksReadMetric.apply(), com.clickhouse.spark.BytesReadMetric.apply())((ClassTag.apply[org.apache.spark.sql.connector.metric.CustomMetric](classOf[org.apache.spark.sql.connector.metric.CustomMetric]): scala.reflect.ClassTag[org.apache.spark.sql.connector.metric.CustomMetric]))
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          2277
+        </td>
+        <td>
+          8220
+          -
+          8220
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.BlocksReadMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.BlocksReadMetric.apply()
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          1265
+        </td>
+        <td>
+          8243
+          -
+          8243
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.BytesReadMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.BytesReadMetric.apply()
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          1862
+        </td>
+        <td>
+          8338
+          -
+          8338
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ReadOptions.runtimeFilterEnabled
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.scanJob.readOptions.runtimeFilterEnabled
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          2236
+        </td>
+        <td>
+          8397
+          -
+          8397
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ClickHouseBatchScan.this.scanJob.readSchema.fields).map[org.apache.spark.sql.connector.expressions.NamedReference, Array[org.apache.spark.sql.connector.expressions.NamedReference]](((field: org.apache.spark.sql.types.StructField) =&gt; org.apache.spark.sql.connector.expressions.Expressions.column(field.name)))(scala.this.Array.canBuildFrom[org.apache.spark.sql.connector.expressions.NamedReference]((ClassTag.apply[org.apache.spark.sql.connector.expressions.NamedReference](classOf[org.apache.spark.sql.connector.expressions.NamedReference]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.NamedReference])))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          651
+        </td>
+        <td>
+          8397
+          -
+          8397
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](ClickHouseBatchScan.this.scanJob.readSchema.fields).map[org.apache.spark.sql.connector.expressions.NamedReference, Array[org.apache.spark.sql.connector.expressions.NamedReference]](((field: org.apache.spark.sql.types.StructField) =&gt; org.apache.spark.sql.connector.expressions.Expressions.column(field.name)))(scala.this.Array.canBuildFrom[org.apache.spark.sql.connector.expressions.NamedReference]((ClassTag.apply[org.apache.spark.sql.connector.expressions.NamedReference](classOf[org.apache.spark.sql.connector.expressions.NamedReference]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.NamedReference])))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1099
+        </td>
+        <td>
+          8397
+          -
+          8397
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.connector.expressions.NamedReference]((ClassTag.apply[org.apache.spark.sql.connector.expressions.NamedReference](classOf[org.apache.spark.sql.connector.expressions.NamedReference]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.NamedReference]))
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1412
+        </td>
+        <td>
+          8387
+          -
+          8387
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.scanJob.readSchema.fields
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          605
+        </td>
+        <td>
+          8432
+          -
+          8432
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          field.name
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          2052
+        </td>
+        <td>
+          8425
+          -
+          8425
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.Expressions.column
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.expressions.Expressions.column(field.name)
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          1382
+        </td>
+        <td>
+          8464
+          -
+          8464
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.empty[org.apache.spark.sql.connector.expressions.NamedReference]((ClassTag.apply[org.apache.spark.sql.connector.expressions.NamedReference](classOf[org.apache.spark.sql.connector.expressions.NamedReference]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.NamedReference]))
+        </td>
+      </tr><tr>
+        <td>
+          218
+        </td>
+        <td>
+          458
+        </td>
+        <td>
+          8464
+          -
+          8464
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Array.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.empty[org.apache.spark.sql.connector.expressions.NamedReference]((ClassTag.apply[org.apache.spark.sql.connector.expressions.NamedReference](classOf[org.apache.spark.sql.connector.expressions.NamedReference]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.NamedReference]))
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          1869
+        </td>
+        <td>
+          8550
+          -
+          8550
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseBatchScan.runtimeFilters_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchScan.this.runtimeFilters_=(filters)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

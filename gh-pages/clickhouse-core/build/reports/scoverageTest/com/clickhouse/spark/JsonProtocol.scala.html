@@ -1,0 +1,183 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/JsonProtocol.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark
+</span>16 <span style=''>
+</span>17 <span style=''>import com.fasterxml.jackson.databind.{DeserializationFeature, ObjectMapper, SerializationFeature}
+</span>18 <span style=''>import com.fasterxml.jackson.module.scala.ClassTagExtensions
+</span>19 <span style=''>
+</span>20 <span style=''>trait ToJson {
+</span>21 <span style=''>
+</span>22 <span style=''>  def toJson: String = JsonProtocol.toJson(this)
+</span>23 <span style=''>
+</span>24 <span style=''>  override def toString: String = toJson
+</span>25 <span style=''>}
+</span>26 <span style=''>
+</span>27 <span style=''>trait FromJson[T] {
+</span>28 <span style=''>  def fromJson(json: String): T
+</span>29 <span style=''>}
+</span>30 <span style=''>
+</span>31 <span style=''>trait JsonProtocol[T] extends FromJson[T] with ToJson
+</span>32 <span style=''>
+</span>33 <span style=''>object JsonProtocol {
+</span>34 <span style=''>
+</span>35 <span style=''>  @transient lazy val om: ObjectMapper with ClassTagExtensions = {
+</span>36 <span style=''>    val _om = new ObjectMapper() with ClassTagExtensions
+</span>37 <span style=''>    _om.findAndRegisterModules()
+</span>38 <span style=''>    _om.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+</span>39 <span style=''>    _om
+</span>40 <span style=''>  }
+</span>41 <span style=''>
+</span>42 <span style=''>  def toJson(value: Any): String = om.writeValueAsString(value)
+</span>43 <span style=''>
+</span>44 <span style=''>  def toPrettyJson(value: Any): String = om.writer(SerializationFeature.INDENT_OUTPUT).writeValueAsString(value)
+</span>45 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          647
+        </td>
+        <td>
+          813
+          -
+          813
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.JsonProtocol.toJson
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JsonProtocol.toJson(this)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          261
+        </td>
+        <td>
+          855
+          -
+          855
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ToJson.toJson
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ToJson.this.toJson
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          913
+        </td>
+        <td>
+          1300
+          -
+          1300
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.ObjectMapper.writeValueAsString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JsonProtocol.this.om.writeValueAsString(value)
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          515
+        </td>
+        <td>
+          1414
+          -
+          1414
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.ObjectWriter.writeValueAsString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          JsonProtocol.this.om.writer(INDENT_OUTPUT).writeValueAsString(value)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

@@ -1,0 +1,3563 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/read/format/ClickHouseJsonReader.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.read.format
+</span>16 <span style=''>
+</span>17 <span style=''>import com.fasterxml.jackson.databind.JsonNode
+</span>18 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>19 <span style=''>import org.apache.spark.sql.catalyst.expressions.GenericInternalRow
+</span>20 <span style=''>import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData}
+</span>21 <span style=''>import org.apache.spark.sql.types._
+</span>22 <span style=''>import org.apache.spark.unsafe.types.UTF8String
+</span>23 <span style=''>import com.clickhouse.spark.Utils.{dateFmt, dateTimeFmt}
+</span>24 <span style=''>import com.clickhouse.spark.exception.CHClientException
+</span>25 <span style=''>import com.clickhouse.spark.format.{JSONCompactEachRowWithNamesAndTypesStreamOutput, StreamOutput}
+</span>26 <span style=''>import com.clickhouse.spark.read.{ClickHouseInputPartition, ClickHouseReader, ScanJobDescription}
+</span>27 <span style=''>
+</span>28 <span style=''>import java.math.{MathContext, RoundingMode =&gt; RM}
+</span>29 <span style=''>import java.time.{LocalDate, ZoneOffset, ZonedDateTime}
+</span>30 <span style=''>import java.util.concurrent.TimeUnit
+</span>31 <span style=''>import scala.collection.JavaConverters._
+</span>32 <span style=''>import scala.math.BigDecimal.RoundingMode
+</span>33 <span style=''>
+</span>34 <span style=''>class ClickHouseJsonReader(
+</span>35 <span style=''>  scanJob: ScanJobDescription,
+</span>36 <span style=''>  part: ClickHouseInputPartition
+</span>37 <span style=''>) extends ClickHouseReader[Array[JsonNode]](scanJob, part) {
+</span>38 <span style=''>
+</span>39 <span style=''>  override val format: String = &quot;JSONCompactEachRowWithNamesAndTypes&quot;
+</span>40 <span style=''>
+</span>41 <span style=''>  lazy val streamOutput: StreamOutput[Array[JsonNode]] =
+</span>42 <span style=''>    JSONCompactEachRowWithNamesAndTypesStreamOutput.deserializeStream(resp.getInputStream)
+</span>43 <span style=''>
+</span>44 <span style=''>  override def decode(record: Array[JsonNode]): InternalRow = {
+</span>45 <span style=''>    val values: Array[Any] = new Array[Any](record.length)
+</span>46 <span style=''>    if (readSchema.nonEmpty) {
+</span>47 <span style=''>      var i: Int = 0
+</span>48 <span style=''>      while (i </span><span style='background: #F0ADAD'>&lt; record.length</span><span style=''>) {
+</span>49 <span style=''>        values(i) = decodeValue(record(i), readSchema.fields(i))
+</span>50 <span style=''>        i = i </span><span style='background: #F0ADAD'>+ 1</span><span style=''>
+</span>51 <span style=''>      }
+</span>52 <span style=''>    }
+</span>53 <span style=''>    new GenericInternalRow(values)
+</span>54 <span style=''>  }
+</span>55 <span style=''>
+</span>56 <span style=''>  private def decodeValue(jsonNode: JsonNode, structField: StructField): Any = {
+</span>57 <span style=''>    if (jsonNode </span><span style='background: #F0ADAD'>== null || jsonNode.isNull</span><span style=''>) {
+</span>58 <span style=''>      // should we check `structField.nullable`?
+</span>59 <span style=''>      return null
+</span>60 <span style=''>    }
+</span>61 <span style=''>
+</span>62 <span style=''>    structField.dataType match {
+</span>63 <span style=''>      case BooleanType =&gt; jsonNode.asBoolean
+</span>64 <span style=''>      case ByteType =&gt; jsonNode.asInt.byteValue
+</span>65 <span style=''>      case ShortType =&gt; jsonNode.asInt.shortValue
+</span>66 <span style=''>      case IntegerType =&gt; jsonNode.asInt
+</span>67 <span style=''>      case LongType =&gt; jsonNode.asLong
+</span>68 <span style=''>      case FloatType =&gt; jsonNode.asDouble.floatValue
+</span>69 <span style=''>      case DoubleType =&gt; jsonNode.asDouble
+</span>70 <span style=''>      case d: DecimalType if jsonNode.isBigDecimal =&gt;
+</span>71 <span style=''>        Decimal(jsonNode.decimalValue, d.precision, d.scale)
+</span>72 <span style=''>      case d: DecimalType if jsonNode.isFloat </span><span style='background: #F0ADAD'>| jsonNode.isDouble</span><span style=''> =&gt;
+</span>73 <span style=''>        Decimal(BigDecimal(jsonNode.doubleValue, new MathContext(d.precision)), d.precision, d.scale)
+</span>74 <span style=''>      case d: DecimalType if jsonNode.isInt =&gt;
+</span>75 <span style=''>        Decimal(BigDecimal(jsonNode.intValue, new MathContext(d.precision)), d.precision, d.scale)
+</span>76 <span style=''>      case d: DecimalType if jsonNode.isLong =&gt;
+</span>77 <span style=''>        Decimal(BigDecimal(jsonNode.longValue, new MathContext(d.precision)), d.precision, d.scale)
+</span>78 <span style=''>      case d: DecimalType if jsonNode.isBigInteger =&gt;
+</span>79 <span style=''>        Decimal(BigDecimal(jsonNode.bigIntegerValue, new MathContext(d.precision)), d.precision, d.scale)
+</span>80 <span style=''>      case d: DecimalType =&gt;
+</span>81 <span style=''>        Decimal(BigDecimal(jsonNode.textValue, new MathContext(d.precision)), d.precision, d.scale)
+</span>82 <span style=''>      case TimestampType =&gt;
+</span>83 <span style=''>        var _instant =
+</span>84 <span style=''>          ZonedDateTime.parse(jsonNode.asText, dateTimeFmt.withZone(scanJob.tz)).withZoneSameInstant(ZoneOffset.UTC)
+</span>85 <span style=''>        TimeUnit.SECONDS.toMicros(_instant.toEpochSecond) </span><span style='background: #F0ADAD'>+ TimeUnit.NANOSECONDS.toMicros(_instant.getNano())</span><span style=''>
+</span>86 <span style=''>      case StringType =&gt; UTF8String.fromString(jsonNode.asText)
+</span>87 <span style=''>      case DateType =&gt; LocalDate.parse(jsonNode.asText, dateFmt).toEpochDay.toInt
+</span>88 <span style=''>      case BinaryType =&gt; jsonNode.binaryValue
+</span>89 <span style=''>      case ArrayType(_dataType, _nullable) =&gt;
+</span>90 <span style=''>        val _structField = StructField(s&quot;${structField.name}__array_element__&quot;, _dataType, _nullable)
+</span>91 <span style=''>        new GenericArrayData(jsonNode.asScala.map(decodeValue(_, _structField)))
+</span>92 <span style=''>      case MapType(StringType, _valueType, _valueNullable) =&gt;
+</span>93 <span style=''>        val mapData = jsonNode.fields.asScala.map { entry =&gt;
+</span>94 <span style=''>          val _structField = StructField(s&quot;${structField.name}__map_value__&quot;, _valueType, _valueNullable)
+</span>95 <span style=''>          UTF8String.fromString(entry.getKey) </span><span style='background: #F0ADAD'>-&gt; decodeValue(entry.getValue, _structField)</span><span style=''>
+</span>96 <span style=''>        }.toMap
+</span>97 <span style=''>        ArrayBasedMapData(mapData)
+</span>98 <span style=''>      case _ =&gt;
+</span>99 <span style=''>        throw CHClientException(s&quot;Unsupported catalyst type ${structField.name}[${structField.dataType}]&quot;)
+</span>100 <span style=''>    }
+</span>101 <span style=''>  }
+</span>102 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1675
+        </td>
+        <td>
+          1659
+          -
+          1659
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;JSONCompactEachRowWithNamesAndTypes&quot;
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          632
+        </td>
+        <td>
+          1962
+          -
+          1962
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          record.length
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          2264
+        </td>
+        <td>
+          1940
+          -
+          1940
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new Array[Any](record.length)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1369
+        </td>
+        <td>
+          1989
+          -
+          1989
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseJsonReader.this.readSchema.nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          22
+        </td>
+        <td>
+          1974
+          -
+          1974
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          1999
+          -
+          1999
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  var i: Int = 0;
+  while$1(){
+    if (i.&lt;(record.length))
+      {
+        {
+          values.update(i, ClickHouseJsonReader.this.decodeValue(record.apply(i), ClickHouseJsonReader.this.readSchema.fields.apply(i)));
+          i = i.+(1)
+        };
+        while$1()
+      }
+    else
+      ()
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1585
+        </td>
+        <td>
+          1974
+          -
+          1974
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          841
+        </td>
+        <td>
+          2020
+          -
+          2020
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1468
+        </td>
+        <td>
+          2028
+          -
+          2028
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          2421
+        </td>
+        <td>
+          2046
+          -
+          2046
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          record.length
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          797
+        </td>
+        <td>
+          2028
+          -
+          2028
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  {
+    values.update(i, ClickHouseJsonReader.this.decodeValue(record.apply(i), ClickHouseJsonReader.this.readSchema.fields.apply(i)));
+    i = i.+(1)
+  };
+  while$1()
+}
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1464
+        </td>
+        <td>
+          2037
+          -
+          2052
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          i.&lt;(record.length)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1374
+        </td>
+        <td>
+          2054
+          -
+          2054
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.format.ClickHouseJsonReader.while$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          while$1()
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          2387
+        </td>
+        <td>
+          2028
+          -
+          2028
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1632
+        </td>
+        <td>
+          2087
+          -
+          2087
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.format.ClickHouseJsonReader.decodeValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseJsonReader.this.decodeValue(record.apply(i), ClickHouseJsonReader.this.readSchema.fields.apply(i))
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          2116
+          -
+          2116
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseJsonReader.this.readSchema.fields.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          639
+        </td>
+        <td>
+          2074
+          -
+          2074
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          values.update(i, ClickHouseJsonReader.this.decodeValue(record.apply(i), ClickHouseJsonReader.this.readSchema.fields.apply(i)))
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          597
+        </td>
+        <td>
+          2094
+          -
+          2094
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          record.apply(i)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2219
+        </td>
+        <td>
+          2135
+          -
+          2138
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          i.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          624
+        </td>
+        <td>
+          2157
+          -
+          2157
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.GenericInternalRow.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new org.apache.spark.sql.catalyst.expressions.GenericInternalRow(values)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          2033
+        </td>
+        <td>
+          2278
+          -
+          2278
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1339
+        </td>
+        <td>
+          2311
+          -
+          2311
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.isNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.isNull()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          803
+        </td>
+        <td>
+          2291
+          -
+          2317
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.==(null).||(jsonNode.isNull())
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          483
+        </td>
+        <td>
+          2278
+          -
+          2278
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          2226
+        </td>
+        <td>
+          2294
+          -
+          2294
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1393
+        </td>
+        <td>
+          2376
+          -
+          2376
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.clickhouse.spark.read.format.ClickHouseJsonReader.decodeValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          return null
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          2391
+        </td>
+        <td>
+          2383
+          -
+          2383
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1593
+        </td>
+        <td>
+          2411
+          -
+          2411
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          structField.dataType
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          2155
+        </td>
+        <td>
+          2463
+          -
+          2463
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asBoolean
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.asBoolean()
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          626
+        </td>
+        <td>
+          2463
+          -
+          2463
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asBoolean
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.asBoolean()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          812
+        </td>
+        <td>
+          2511
+          -
+          2511
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.Integer.byteValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.int2Integer(jsonNode.asInt()).byteValue()
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1367
+        </td>
+        <td>
+          2511
+          -
+          2511
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Integer.byteValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.int2Integer(jsonNode.asInt()).byteValue()
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          2419
+        </td>
+        <td>
+          2560
+          -
+          2560
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Integer.shortValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.int2Integer(jsonNode.asInt()).shortValue()
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1400
+        </td>
+        <td>
+          2560
+          -
+          2560
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.Integer.shortValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.int2Integer(jsonNode.asInt()).shortValue()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          472
+        </td>
+        <td>
+          2606
+          -
+          2606
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.asInt()
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          2134
+        </td>
+        <td>
+          2606
+          -
+          2606
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.asInt()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          740
+        </td>
+        <td>
+          2644
+          -
+          2644
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.asLong()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1601
+        </td>
+        <td>
+          2644
+          -
+          2644
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.asLong()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1330
+        </td>
+        <td>
+          2693
+          -
+          2693
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.Double.floatValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.double2Double(jsonNode.asDouble()).floatValue()
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          2158
+        </td>
+        <td>
+          2693
+          -
+          2693
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Double.floatValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.double2Double(jsonNode.asDouble()).floatValue()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          886
+        </td>
+        <td>
+          2738
+          -
+          2738
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asDouble
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.asDouble()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          2422
+        </td>
+        <td>
+          2738
+          -
+          2738
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asDouble
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.asDouble()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1507
+        </td>
+        <td>
+          2785
+          -
+          2785
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.isBigDecimal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.isBigDecimal()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          550
+        </td>
+        <td>
+          2826
+          -
+          2826
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.decimalValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.decimalValue()
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          744
+        </td>
+        <td>
+          2816
+          -
+          2816
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(jsonNode.decimalValue(), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          2271
+        </td>
+        <td>
+          2816
+          -
+          2816
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(jsonNode.decimalValue(), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          2136
+        </td>
+        <td>
+          2842
+          -
+          2842
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.precision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.precision
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1579
+        </td>
+        <td>
+          2855
+          -
+          2855
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.scale
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.scale
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1336
+        </td>
+        <td>
+          2919
+          -
+          2919
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.isDouble
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.isDouble()
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          447
+        </td>
+        <td>
+          2908
+          -
+          2927
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.|
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.isFloat().|(jsonNode.isDouble())
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          672
+        </td>
+        <td>
+          3026
+          -
+          3026
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.scale
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.scale
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1344
+        </td>
+        <td>
+          2946
+          -
+          2946
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(scala.`package`.BigDecimal.apply(jsonNode.doubleValue(), new java.math.MathContext(d.precision)), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          2190
+        </td>
+        <td>
+          2946
+          -
+          2946
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(scala.`package`.BigDecimal.apply(jsonNode.doubleValue(), new java.math.MathContext(d.precision)), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          509
+        </td>
+        <td>
+          2980
+          -
+          2980
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.math.MathContext.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.math.MathContext(d.precision)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          2115
+        </td>
+        <td>
+          2957
+          -
+          2957
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.math.BigDecimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.BigDecimal.apply(jsonNode.doubleValue(), new java.math.MathContext(d.precision))
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          2345
+        </td>
+        <td>
+          2967
+          -
+          2967
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.doubleValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.doubleValue()
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1591
+        </td>
+        <td>
+          3013
+          -
+          3013
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.precision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.precision
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1513
+        </td>
+        <td>
+          2998
+          -
+          2998
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.precision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.precision
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          433
+        </td>
+        <td>
+          3071
+          -
+          3071
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.isInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.isInt()
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          2156
+        </td>
+        <td>
+          3095
+          -
+          3095
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(scala.`package`.BigDecimal.apply(jsonNode.intValue(), new java.math.MathContext(d.precision)), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          2120
+        </td>
+        <td>
+          3106
+          -
+          3106
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.math.BigDecimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.BigDecimal.apply(jsonNode.intValue(), new java.math.MathContext(d.precision))
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1133
+        </td>
+        <td>
+          3159
+          -
+          3159
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.precision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.precision
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          678
+        </td>
+        <td>
+          3172
+          -
+          3172
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.scale
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.scale
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          513
+        </td>
+        <td>
+          3126
+          -
+          3126
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.math.MathContext.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.math.MathContext(d.precision)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1428
+        </td>
+        <td>
+          3144
+          -
+          3144
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.precision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.precision
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          2354
+        </td>
+        <td>
+          3116
+          -
+          3116
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.intValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.intValue()
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1295
+        </td>
+        <td>
+          3095
+          -
+          3095
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(scala.`package`.BigDecimal.apply(jsonNode.intValue(), new java.math.MathContext(d.precision)), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          365
+        </td>
+        <td>
+          3217
+          -
+          3217
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.isLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.isLong()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1136
+        </td>
+        <td>
+          3307
+          -
+          3307
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.precision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.precision
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          2269
+        </td>
+        <td>
+          3242
+          -
+          3242
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(scala.`package`.BigDecimal.apply(jsonNode.longValue(), new java.math.MathContext(d.precision)), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          474
+        </td>
+        <td>
+          3274
+          -
+          3274
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.math.MathContext.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.math.MathContext(d.precision)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          2306
+        </td>
+        <td>
+          3263
+          -
+          3263
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.longValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.longValue()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1241
+        </td>
+        <td>
+          3242
+          -
+          3242
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(scala.`package`.BigDecimal.apply(jsonNode.longValue(), new java.math.MathContext(d.precision)), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1504
+        </td>
+        <td>
+          3292
+          -
+          3292
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.precision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.precision
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          2081
+        </td>
+        <td>
+          3253
+          -
+          3253
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.math.BigDecimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.BigDecimal.apply(jsonNode.longValue(), new java.math.MathContext(d.precision))
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          637
+        </td>
+        <td>
+          3320
+          -
+          3320
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.scale
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.scale
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          325
+        </td>
+        <td>
+          3365
+          -
+          3365
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.isBigInteger
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.isBigInteger()
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          2275
+        </td>
+        <td>
+          3480
+          -
+          3480
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.scale
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.scale
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          717
+        </td>
+        <td>
+          3467
+          -
+          3467
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.precision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.precision
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1377
+        </td>
+        <td>
+          3396
+          -
+          3396
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(scala.`package`.BigDecimal.apply(math.this.BigInt.javaBigInteger2bigInt(jsonNode.bigIntegerValue()), new java.math.MathContext(d.precision)), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          602
+        </td>
+        <td>
+          3452
+          -
+          3452
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.precision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.precision
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1511
+        </td>
+        <td>
+          3417
+          -
+          3417
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.math.BigInt.javaBigInteger2bigInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          math.this.BigInt.javaBigInteger2bigInt(jsonNode.bigIntegerValue())
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1092
+        </td>
+        <td>
+          3407
+          -
+          3407
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.math.BigDecimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.BigDecimal.apply(math.this.BigInt.javaBigInteger2bigInt(jsonNode.bigIntegerValue()), new java.math.MathContext(d.precision))
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          431
+        </td>
+        <td>
+          3396
+          -
+          3396
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(scala.`package`.BigDecimal.apply(math.this.BigInt.javaBigInteger2bigInt(jsonNode.bigIntegerValue()), new java.math.MathContext(d.precision)), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          2315
+        </td>
+        <td>
+          3417
+          -
+          3417
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.bigIntegerValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.bigIntegerValue()
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          2114
+        </td>
+        <td>
+          3434
+          -
+          3434
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.math.MathContext.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.math.MathContext(d.precision)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          2233
+        </td>
+        <td>
+          3531
+          -
+          3531
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(scala.`package`.BigDecimal.apply(jsonNode.textValue(), new java.math.MathContext(d.precision)), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1862
+        </td>
+        <td>
+          3552
+          -
+          3552
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.textValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.textValue()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1473
+        </td>
+        <td>
+          3581
+          -
+          3581
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.precision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.precision
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          2076
+        </td>
+        <td>
+          3542
+          -
+          3542
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.math.BigDecimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.BigDecimal.apply(jsonNode.textValue(), new java.math.MathContext(d.precision))
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          605
+        </td>
+        <td>
+          3563
+          -
+          3563
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.math.MathContext.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.math.MathContext(d.precision)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1292
+        </td>
+        <td>
+          3531
+          -
+          3531
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.types.Decimal.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.Decimal.apply(scala.`package`.BigDecimal.apply(jsonNode.textValue(), new java.math.MathContext(d.precision)), d.precision, d.scale)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          721
+        </td>
+        <td>
+          3609
+          -
+          3609
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.scale
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.scale
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1184
+        </td>
+        <td>
+          3596
+          -
+          3596
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DecimalType.precision
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          d.precision
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1404
+        </td>
+        <td>
+          3641
+          -
+          3641
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  var _instant: java.time.ZonedDateTime = java.time.ZonedDateTime.parse(jsonNode.asText(), com.clickhouse.spark.Utils.dateTimeFmt.withZone(ClickHouseJsonReader.this.scanJob.tz)).withZoneSameInstant(java.time.ZoneOffset.UTC);
+  SECONDS.toMicros(_instant.toEpochSecond()).+(NANOSECONDS.toMicros(_instant.getNano().toLong))
+}
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          403
+        </td>
+        <td>
+          3706
+          -
+          3706
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.asText()
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1892
+        </td>
+        <td>
+          3743
+          -
+          3743
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ScanJobDescription.tz
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseJsonReader.this.scanJob.tz
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          569
+        </td>
+        <td>
+          3779
+          -
+          3779
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.time.ZoneOffset.UTC
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.time.ZoneOffset.UTC
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          2079
+        </td>
+        <td>
+          3767
+          -
+          3767
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.ZonedDateTime.withZoneSameInstant
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.time.ZonedDateTime.parse(jsonNode.asText(), com.clickhouse.spark.Utils.dateTimeFmt.withZone(ClickHouseJsonReader.this.scanJob.tz)).withZoneSameInstant(java.time.ZoneOffset.UTC)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1477
+        </td>
+        <td>
+          3734
+          -
+          3734
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.format.DateTimeFormatter.withZone
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.dateTimeFmt.withZone(ClickHouseJsonReader.this.scanJob.tz)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1261
+        </td>
+        <td>
+          3890
+          -
+          3890
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          _instant.getNano().toLong
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1898
+        </td>
+        <td>
+          3842
+          -
+          3893
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SECONDS.toMicros(_instant.toEpochSecond()).+(NANOSECONDS.toMicros(_instant.getNano().toLong))
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          635
+        </td>
+        <td>
+          3827
+          -
+          3827
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.chrono.ChronoZonedDateTime.toEpochSecond
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          _instant.toEpochSecond()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          2241
+        </td>
+        <td>
+          3853
+          -
+          3853
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NANOSECONDS
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1185
+        </td>
+        <td>
+          3801
+          -
+          3801
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SECONDS
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          410
+        </td>
+        <td>
+          3873
+          -
+          3873
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.TimeUnit.toMicros
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NANOSECONDS.toMicros(_instant.getNano().toLong)
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          2042
+        </td>
+        <td>
+          3940
+          -
+          3940
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.UTF8String.fromString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.unsafe.types.UTF8String.fromString(jsonNode.asText())
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1171
+        </td>
+        <td>
+          3940
+          -
+          3940
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.UTF8String.fromString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.unsafe.types.UTF8String.fromString(jsonNode.asText())
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          488
+        </td>
+        <td>
+          3950
+          -
+          3950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.asText()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          199
+        </td>
+        <td>
+          4006
+          -
+          4006
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.asText()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1263
+        </td>
+        <td>
+          4034
+          -
+          4034
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.time.LocalDate.parse(jsonNode.asText(), com.clickhouse.spark.Utils.dateFmt).toEpochDay().toInt
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          2162
+        </td>
+        <td>
+          4034
+          -
+          4034
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Long.toInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.time.LocalDate.parse(jsonNode.asText(), com.clickhouse.spark.Utils.dateFmt).toEpochDay().toInt
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          415
+        </td>
+        <td>
+          4074
+          -
+          4074
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.binaryValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.binaryValue()
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1860
+        </td>
+        <td>
+          4074
+          -
+          4074
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.binaryValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.binaryValue()
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          932
+        </td>
+        <td>
+          4129
+          -
+          4129
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val _structField: org.apache.spark.sql.types.StructField = org.apache.spark.sql.types.StructField.apply(scala.StringContext.apply(&quot;&quot;, &quot;__array_element__&quot;).s(structField.name), _dataType, _nullable, org.apache.spark.sql.types.StructField.apply$default$4);
+  new org.apache.spark.sql.catalyst.util.GenericArrayData(scala.collection.JavaConverters.iterableAsScalaIterableConverter[com.fasterxml.jackson.databind.JsonNode](jsonNode).asScala.map[Any, Iterable[Any]](((x$1: com.fasterxml.jackson.databind.JsonNode) =&gt; ClickHouseJsonReader.this.decodeValue(x$1, _structField)))(collection.this.Iterable.canBuildFrom[Any]))
+}
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1097
+        </td>
+        <td>
+          4171
+          -
+          4171
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;__array_element__&quot;).s(structField.name)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          558
+        </td>
+        <td>
+          4192
+          -
+          4192
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;__array_element__&quot;
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          169
+        </td>
+        <td>
+          4170
+          -
+          4170
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructField.apply(scala.StringContext.apply(&quot;&quot;, &quot;__array_element__&quot;).s(structField.name), _dataType, _nullable, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1410
+        </td>
+        <td>
+          4173
+          -
+          4173
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          2047
+        </td>
+        <td>
+          4187
+          -
+          4187
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          structField.name
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1380
+        </td>
+        <td>
+          4283
+          -
+          4283
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Iterable.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Iterable.canBuildFrom[Any]
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          378
+        </td>
+        <td>
+          4283
+          -
+          4283
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.iterableAsScalaIterableConverter[com.fasterxml.jackson.databind.JsonNode](jsonNode).asScala.map[Any, Iterable[Any]](((x$1: com.fasterxml.jackson.databind.JsonNode) =&gt; ClickHouseJsonReader.this.decodeValue(x$1, _structField)))(collection.this.Iterable.canBuildFrom[Any])
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          2231
+        </td>
+        <td>
+          4295
+          -
+          4295
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.format.ClickHouseJsonReader.decodeValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseJsonReader.this.decodeValue(x$1, _structField)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1866
+        </td>
+        <td>
+          4242
+          -
+          4242
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.GenericArrayData.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new org.apache.spark.sql.catalyst.util.GenericArrayData(scala.collection.JavaConverters.iterableAsScalaIterableConverter[com.fasterxml.jackson.databind.JsonNode](jsonNode).asScala.map[Any, Iterable[Any]](((x$1: com.fasterxml.jackson.databind.JsonNode) =&gt; ClickHouseJsonReader.this.decodeValue(x$1, _structField)))(collection.this.Iterable.canBuildFrom[Any]))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1357
+        </td>
+        <td>
+          4374
+          -
+          4374
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val mapData: scala.collection.immutable.Map[org.apache.spark.unsafe.types.UTF8String,Any] = scala.collection.JavaConverters.asScalaIteratorConverter[java.util.Map.Entry[String,com.fasterxml.jackson.databind.JsonNode]](jsonNode.fields()).asScala.map[(org.apache.spark.unsafe.types.UTF8String, Any)](((entry: java.util.Map.Entry[String,com.fasterxml.jackson.databind.JsonNode]) =&gt; {
+  val _structField: org.apache.spark.sql.types.StructField = org.apache.spark.sql.types.StructField.apply(scala.StringContext.apply(&quot;&quot;, &quot;__map_value__&quot;).s(structField.name), _valueType, _valueNullable, org.apache.spark.sql.types.StructField.apply$default$4);
+  scala.Predef.ArrowAssoc[org.apache.spark.unsafe.types.UTF8String](org.apache.spark.unsafe.types.UTF8String.fromString(entry.getKey())).-&gt;[Any](ClickHouseJsonReader.this.decodeValue(entry.getValue(), _structField))
+})).toMap[org.apache.spark.unsafe.types.UTF8String, Any](scala.Predef.$conforms[(org.apache.spark.unsafe.types.UTF8String, Any)]);
+  org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(mapData, org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$2, org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$3)
+}
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          567
+        </td>
+        <td>
+          4408
+          -
+          4408
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          jsonNode.fields()
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          176
+        </td>
+        <td>
+          4495
+          -
+          4495
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          structField.name
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1351
+        </td>
+        <td>
+          4478
+          -
+          4478
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructField.apply(scala.StringContext.apply(&quot;&quot;, &quot;__map_value__&quot;).s(structField.name), _valueType, _valueNullable, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          2143
+        </td>
+        <td>
+          4481
+          -
+          4481
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          2193
+        </td>
+        <td>
+          4479
+          -
+          4479
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;__map_value__&quot;).s(structField.name)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1217
+        </td>
+        <td>
+          4500
+          -
+          4500
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;__map_value__&quot;
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          2125
+        </td>
+        <td>
+          4590
+          -
+          4634
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[org.apache.spark.unsafe.types.UTF8String](org.apache.spark.unsafe.types.UTF8String.fromString(entry.getKey())).-&gt;[Any](ClickHouseJsonReader.this.decodeValue(entry.getValue(), _structField))
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1974
+        </td>
+        <td>
+          4575
+          -
+          4575
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.UTF8String.fromString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.unsafe.types.UTF8String.fromString(entry.getKey())
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          1005
+        </td>
+        <td>
+          4611
+          -
+          4611
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.Entry.getValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          entry.getValue()
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          407
+        </td>
+        <td>
+          4582
+          -
+          4582
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.Entry.getKey
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          entry.getKey()
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          574
+        </td>
+        <td>
+          4604
+          -
+          4604
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.format.ClickHouseJsonReader.decodeValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseJsonReader.this.decodeValue(entry.getValue(), _structField)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1169
+        </td>
+        <td>
+          4645
+          -
+          4645
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.$conforms[(org.apache.spark.unsafe.types.UTF8String, Any)]
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          290
+        </td>
+        <td>
+          4645
+          -
+          4645
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.asScalaIteratorConverter[java.util.Map.Entry[String,com.fasterxml.jackson.databind.JsonNode]](jsonNode.fields()).asScala.map[(org.apache.spark.unsafe.types.UTF8String, Any)](((entry: java.util.Map.Entry[String,com.fasterxml.jackson.databind.JsonNode]) =&gt; {
+  val _structField: org.apache.spark.sql.types.StructField = org.apache.spark.sql.types.StructField.apply(scala.StringContext.apply(&quot;&quot;, &quot;__map_value__&quot;).s(structField.name), _valueType, _valueNullable, org.apache.spark.sql.types.StructField.apply$default$4);
+  scala.Predef.ArrowAssoc[org.apache.spark.unsafe.types.UTF8String](org.apache.spark.unsafe.types.UTF8String.fromString(entry.getKey())).-&gt;[Any](ClickHouseJsonReader.this.decodeValue(entry.getValue(), _structField))
+})).toMap[org.apache.spark.unsafe.types.UTF8String, Any](scala.Predef.$conforms[(org.apache.spark.unsafe.types.UTF8String, Any)])
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          2198
+        </td>
+        <td>
+          4676
+          -
+          4676
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply(mapData, org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$2, org.apache.spark.sql.catalyst.util.ArrayBasedMapData.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          371
+        </td>
+        <td>
+          4710
+          -
+          4710
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported catalyst type &quot;, &quot;[&quot;, &quot;]&quot;).s(structField.name, structField.dataType), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          1917
+        </td>
+        <td>
+          4710
+          -
+          4710
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported catalyst type &quot;, &quot;[&quot;, &quot;]&quot;).s(structField.name, structField.dataType), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

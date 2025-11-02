@@ -1,0 +1,1097 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/read/ClickHouseMetadataColumn.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.read
+</span>16 <span style=''>
+</span>17 <span style=''>import org.apache.spark.sql.connector.catalog.MetadataColumn
+</span>18 <span style=''>import org.apache.spark.sql.types.{DataType, DoubleType, IntegerType, LongType, StringType, StructField}
+</span>19 <span style=''>
+</span>20 <span style=''>object ClickHouseMetadataColumn {
+</span>21 <span style=''>  val mergeTreeMetadataCols: Array[MetadataColumn] = Array(
+</span>22 <span style=''>    ClickHouseMetadataColumn(&quot;_part&quot;, StringType),
+</span>23 <span style=''>    ClickHouseMetadataColumn(&quot;_part_index&quot;, LongType),
+</span>24 <span style=''>    ClickHouseMetadataColumn(&quot;_part_uuid&quot;, StringType),
+</span>25 <span style=''>    ClickHouseMetadataColumn(&quot;_partition_id&quot;, StringType),
+</span>26 <span style=''>    // ClickHouseMetadataColumn(&quot;_partition_value&quot;, StringType),
+</span>27 <span style=''>    ClickHouseMetadataColumn(&quot;_sample_factor&quot;, DoubleType)
+</span>28 <span style=''>  )
+</span>29 <span style=''>
+</span>30 <span style=''>  val distributeMetadataCols: Array[MetadataColumn] = Array(
+</span>31 <span style=''>    ClickHouseMetadataColumn(&quot;_table&quot;, StringType),
+</span>32 <span style=''>    ClickHouseMetadataColumn(&quot;_part&quot;, StringType),
+</span>33 <span style=''>    ClickHouseMetadataColumn(&quot;_part_index&quot;, LongType),
+</span>34 <span style=''>    ClickHouseMetadataColumn(&quot;_part_uuid&quot;, StringType),
+</span>35 <span style=''>    ClickHouseMetadataColumn(&quot;_partition_id&quot;, StringType),
+</span>36 <span style=''>    ClickHouseMetadataColumn(&quot;_sample_factor&quot;, DoubleType),
+</span>37 <span style=''>    ClickHouseMetadataColumn(&quot;_shard_num&quot;, IntegerType)
+</span>38 <span style=''>  )
+</span>39 <span style=''>}
+</span>40 <span style=''>
+</span>41 <span style=''>case class ClickHouseMetadataColumn(
+</span>42 <span style=''>  override val name: String,
+</span>43 <span style=''>  override val dataType: DataType,
+</span>44 <span style=''>  override val isNullable: Boolean = false
+</span>45 <span style=''>) extends MetadataColumn {
+</span>46 <span style=''>  def toStructField: StructField = StructField(name, dataType, isNullable)
+</span>47 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          21
+        </td>
+        <td>
+          1043
+        </td>
+        <td>
+          858
+          -
+          858
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[org.apache.spark.sql.connector.catalog.MetadataColumn](ClickHouseMetadataColumn.apply(&quot;_part&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3), ClickHouseMetadataColumn.apply(&quot;_part_index&quot;, org.apache.spark.sql.types.LongType, ClickHouseMetadataColumn.apply$default$3), ClickHouseMetadataColumn.apply(&quot;_part_uuid&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3), ClickHouseMetadataColumn.apply(&quot;_partition_id&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3), ClickHouseMetadataColumn.apply(&quot;_sample_factor&quot;, org.apache.spark.sql.types.DoubleType, ClickHouseMetadataColumn.apply$default$3))((ClassTag.apply[org.apache.spark.sql.connector.catalog.MetadataColumn](classOf[org.apache.spark.sql.connector.catalog.MetadataColumn]): scala.reflect.ClassTag[org.apache.spark.sql.connector.catalog.MetadataColumn]))
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          1844
+        </td>
+        <td>
+          888
+          -
+          888
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_part&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          698
+        </td>
+        <td>
+          889
+          -
+          889
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_part&quot;
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          264
+        </td>
+        <td>
+          898
+          -
+          898
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          1955
+        </td>
+        <td>
+          939
+          -
+          939
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_part_index&quot;, org.apache.spark.sql.types.LongType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          2342
+        </td>
+        <td>
+          955
+          -
+          955
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          799
+        </td>
+        <td>
+          940
+          -
+          940
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_part_index&quot;
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          1583
+        </td>
+        <td>
+          994
+          -
+          994
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_part_uuid&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          1009
+          -
+          1009
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          921
+        </td>
+        <td>
+          995
+          -
+          995
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_part_uuid&quot;
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          1763
+        </td>
+        <td>
+          1050
+          -
+          1050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_partition_id&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          270
+        </td>
+        <td>
+          1068
+          -
+          1068
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          730
+        </td>
+        <td>
+          1051
+          -
+          1051
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_partition_id&quot;
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          881
+        </td>
+        <td>
+          1175
+          -
+          1175
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_sample_factor&quot;
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          2351
+        </td>
+        <td>
+          1193
+          -
+          1193
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DoubleType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DoubleType
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1929
+        </td>
+        <td>
+          1174
+          -
+          1174
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_sample_factor&quot;, org.apache.spark.sql.types.DoubleType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          268
+        </td>
+        <td>
+          1269
+          -
+          1269
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[org.apache.spark.sql.connector.catalog.MetadataColumn](ClickHouseMetadataColumn.apply(&quot;_table&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3), ClickHouseMetadataColumn.apply(&quot;_part&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3), ClickHouseMetadataColumn.apply(&quot;_part_index&quot;, org.apache.spark.sql.types.LongType, ClickHouseMetadataColumn.apply$default$3), ClickHouseMetadataColumn.apply(&quot;_part_uuid&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3), ClickHouseMetadataColumn.apply(&quot;_partition_id&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3), ClickHouseMetadataColumn.apply(&quot;_sample_factor&quot;, org.apache.spark.sql.types.DoubleType, ClickHouseMetadataColumn.apply$default$3), ClickHouseMetadataColumn.apply(&quot;_shard_num&quot;, org.apache.spark.sql.types.IntegerType, ClickHouseMetadataColumn.apply$default$3))((ClassTag.apply[org.apache.spark.sql.connector.catalog.MetadataColumn](classOf[org.apache.spark.sql.connector.catalog.MetadataColumn]): scala.reflect.ClassTag[org.apache.spark.sql.connector.catalog.MetadataColumn]))
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          1662
+        </td>
+        <td>
+          1310
+          -
+          1310
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          100
+        </td>
+        <td>
+          1300
+          -
+          1300
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_table&quot;
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          736
+        </td>
+        <td>
+          1299
+          -
+          1299
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_table&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          882
+        </td>
+        <td>
+          1351
+          -
+          1351
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_part&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          276
+        </td>
+        <td>
+          1352
+          -
+          1352
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_part&quot;
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1729
+        </td>
+        <td>
+          1361
+          -
+          1361
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1501
+        </td>
+        <td>
+          1418
+          -
+          1418
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          2334
+        </td>
+        <td>
+          1403
+          -
+          1403
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_part_index&quot;
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          964
+        </td>
+        <td>
+          1402
+          -
+          1402
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_part_index&quot;, org.apache.spark.sql.types.LongType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          59
+        </td>
+        <td>
+          1458
+          -
+          1458
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_part_uuid&quot;
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          696
+        </td>
+        <td>
+          1457
+          -
+          1457
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_part_uuid&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1664
+        </td>
+        <td>
+          1472
+          -
+          1472
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          846
+        </td>
+        <td>
+          1513
+          -
+          1513
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_partition_id&quot;, org.apache.spark.sql.types.StringType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1734
+        </td>
+        <td>
+          1531
+          -
+          1531
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StringType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StringType
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          235
+        </td>
+        <td>
+          1514
+          -
+          1514
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_partition_id&quot;
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          949
+        </td>
+        <td>
+          1572
+          -
+          1572
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_sample_factor&quot;, org.apache.spark.sql.types.DoubleType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          2339
+        </td>
+        <td>
+          1573
+          -
+          1573
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_sample_factor&quot;
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1442
+        </td>
+        <td>
+          1591
+          -
+          1591
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.DoubleType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.DoubleType
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          668
+        </td>
+        <td>
+          1632
+          -
+          1632
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.apply(&quot;_shard_num&quot;, org.apache.spark.sql.types.IntegerType, ClickHouseMetadataColumn.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          1633
+          -
+          1633
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;_shard_num&quot;
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1540
+        </td>
+        <td>
+          1647
+          -
+          1647
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.IntegerType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.IntegerType
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1425
+        </td>
+        <td>
+          1884
+          -
+          1884
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructField.apply(ClickHouseMetadataColumn.this.name, ClickHouseMetadataColumn.this.dataType, ClickHouseMetadataColumn.this.isNullable, org.apache.spark.sql.types.StructField.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1709
+        </td>
+        <td>
+          1885
+          -
+          1885
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.this.name
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          853
+        </td>
+        <td>
+          1891
+          -
+          1891
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.this.dataType
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          2348
+        </td>
+        <td>
+          1901
+          -
+          1901
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseMetadataColumn.isNullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseMetadataColumn.this.isNullable
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

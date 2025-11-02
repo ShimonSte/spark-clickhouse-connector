@@ -1,0 +1,1026 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/parse/SQLParser.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.parse
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.{ClickHouseSQLLexer, ClickHouseSQLParser, Logging}
+</span>18 <span style=''>import com.clickhouse.spark.expr.Expr
+</span>19 <span style=''>import com.clickhouse.spark.spec.TableEngineSpec
+</span>20 <span style=''>import org.antlr.v4.runtime._
+</span>21 <span style=''>import org.antlr.v4.runtime.atn.PredictionMode
+</span>22 <span style=''>import org.antlr.v4.runtime.misc.ParseCancellationException
+</span>23 <span style=''>import com.clickhouse.spark._
+</span>24 <span style=''>
+</span>25 <span style=''>class SQLParser(astVisitor: AstVisitor) extends Logging {
+</span>26 <span style=''>
+</span>27 <span style=''>  def parseColumnExpr(sql: String): Expr =
+</span>28 <span style=''>    parse(sql)(parser =&gt; astVisitor.visitColumnExpr(parser.columnExpr))
+</span>29 <span style=''>
+</span>30 <span style=''>  def parseEngineClause(sql: String): TableEngineSpec =
+</span>31 <span style=''>    parse(sql)(parser =&gt; astVisitor.visitEngineClause(parser.engineClause))
+</span>32 <span style=''>
+</span>33 <span style=''>  private def parse[T](sql: String)(toResult: ClickHouseSQLParser =&gt; T): T = {
+</span>34 <span style=''>
+</span>35 <span style=''>    log.debug(s&quot;Parsing SQL: $sql&quot;)
+</span>36 <span style=''>
+</span>37 <span style=''>    val lexer = new ClickHouseSQLLexer(CharStreams.fromString(sql))
+</span>38 <span style=''>    lexer.removeErrorListeners()
+</span>39 <span style=''>    lexer.addErrorListener(ParseErrorListener)
+</span>40 <span style=''>
+</span>41 <span style=''>    val tokenStream = new CommonTokenStream(lexer)
+</span>42 <span style=''>    val parser = new ClickHouseSQLParser(tokenStream)
+</span>43 <span style=''>    parser.removeErrorListeners()
+</span>44 <span style=''>    parser.addErrorListener(ParseErrorListener)
+</span>45 <span style=''>
+</span>46 <span style=''>    try
+</span>47 <span style=''>      try {
+</span>48 <span style=''>        // first, try parsing with potentially faster SLL mode
+</span>49 <span style=''>        parser.getInterpreter.setPredictionMode(PredictionMode.SLL)
+</span>50 <span style=''>        toResult(parser)
+</span>51 <span style=''>      } catch {
+</span>52 <span style=''>        case _: ParseCancellationException =&gt;
+</span>53 <span style=''>          // if we fail, parse with LL mode
+</span>54 <span style=''>          tokenStream.seek(0) // rewind input stream
+</span>55 <span style=''>          parser.reset()
+</span>56 <span style=''>
+</span>57 <span style=''>          // Try Again.
+</span>58 <span style=''>          parser.getInterpreter.setPredictionMode(PredictionMode.LL)
+</span>59 <span style=''>          toResult(parser)
+</span>60 <span style=''>      }
+</span>61 <span style=''>    catch {
+</span>62 <span style=''>      case rethrow: ParseException =&gt; throw rethrow
+</span>63 <span style=''>    }
+</span>64 <span style=''>  }
+</span>65 <span style=''>}
+</span>66 <span style=''>
+</span>67 <span style=''>object ParseErrorListener extends BaseErrorListener {
+</span>68 <span style=''>  override def syntaxError(
+</span>69 <span style=''>    recognizer: Recognizer[_, _],
+</span>70 <span style=''>    offendingSymbol: scala.Any,
+</span>71 <span style=''>    line: Int,
+</span>72 <span style=''>    charPositionInLine: Int,
+</span>73 <span style=''>    msg: String,
+</span>74 <span style=''>    e: RecognitionException
+</span>75 <span style=''>  ): Unit = {
+</span>76 <span style=''>    val (start, stop) = offendingSymbol match {
+</span>77 <span style=''>      case token: CommonToken =&gt;
+</span>78 <span style=''>        val start = Origin(Some(line), Some(token.getCharPositionInLine))
+</span>79 <span style=''>        val length = token.getStopIndex - token.getStartIndex + 1
+</span>80 <span style=''>        val stop = Origin(Some(line), Some(token.getCharPositionInLine + length))
+</span>81 <span style=''>        (start, stop)
+</span>82 <span style=''>      case _ =&gt;
+</span>83 <span style=''>        val start = Origin(Some(line), Some(charPositionInLine))
+</span>84 <span style=''>        (start, start)
+</span>85 <span style=''>    }
+</span>86 <span style=''>    throw ParseException(msg, start, stop)
+</span>87 <span style=''>  }
+</span>88 <span style=''>}
+</span>89 <span style=''>
+</span>90 <span style=''>case class ParseException(
+</span>91 <span style=''>  message: String,
+</span>92 <span style=''>  start: Origin,
+</span>93 <span style=''>  stop: Origin
+</span>94 <span style=''>) extends RuntimeException(message) {
+</span>95 <span style=''>
+</span>96 <span style=''>  def this(message: String, ctx: ParserRuleContext) =
+</span>97 <span style=''>    this(
+</span>98 <span style=''>      message,
+</span>99 <span style=''>      ParseUtils.position(ctx.getStart),
+</span>100 <span style=''>      ParseUtils.position(ctx.getStop)
+</span>101 <span style=''>    )
+</span>102 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          301
+        </td>
+        <td>
+          1087
+          -
+          1087
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitColumnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLParser.this.astVisitor.visitColumnExpr(parser.columnExpr())
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          715
+        </td>
+        <td>
+          1095
+          -
+          1095
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.columnExpr
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          parser.columnExpr()
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          1050
+          -
+          1050
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.SQLParser.parse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLParser.this.parse[com.clickhouse.spark.expr.Expr](sql)(((parser: com.clickhouse.spark.ClickHouseSQLParser) =&gt; SQLParser.this.astVisitor.visitColumnExpr(parser.columnExpr())))
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          346
+        </td>
+        <td>
+          1218
+          -
+          1218
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.AstVisitor.visitEngineClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SQLParser.this.astVisitor.visitEngineClause(parser.engineClause())
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          1056
+        </td>
+        <td>
+          1179
+          -
+          1179
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.SQLParser.parse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SQLParser.this.parse[com.clickhouse.spark.spec.TableEngineSpec](sql)(((parser: com.clickhouse.spark.ClickHouseSQLParser) =&gt; SQLParser.this.astVisitor.visitEngineClause(parser.engineClause())))
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          780
+        </td>
+        <td>
+          1226
+          -
+          1226
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.engineClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parser.engineClause()
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          638
+        </td>
+        <td>
+          1336
+          -
+          1336
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Parsing SQL: &quot;, &quot;&quot;).s(sql)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          467
+        </td>
+        <td>
+          1335
+          -
+          1335
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.debug
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          SQLParser.this.log.debug(scala.StringContext.apply(&quot;Parsing SQL: &quot;, &quot;&quot;).s(sql))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          1420
+          -
+          1420
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.CharStreams.fromString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          org.antlr.v4.runtime.CharStreams.fromString(sql)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          694
+        </td>
+        <td>
+          1375
+          -
+          1375
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLLexer.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new com.clickhouse.spark.ClickHouseSQLLexer(org.antlr.v4.runtime.CharStreams.fromString(sql))
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          303
+        </td>
+        <td>
+          1457
+          -
+          1457
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.Recognizer.removeErrorListeners
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lexer.removeErrorListeners()
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          122
+        </td>
+        <td>
+          1486
+          -
+          1486
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.Recognizer.addErrorListener
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          lexer.addErrorListener(ParseErrorListener)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          814
+        </td>
+        <td>
+          1530
+          -
+          1530
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.CommonTokenStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new org.antlr.v4.runtime.CommonTokenStream(lexer)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          348
+        </td>
+        <td>
+          1576
+          -
+          1576
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseSQLParser.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new com.clickhouse.spark.ClickHouseSQLParser(tokenStream)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          1037
+        </td>
+        <td>
+          1644
+          -
+          1644
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.Recognizer.removeErrorListeners
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parser.removeErrorListeners()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          676
+        </td>
+        <td>
+          1674
+          -
+          1674
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.Recognizer.addErrorListener
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parser.addErrorListener(ParseErrorListener)
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          695
+        </td>
+        <td>
+          1710
+          -
+          1710
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  parser.getInterpreter().setPredictionMode(SLL);
+  toResult.apply(parser)
+}
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          679
+        </td>
+        <td>
+          1710
+          -
+          1710
+        </td>
+        <td>
+          Try
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          try {
+  parser.getInterpreter().setPredictionMode(SLL);
+  toResult.apply(parser)
+} catch {
+  case (_: org.antlr.v4.runtime.misc.ParseCancellationException) =&gt; {
+    tokenStream.seek(0);
+    parser.reset();
+    parser.getInterpreter().setPredictionMode(LL);
+    toResult.apply(parser)
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          470
+        </td>
+        <td>
+          1826
+          -
+          1826
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.atn.ParserATNSimulator.setPredictionMode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          parser.getInterpreter().setPredictionMode(SLL)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          1863
+          -
+          1863
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          toResult.apply(parser)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1041
+        </td>
+        <td>
+          1931
+          -
+          1931
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  tokenStream.seek(0);
+  parser.reset();
+  parser.getInterpreter().setPredictionMode(LL);
+  toResult.apply(parser)
+}
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          286
+        </td>
+        <td>
+          2004
+          -
+          2004
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.BufferedTokenStream.seek
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tokenStream.seek(0)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          2053
+          -
+          2053
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.Parser.reset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          parser.reset()
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          816
+        </td>
+        <td>
+          2130
+          -
+          2130
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.atn.ParserATNSimulator.setPredictionMode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          parser.getInterpreter().setPredictionMode(LL)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          385
+        </td>
+        <td>
+          2168
+          -
+          2168
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          toResult.apply(parser)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          34
+        </td>
+        <td>
+          2235
+          -
+          2235
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw rethrow
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          446
+        </td>
+        <td>
+          2235
+          -
+          2235
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw rethrow
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          734
+        </td>
+        <td>
+          2522
+          -
+          2522
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          317
+        </td>
+        <td>
+          2529
+          -
+          2529
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1025
+        </td>
+        <td>
+          2952
+          -
+          2952
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw ParseException.apply(msg, start, stop)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          451
+        </td>
+        <td>
+          3173
+          -
+          3173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.ParseException.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ParseException.this.&lt;init&gt;(message, ParseUtils.position(ctx.getStart()), ParseUtils.position(ctx.getStop()))
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          3173
+          -
+          3173
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          388
+        </td>
+        <td>
+          3219
+          -
+          3219
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.ParseUtils.position
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ParseUtils.position(ctx.getStart())
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          800
+        </td>
+        <td>
+          3224
+          -
+          3224
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.ParserRuleContext.getStart
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.getStart()
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          660
+        </td>
+        <td>
+          3260
+          -
+          3260
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.ParseUtils.position
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ParseUtils.position(ctx.getStop())
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          1071
+        </td>
+        <td>
+          3265
+          -
+          3265
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.antlr.v4.runtime.ParserRuleContext.getStop
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ctx.getStop()
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

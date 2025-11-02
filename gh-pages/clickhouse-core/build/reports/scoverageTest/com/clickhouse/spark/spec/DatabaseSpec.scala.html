@@ -1,0 +1,513 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/spec/DatabaseSpec.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.spec
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.ToJson
+</span>18 <span style=''>
+</span>19 <span style=''>import java.util
+</span>20 <span style=''>import scala.collection.JavaConverters._
+</span>21 <span style=''>
+</span>22 <span style=''>case class DatabaseSpec(
+</span>23 <span style=''>  name: String,
+</span>24 <span style=''>  engine: String,
+</span>25 <span style=''>  data_path: String,
+</span>26 <span style=''>  metadata_path: String,
+</span>27 <span style=''>  uuid: String
+</span>28 <span style=''>) extends ToJson {
+</span>29 <span style=''>
+</span>30 <span style=''>  def toMap: Map[String, String] = Map(
+</span>31 <span style=''>    &quot;name&quot; </span><span style='background: #F0ADAD'>-&gt; name</span><span style=''>,
+</span>32 <span style=''>    &quot;engine&quot; </span><span style='background: #F0ADAD'>-&gt; engine</span><span style=''>,
+</span>33 <span style=''>    &quot;data_path&quot; </span><span style='background: #F0ADAD'>-&gt; data_path</span><span style=''>,
+</span>34 <span style=''>    &quot;metadata_path&quot; </span><span style='background: #F0ADAD'>-&gt; metadata_path</span><span style=''>,
+</span>35 <span style=''>    &quot;uuid&quot; </span><span style='background: #F0ADAD'>-&gt; uuid</span><span style=''>
+</span>36 <span style=''>  )
+</span>37 <span style=''>
+</span>38 <span style=''>  def toJavaMap: util.Map[String, String] = toMap.asJava
+</span>39 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          629
+        </td>
+        <td>
+          872
+          -
+          872
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Map.apply[String, String](scala.Predef.ArrowAssoc[String](&quot;name&quot;).-&gt;[String](DatabaseSpec.this.name), scala.Predef.ArrowAssoc[String](&quot;engine&quot;).-&gt;[String](DatabaseSpec.this.engine), scala.Predef.ArrowAssoc[String](&quot;data_path&quot;).-&gt;[String](DatabaseSpec.this.data_path), scala.Predef.ArrowAssoc[String](&quot;metadata_path&quot;).-&gt;[String](DatabaseSpec.this.metadata_path), scala.Predef.ArrowAssoc[String](&quot;uuid&quot;).-&gt;[String](DatabaseSpec.this.uuid))
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          736
+        </td>
+        <td>
+          878
+          -
+          878
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;name&quot;
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          1008
+        </td>
+        <td>
+          885
+          -
+          892
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;name&quot;).-&gt;[String](DatabaseSpec.this.name)
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          302
+        </td>
+        <td>
+          888
+          -
+          888
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DatabaseSpec.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DatabaseSpec.this.name
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          367
+        </td>
+        <td>
+          910
+          -
+          910
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DatabaseSpec.engine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DatabaseSpec.this.engine
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1036
+        </td>
+        <td>
+          907
+          -
+          916
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;engine&quot;).-&gt;[String](DatabaseSpec.this.engine)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          763
+        </td>
+        <td>
+          898
+          -
+          898
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;engine&quot;
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          17
+        </td>
+        <td>
+          934
+          -
+          946
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;data_path&quot;).-&gt;[String](DatabaseSpec.this.data_path)
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          639
+        </td>
+        <td>
+          922
+          -
+          922
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;data_path&quot;
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          429
+        </td>
+        <td>
+          937
+          -
+          937
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DatabaseSpec.data_path
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DatabaseSpec.this.data_path
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          285
+        </td>
+        <td>
+          971
+          -
+          971
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DatabaseSpec.metadata_path
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DatabaseSpec.this.metadata_path
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          739
+        </td>
+        <td>
+          952
+          -
+          952
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;metadata_path&quot;
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          975
+        </td>
+        <td>
+          968
+          -
+          984
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;metadata_path&quot;).-&gt;[String](DatabaseSpec.this.metadata_path)
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          756
+        </td>
+        <td>
+          990
+          -
+          990
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;uuid&quot;
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          372
+        </td>
+        <td>
+          1000
+          -
+          1000
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DatabaseSpec.uuid
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DatabaseSpec.this.uuid
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1039
+        </td>
+        <td>
+          997
+          -
+          1004
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;uuid&quot;).-&gt;[String](DatabaseSpec.this.uuid)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          276
+        </td>
+        <td>
+          1054
+          -
+          1054
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DatabaseSpec.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DatabaseSpec.this.toMap
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          3
+        </td>
+        <td>
+          1060
+          -
+          1060
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.mapAsJavaMapConverter[String, String](DatabaseSpec.this.toMap).asJava
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

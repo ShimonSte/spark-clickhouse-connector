@@ -1,0 +1,567 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/spec/TableEngineUtils.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.spec
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.spark.Logging
+</span>18 <span style=''>import com.clickhouse.spark.exception.CHClientException
+</span>19 <span style=''>import com.clickhouse.spark.parse.{ParseException, ParseUtils}
+</span>20 <span style=''>
+</span>21 <span style=''>object TableEngineUtils extends Logging {
+</span>22 <span style=''>
+</span>23 <span style=''>  def resolveTableEngine(tableSpec: TableSpec): TableEngineSpec = synchronized {
+</span>24 <span style=''>    try ParseUtils.parser.parseEngineClause(tableSpec.engine_full)
+</span>25 <span style=''>    catch {
+</span>26 <span style=''>      case cause: ParseException =&gt;
+</span>27 <span style=''>        log.warn(s&quot;Unknown table engine for table ${tableSpec.database}.${tableSpec.name}: ${tableSpec.engine_full}&quot;)
+</span>28 <span style=''>        UnknownTableEngineSpec(tableSpec.engine_full)
+</span>29 <span style=''>    }
+</span>30 <span style=''>  }
+</span>31 <span style=''>
+</span>32 <span style=''>  def resolveTableCluster(distributedEngineSpec: DistributedEngineSpec, clusterSpecs: Seq[ClusterSpec]): ClusterSpec =
+</span>33 <span style=''>    clusterSpecs.find(_.name </span><span style='background: #F0ADAD'>== distributedEngineSpec.cluster</span><span style=''>)
+</span>34 <span style=''>      .getOrElse(throw CHClientException(s&quot;Unknown cluster: ${distributedEngineSpec.cluster}&quot;))
+</span>35 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          845
+        </td>
+        <td>
+          877
+          -
+          877
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.synchronized
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableEngineUtils.this.synchronized[com.clickhouse.spark.spec.TableEngineSpec](try {
+  com.clickhouse.spark.parse.ParseUtils.parser.parseEngineClause(tableSpec.engine_full)
+} catch {
+  case (cause @ (_: com.clickhouse.spark.parse.ParseException)) =&gt; {
+    TableEngineUtils.this.log.warn(scala.StringContext.apply(&quot;Unknown table engine for table &quot;, &quot;.&quot;, &quot;: &quot;, &quot;&quot;).s(tableSpec.database, tableSpec.name, tableSpec.engine_full));
+    UnknownTableEngineSpec.apply(tableSpec.engine_full)
+  }
+})
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          947
+        </td>
+        <td>
+          933
+          -
+          933
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.engine_full
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableSpec.engine_full
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          922
+          -
+          922
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.parse.SQLParser.parseEngineClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.parse.ParseUtils.parser.parseEngineClause(tableSpec.engine_full)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          529
+        </td>
+        <td>
+          922
+          -
+          922
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.parse.SQLParser.parseEngineClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.parse.ParseUtils.parser.parseEngineClause(tableSpec.engine_full)
+        </td>
+      </tr><tr>
+        <td>
+          26
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          991
+          -
+          991
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  TableEngineUtils.this.log.warn(scala.StringContext.apply(&quot;Unknown table engine for table &quot;, &quot;.&quot;, &quot;: &quot;, &quot;&quot;).s(tableSpec.database, tableSpec.name, tableSpec.engine_full));
+  UnknownTableEngineSpec.apply(tableSpec.engine_full)
+}
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          433
+        </td>
+        <td>
+          1056
+          -
+          1056
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.database
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableSpec.database
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          1083
+          -
+          1083
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          229
+        </td>
+        <td>
+          1078
+          -
+          1078
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableSpec.name
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          1010
+          -
+          1010
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.warn
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          TableEngineUtils.this.log.warn(scala.StringContext.apply(&quot;Unknown table engine for table &quot;, &quot;.&quot;, &quot;: &quot;, &quot;&quot;).s(tableSpec.database, tableSpec.name, tableSpec.engine_full))
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          952
+        </td>
+        <td>
+          1097
+          -
+          1097
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.engine_full
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableSpec.engine_full
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          981
+        </td>
+        <td>
+          1013
+          -
+          1013
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Unknown table engine for table &quot;
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          604
+        </td>
+        <td>
+          1065
+          -
+          1065
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          867
+        </td>
+        <td>
+          1109
+          -
+          1109
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          511
+        </td>
+        <td>
+          1011
+          -
+          1011
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Unknown table engine for table &quot;, &quot;.&quot;, &quot;: &quot;, &quot;&quot;).s(tableSpec.database, tableSpec.name, tableSpec.engine_full)
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          608
+        </td>
+        <td>
+          1142
+          -
+          1142
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.UnknownTableEngineSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          UnknownTableEngineSpec.apply(tableSpec.engine_full)
+        </td>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          787
+        </td>
+        <td>
+          1153
+          -
+          1153
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.engine_full
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableSpec.engine_full
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          474
+        </td>
+        <td>
+          1350
+          -
+          1350
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec.cluster
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          distributedEngineSpec.cluster
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          232
+        </td>
+        <td>
+          1325
+          -
+          1357
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.name.==(distributedEngineSpec.cluster)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          908
+        </td>
+        <td>
+          1376
+          -
+          1376
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unknown cluster: &quot;, &quot;&quot;).s(distributedEngineSpec.cluster), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          495
+        </td>
+        <td>
+          1375
+          -
+          1375
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          clusterSpecs.find(((x$1: com.clickhouse.spark.spec.ClusterSpec) =&gt; x$1.name.==(distributedEngineSpec.cluster))).getOrElse[com.clickhouse.spark.spec.ClusterSpec](throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unknown cluster: &quot;, &quot;&quot;).s(distributedEngineSpec.cluster), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

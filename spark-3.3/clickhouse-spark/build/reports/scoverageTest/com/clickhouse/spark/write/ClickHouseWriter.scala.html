@@ -1,0 +1,5237 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/write/ClickHouseWriter.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.write
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.client.ClickHouseProtocol
+</span>18 <span style=''>import com.clickhouse.data.ClickHouseCompression
+</span>19 <span style=''>import org.apache.commons.io.IOUtils
+</span>20 <span style=''>import org.apache.spark.sql.catalyst.expressions.{BoundReference, Expression, SafeProjection}
+</span>21 <span style=''>import org.apache.spark.sql.catalyst.{expressions, InternalRow}
+</span>22 <span style=''>import org.apache.spark.sql.clickhouse.ExprUtils
+</span>23 <span style=''>import org.apache.spark.sql.connector.metric.CustomTaskMetric
+</span>24 <span style=''>import org.apache.spark.sql.connector.write.{DataWriter, WriterCommitMessage}
+</span>25 <span style=''>import org.apache.spark.sql.types._
+</span>26 <span style=''>import com.clickhouse.spark.Metrics._
+</span>27 <span style=''>import com.clickhouse.spark._
+</span>28 <span style=''>import com.clickhouse.spark.client.{ClusterClient, NodeClient}
+</span>29 <span style=''>import com.clickhouse.spark.exception._
+</span>30 <span style=''>import com.clickhouse.spark.io.{ForwardingOutputStream, ObservableOutputStream}
+</span>31 <span style=''>import com.clickhouse.spark.spec.{DistributedEngineSpec, ShardUtils}
+</span>32 <span style=''>
+</span>33 <span style=''>import java.io.{ByteArrayInputStream, ByteArrayOutputStream, OutputStream}
+</span>34 <span style=''>import java.util.concurrent.atomic.LongAdder
+</span>35 <span style=''>import scala.util.{Failure, Success}
+</span>36 <span style=''>
+</span>37 <span style=''>abstract class ClickHouseWriter(writeJob: WriteJobDescription)
+</span>38 <span style=''>    extends DataWriter[InternalRow] with Logging {
+</span>39 <span style=''>
+</span>40 <span style=''>  val database: String = writeJob.targetDatabase(writeJob.writeOptions.convertDistributedToLocal)
+</span>41 <span style=''>  val table: String = writeJob.targetTable(writeJob.writeOptions.convertDistributedToLocal)
+</span>42 <span style=''>  val codec: ClickHouseCompression = writeJob.writeOptions.compressionCodec
+</span>43 <span style=''>  val protocol: ClickHouseProtocol = writeJob.node.protocol
+</span>44 <span style=''>
+</span>45 <span style=''>  // ClickHouse is nullable sensitive, if the table column is not nullable, we need to cast the column
+</span>46 <span style=''>  // to be non-nullable forcibly.
+</span>47 <span style=''>  protected val revisedDataSchema: StructType = StructType(
+</span>48 <span style=''>    writeJob.dataSetSchema.map { field =&gt;
+</span>49 <span style=''>      writeJob.tableSchema.find(_.name == field.name) match {
+</span>50 <span style=''>        case Some(tableField) if !tableField.nullable </span><span style='background: #F0ADAD'>&amp;&amp;</span><span style=''> field.nullable =&gt; field.copy(nullable = false)
+</span>51 <span style=''>        case _ =&gt; field
+</span>52 <span style=''>      }
+</span>53 <span style=''>    }
+</span>54 <span style=''>  )
+</span>55 <span style=''>
+</span>56 <span style=''>  protected lazy val shardExpr: Option[Expression] = writeJob.sparkShardExpr match {
+</span>57 <span style=''>    case None =&gt; None
+</span>58 <span style=''>    case Some(v2Expr) =&gt;
+</span>59 <span style=''>      val catalystExpr = ExprUtils.toCatalyst(v2Expr, writeJob.dataSetSchema.fields)
+</span>60 <span style=''>      catalystExpr match {
+</span>61 <span style=''>        case BoundReference(_, dataType, _)
+</span>62 <span style=''>            if dataType.isInstanceOf[ByteType] // list all integral types here because we can not access `IntegralType`
+</span>63 <span style=''>              || dataType.isInstanceOf[ShortType]
+</span>64 <span style=''>              || dataType.isInstanceOf[IntegerType]
+</span>65 <span style=''>              || dataType.isInstanceOf[LongType] =&gt;
+</span>66 <span style=''>          Some(catalystExpr)
+</span>67 <span style=''>        case BoundReference(_, dataType, _) =&gt;
+</span>68 <span style=''>          throw CHClientException(s&quot;Invalid data type of sharding field: $dataType&quot;)
+</span>69 <span style=''>        case unsupported: Expression =&gt;
+</span>70 <span style=''>          log.warn(s&quot;Unsupported expression of sharding field: $unsupported&quot;)
+</span>71 <span style=''>          None
+</span>72 <span style=''>      }
+</span>73 <span style=''>  }
+</span>74 <span style=''>
+</span>75 <span style=''>  protected lazy val shardProjection: Option[expressions.Projection] = shardExpr
+</span>76 <span style=''>    .filter(_ =&gt; writeJob.writeOptions.convertDistributedToLocal)
+</span>77 <span style=''>    .map(expr =&gt; SafeProjection.create(Seq(expr)))
+</span>78 <span style=''>
+</span>79 <span style=''>  // put the node select strategy in executor side because we need to calculate shard and don't know the records
+</span>80 <span style=''>  // util DataWriter#write(InternalRow) invoked.
+</span>81 <span style=''>  protected lazy val client: Either[ClusterClient, NodeClient] =
+</span>82 <span style=''>    writeJob.tableEngineSpec match {
+</span>83 <span style=''>      case _: DistributedEngineSpec
+</span>84 <span style=''>          if writeJob.writeOptions.useClusterNodesForDistributed || writeJob.writeOptions.convertDistributedToLocal =&gt;
+</span>85 <span style=''>        val clusterSpec = writeJob.cluster.get
+</span>86 <span style=''>        log.info(s&quot;Connect to cluster ${clusterSpec.name}, which has ${clusterSpec.shards.length} shards and &quot; +
+</span>87 <span style=''>          s&quot;${clusterSpec.nodes.length} nodes.&quot;)
+</span>88 <span style=''>        Left(ClusterClient(clusterSpec))
+</span>89 <span style=''>      case _ =&gt;
+</span>90 <span style=''>        val nodeSpec = writeJob.node
+</span>91 <span style=''>        log.info(s&quot;Connect to single node: $nodeSpec&quot;)
+</span>92 <span style=''>        Right(NodeClient(nodeSpec))
+</span>93 <span style=''>    }
+</span>94 <span style=''>
+</span>95 <span style=''>  def nodeClient(shardNum: Option[Int]): NodeClient = client match {
+</span>96 <span style=''>    case Left(clusterClient) =&gt; clusterClient.node(shardNum)
+</span>97 <span style=''>    case Right(nodeClient) =&gt; nodeClient
+</span>98 <span style=''>  }
+</span>99 <span style=''>
+</span>100 <span style=''>  def calcShard(record: InternalRow): Option[Int] = (shardExpr, shardProjection) match {
+</span>101 <span style=''>    case (Some(BoundReference(_, dataType, _)), Some(projection)) =&gt;
+</span>102 <span style=''>      val shardValue = dataType match {
+</span>103 <span style=''>        case ByteType =&gt; Some(projection(record).getByte(0).toLong)
+</span>104 <span style=''>        case ShortType =&gt; Some(projection(record).getShort(0).toLong)
+</span>105 <span style=''>        case IntegerType =&gt; Some(projection(record).getInt(0).toLong)
+</span>106 <span style=''>        case LongType =&gt; Some(projection(record).getLong(0))
+</span>107 <span style=''>        case _ =&gt; None
+</span>108 <span style=''>      }
+</span>109 <span style=''>      shardValue.map(value =&gt; ShardUtils.calcShard(writeJob.cluster.get, value).num)
+</span>110 <span style=''>    case _ =&gt; None
+</span>111 <span style=''>  }
+</span>112 <span style=''>
+</span>113 <span style=''>  val _currentBufferedRows = new LongAdder
+</span>114 <span style=''>  def currentBufferedRows: Long = _currentBufferedRows.longValue
+</span>115 <span style=''>  val _totalRecordsWritten = new LongAdder
+</span>116 <span style=''>  def totalRecordsWritten: Long = _totalRecordsWritten.longValue
+</span>117 <span style=''>  val _currentRawBytesWritten = new LongAdder
+</span>118 <span style=''>  def currentBufferedRawBytes: Long = _currentRawBytesWritten.longValue
+</span>119 <span style=''>  val _totalRawBytesWritten = new LongAdder
+</span>120 <span style=''>  def totalRawBytesWritten: Long = _totalRawBytesWritten.longValue
+</span>121 <span style=''>  val _lastSerializedBytesWritten = new LongAdder
+</span>122 <span style=''>  def lastSerializedBytesWritten: Long = _lastSerializedBytesWritten.longValue
+</span>123 <span style=''>  val _totalSerializedBytesWritten = new LongAdder
+</span>124 <span style=''>  def totalSerializedBytesWritten: Long = _totalSerializedBytesWritten.longValue
+</span>125 <span style=''>  val _lastSerializeTime = new LongAdder
+</span>126 <span style=''>  def lastSerializeTime: Long = _lastSerializeTime.longValue
+</span>127 <span style=''>  val _totalSerializeTime = new LongAdder
+</span>128 <span style=''>  def totalSerializeTime: Long = _totalSerializeTime.longValue
+</span>129 <span style=''>  val _totalWriteTime = new LongAdder
+</span>130 <span style=''>  def totalWriteTime: Long = _totalWriteTime.longValue
+</span>131 <span style=''>
+</span>132 <span style=''>  val serializedBuffer = new ByteArrayOutputStream(64 * 1024 * 1024)
+</span>133 <span style=''>
+</span>134 <span style=''>  // it is not accurate when using http protocol, because we delegate compression to
+</span>135 <span style=''>  // clickhouse http client
+</span>136 <span style=''>  private val observableSerializedOutput = new ObservableOutputStream(
+</span>137 <span style=''>    serializedBuffer,
+</span>138 <span style=''>    Some(_lastSerializedBytesWritten),
+</span>139 <span style=''>    Some(_totalSerializedBytesWritten)
+</span>140 <span style=''>  )
+</span>141 <span style=''>
+</span>142 <span style=''>  private val compressedForwardingOutput = new ForwardingOutputStream()
+</span>143 <span style=''>
+</span>144 <span style=''>  private val observableCompressedOutput = new ObservableOutputStream(
+</span>145 <span style=''>    compressedForwardingOutput,
+</span>146 <span style=''>    Some(_currentRawBytesWritten),
+</span>147 <span style=''>    Some(_totalRawBytesWritten),
+</span>148 <span style=''>    Some(_lastSerializeTime),
+</span>149 <span style=''>    Some(_totalSerializeTime)
+</span>150 <span style=''>  )
+</span>151 <span style=''>
+</span>152 <span style=''>  def output: OutputStream = observableCompressedOutput
+</span>153 <span style=''>
+</span>154 <span style=''>  private def renewCompressedOutput(): Unit = {
+</span>155 <span style=''>    val compressedOutput = (codec, protocol) match {
+</span>156 <span style=''>      case (ClickHouseCompression.NONE, _) =&gt; observableSerializedOutput
+</span>157 <span style=''>      case (ClickHouseCompression.LZ4, ClickHouseProtocol.HTTP) =&gt;
+</span>158 <span style=''>        // clickhouse http client forces compressed output stream
+</span>159 <span style=''>        // new Lz4OutputStream(observableSerializedOutput, 4 * 1024 * 1024, null)
+</span>160 <span style=''>        observableSerializedOutput
+</span>161 <span style=''>      case unsupported =&gt;
+</span>162 <span style=''>        throw CHClientException(s&quot;unsupported compression codec: $unsupported&quot;)
+</span>163 <span style=''>    }
+</span>164 <span style=''>    compressedForwardingOutput.updateDelegate(compressedOutput)
+</span>165 <span style=''>  }
+</span>166 <span style=''>
+</span>167 <span style=''>  renewCompressedOutput()
+</span>168 <span style=''>
+</span>169 <span style=''>  override def currentMetricsValues: Array[CustomTaskMetric] = Array(
+</span>170 <span style=''>    TaskMetric(RECORDS_WRITTEN, totalRecordsWritten),
+</span>171 <span style=''>    TaskMetric(BYTES_WRITTEN, totalSerializedBytesWritten),
+</span>172 <span style=''>    TaskMetric(SERIALIZE_TIME, totalSerializeTime),
+</span>173 <span style=''>    TaskMetric(WRITE_TIME, totalWriteTime)
+</span>174 <span style=''>  )
+</span>175 <span style=''>
+</span>176 <span style=''>  def format: String
+</span>177 <span style=''>
+</span>178 <span style=''>  var currentShardNum: Option[Int] = None
+</span>179 <span style=''>
+</span>180 <span style=''>  override def write(record: InternalRow): Unit = {
+</span>181 <span style=''>    val shardNum = calcShard(record)
+</span>182 <span style=''>    flush(force = shardNum </span><span style='background: #F0ADAD'>!= currentShardNum &amp;&amp; currentBufferedRows &gt;</span><span style=''> 0, currentShardNum)
+</span>183 <span style=''>    currentShardNum = shardNum
+</span>184 <span style=''>    val (_, serializedTime) = Utils.timeTakenMs(writeRow(record))
+</span>185 <span style=''>    _lastSerializeTime.add(serializedTime)
+</span>186 <span style=''>    _totalSerializeTime.add(serializedTime)
+</span>187 <span style=''>    _currentBufferedRows.add(1)
+</span>188 <span style=''>    flush(force = false, currentShardNum)
+</span>189 <span style=''>  }
+</span>190 <span style=''>
+</span>191 <span style=''>  def writeRow(record: InternalRow): Unit
+</span>192 <span style=''>
+</span>193 <span style=''>  def serialize(): Array[Byte] = {
+</span>194 <span style=''>    val (data, serializedTime) = Utils.timeTakenMs(doSerialize())
+</span>195 <span style=''>    _lastSerializeTime.add(serializedTime)
+</span>196 <span style=''>    _totalSerializeTime.add(serializedTime)
+</span>197 <span style=''>    data
+</span>198 <span style=''>  }
+</span>199 <span style=''>
+</span>200 <span style=''>  def doSerialize(): Array[Byte]
+</span>201 <span style=''>
+</span>202 <span style=''>  def reset(): Unit = {
+</span>203 <span style=''>    _currentBufferedRows.reset()
+</span>204 <span style=''>    _currentRawBytesWritten.reset()
+</span>205 <span style=''>    _lastSerializedBytesWritten.reset()
+</span>206 <span style=''>    _lastSerializeTime.reset()
+</span>207 <span style=''>    currentShardNum = None
+</span>208 <span style=''>    serializedBuffer.reset()
+</span>209 <span style=''>    renewCompressedOutput()
+</span>210 <span style=''>  }
+</span>211 <span style=''>
+</span>212 <span style=''>  def flush(force: Boolean, shardNum: Option[Int]): Unit =
+</span>213 <span style=''>    if (force) {
+</span>214 <span style=''>      doFlush(shardNum)
+</span>215 <span style=''>    } else if (currentBufferedRows </span><span style='background: #F0ADAD'>&gt;=</span><span style=''> writeJob.writeOptions.batchSize) {
+</span>216 <span style=''>      doFlush(shardNum)
+</span>217 <span style=''>    }
+</span>218 <span style=''>
+</span>219 <span style=''>  def doFlush(shardNum: Option[Int]): Unit = {
+</span>220 <span style=''>    val client = nodeClient(shardNum)
+</span>221 <span style=''>    val data = serialize()
+</span>222 <span style=''>    var writeTime = 0L
+</span>223 <span style=''>    Utils.retry[Unit, RetryableCHException](
+</span>224 <span style=''>      writeJob.writeOptions.maxRetry,
+</span>225 <span style=''>      writeJob.writeOptions.retryInterval
+</span>226 <span style=''>    ) {
+</span>227 <span style=''>      var startWriteTime = System.currentTimeMillis
+</span>228 <span style=''>      client.syncInsertOutputJSONEachRow(database, table, format, codec, new ByteArrayInputStream(data)) match {
+</span>229 <span style=''>        case Right(_) =&gt;
+</span>230 <span style=''>          writeTime = System.currentTimeMillis </span><span style='background: #F0ADAD'>-</span><span style=''> startWriteTime
+</span>231 <span style=''>          _totalWriteTime.add(writeTime)
+</span>232 <span style=''>          _totalRecordsWritten.add(currentBufferedRows)
+</span>233 <span style=''>        case Left(retryable) if writeJob.writeOptions.retryableErrorCodes.contains(retryable.code) =&gt;
+</span>234 <span style=''>          startWriteTime = System.currentTimeMillis
+</span>235 <span style=''>          throw RetryableCHException(retryable.code, retryable.reason, Some(client.nodeSpec))
+</span>236 <span style=''>        case Left(rethrow) =&gt; throw rethrow
+</span>237 <span style=''>      }
+</span>238 <span style=''>    } match {
+</span>239 <span style=''>      case Success(_) =&gt;
+</span>240 <span style=''>        log.info(
+</span>241 <span style=''>          s&quot;&quot;&quot;Job[${writeJob.queryId}]: batch write completed
+</span>242 <span style=''>             |cluster: ${writeJob.cluster.map(_.name).getOrElse(&quot;none&quot;)}, shard: ${shardNum.getOrElse(&quot;none&quot;)}
+</span>243 <span style=''>             |node: ${client.nodeSpec}
+</span>244 <span style=''>             |        row count: $currentBufferedRows
+</span>245 <span style=''>             |         raw size: ${Utils.bytesToString(currentBufferedRawBytes)}
+</span>246 <span style=''>             |           format: $format
+</span>247 <span style=''>             |compression codec: $codec
+</span>248 <span style=''>             |  serialized size: ${Utils.bytesToString(lastSerializedBytesWritten)}
+</span>249 <span style=''>             |   serialize time: ${lastSerializeTime}ms
+</span>250 <span style=''>             |       write time: ${writeTime}ms
+</span>251 <span style=''>             |&quot;&quot;&quot;.stripMargin
+</span>252 <span style=''>        )
+</span>253 <span style=''>        reset()
+</span>254 <span style=''>      case Failure(rethrow) =&gt; throw rethrow
+</span>255 <span style=''>    }
+</span>256 <span style=''>  }
+</span>257 <span style=''>
+</span>258 <span style=''>  override def commit(): WriterCommitMessage = {
+</span>259 <span style=''>    flush(currentBufferedRows </span><span style='background: #F0ADAD'>&gt;</span><span style=''> 0, currentShardNum)
+</span>260 <span style=''>    CommitMessage(s&quot;Job[${writeJob.queryId}]: commit&quot;)
+</span>261 <span style=''>  }
+</span>262 <span style=''>
+</span>263 <span style=''>  override def abort(): Unit = {}
+</span>264 <span style=''>
+</span>265 <span style=''>  override def close(): Unit = {
+</span>266 <span style=''>    IOUtils.closeQuietly(output)
+</span>267 <span style=''>    client match {
+</span>268 <span style=''>      case Left(clusterClient) =&gt; clusterClient.close()
+</span>269 <span style=''>      case Right(nodeClient) =&gt; nodeClient.close()
+</span>270 <span style=''>    }
+</span>271 <span style=''>  }
+</span>272 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          465
+        </td>
+        <td>
+          1759
+          -
+          1759
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.targetDatabase
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.targetDatabase(ClickHouseWriter.this.writeJob.writeOptions.convertDistributedToLocal)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1403
+        </td>
+        <td>
+          1782
+          -
+          1782
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.WriteOptions.convertDistributedToLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.writeOptions.convertDistributedToLocal
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1479
+        </td>
+        <td>
+          1851
+          -
+          1851
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.targetTable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.targetTable(ClickHouseWriter.this.writeJob.writeOptions.convertDistributedToLocal)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1956
+        </td>
+        <td>
+          1874
+          -
+          1874
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.WriteOptions.convertDistributedToLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.writeOptions.convertDistributedToLocal
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          621
+        </td>
+        <td>
+          1960
+          -
+          1960
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.WriteOptions.compressionCodec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.writeOptions.compressionCodec
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          2026
+        </td>
+        <td>
+          2028
+          -
+          2028
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.NodeSpec.protocol
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.node.protocol
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1993
+        </td>
+        <td>
+          2233
+          -
+          2233
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.StructType.apply(ClickHouseWriter.this.writeJob.dataSetSchema.map[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](((field: org.apache.spark.sql.types.StructField) =&gt; ClickHouseWriter.this.writeJob.tableSchema.find(((x$1: org.apache.spark.sql.types.StructField) =&gt; x$1.name.==(field.name))) match {
+  case (value: org.apache.spark.sql.types.StructField)Some[org.apache.spark.sql.types.StructField]((tableField @ _)) if tableField.nullable.unary_!.&amp;&amp;(field.nullable) =&gt; {
+    &lt;artifact&gt; val x$1: Boolean = false;
+    &lt;artifact&gt; val x$2: String = field.copy$default$1;
+    &lt;artifact&gt; val x$3: org.apache.spark.sql.types.DataType = field.copy$default$2;
+    &lt;artifact&gt; val x$4: org.apache.spark.sql.types.Metadata = field.copy$default$4;
+    field.copy(x$2, x$3, x$1, x$4)
+  }
+  case _ =&gt; field
+}))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          627
+        </td>
+        <td>
+          2266
+          -
+          2266
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.dataSetSchema.map[org.apache.spark.sql.types.StructField, Seq[org.apache.spark.sql.types.StructField]](((field: org.apache.spark.sql.types.StructField) =&gt; ClickHouseWriter.this.writeJob.tableSchema.find(((x$1: org.apache.spark.sql.types.StructField) =&gt; x$1.name.==(field.name))) match {
+  case (value: org.apache.spark.sql.types.StructField)Some[org.apache.spark.sql.types.StructField]((tableField @ _)) if tableField.nullable.unary_!.&amp;&amp;(field.nullable) =&gt; {
+    &lt;artifact&gt; val x$1: Boolean = false;
+    &lt;artifact&gt; val x$2: String = field.copy$default$1;
+    &lt;artifact&gt; val x$3: org.apache.spark.sql.types.DataType = field.copy$default$2;
+    &lt;artifact&gt; val x$4: org.apache.spark.sql.types.Metadata = field.copy$default$4;
+    field.copy(x$2, x$3, x$1, x$4)
+  }
+  case _ =&gt; field
+}))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField])
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1041
+        </td>
+        <td>
+          2266
+          -
+          2266
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.types.StructField]
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          469
+        </td>
+        <td>
+          2424
+          -
+          2424
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  &lt;artifact&gt; val x$1: Boolean = false;
+  &lt;artifact&gt; val x$2: String = field.copy$default$1;
+  &lt;artifact&gt; val x$3: org.apache.spark.sql.types.DataType = field.copy$default$2;
+  &lt;artifact&gt; val x$4: org.apache.spark.sql.types.Metadata = field.copy$default$4;
+  field.copy(x$2, x$3, x$1, x$4)
+}
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          391
+        </td>
+        <td>
+          2393
+          -
+          2395
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableField.nullable.unary_!.&amp;&amp;(field.nullable)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1320
+        </td>
+        <td>
+          2424
+          -
+          2424
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          field.copy(x$2, x$3, x$1, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2187
+        </td>
+        <td>
+          2436
+          -
+          2436
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1239
+        </td>
+        <td>
+          2402
+          -
+          2402
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.nullable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          field.nullable
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1960
+        </td>
+        <td>
+          2461
+          -
+          2461
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.field
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          field
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          330
+        </td>
+        <td>
+          4493
+          -
+          4493
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.client.ClusterClient.node
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          clusterClient.node(shardNum, clusterClient.node$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1193
+        </td>
+        <td>
+          4493
+          -
+          4493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.ClusterClient.node
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          clusterClient.node(shardNum, clusterClient.node$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          2140
+        </td>
+        <td>
+          4534
+          -
+          4534
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1043
+        </td>
+        <td>
+          4777
+          -
+          4777
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](projection.apply(record).getByte(0).toLong)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          430
+        </td>
+        <td>
+          4808
+          -
+          4808
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Byte.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          projection.apply(record).getByte(0).toLong
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1394
+        </td>
+        <td>
+          4805
+          -
+          4805
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          1923
+        </td>
+        <td>
+          4777
+          -
+          4777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](projection.apply(record).getByte(0).toLong)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          292
+        </td>
+        <td>
+          4846
+          -
+          4846
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](projection.apply(record).getShort(0).toLong)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          588
+        </td>
+        <td>
+          4875
+          -
+          4875
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1140
+        </td>
+        <td>
+          4846
+          -
+          4846
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](projection.apply(record).getShort(0).toLong)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          2103
+        </td>
+        <td>
+          4878
+          -
+          4878
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Short.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          projection.apply(record).getShort(0).toLong
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1955
+        </td>
+        <td>
+          4918
+          -
+          4918
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](projection.apply(record).getInt(0).toLong)
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          2149
+        </td>
+        <td>
+          4945
+          -
+          4945
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          1401
+        </td>
+        <td>
+          4948
+          -
+          4948
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Int.toLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          projection.apply(record).getInt(0).toLong
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          553
+        </td>
+        <td>
+          4918
+          -
+          4918
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](projection.apply(record).getInt(0).toLong)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1003
+        </td>
+        <td>
+          5012
+          -
+          5012
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.expressions.SpecializedGetters.getLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          projection.apply(record).getLong(0)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          662
+        </td>
+        <td>
+          4985
+          -
+          4985
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](projection.apply(record).getLong(0))
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          2109
+        </td>
+        <td>
+          4985
+          -
+          4985
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](projection.apply(record).getLong(0))
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          1270
+        </td>
+        <td>
+          5035
+          -
+          5035
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          389
+        </td>
+        <td>
+          5035
+          -
+          5035
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1363
+        </td>
+        <td>
+          5128
+          -
+          5128
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ShardSpec.num
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.ShardUtils.calcShard(ClickHouseWriter.this.writeJob.cluster.get, value).num
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1721
+        </td>
+        <td>
+          5116
+          -
+          5116
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Option.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.cluster.get
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          556
+        </td>
+        <td>
+          5068
+          -
+          5068
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          shardValue.map[Int](((value: Long) =&gt; com.clickhouse.spark.spec.ShardUtils.calcShard(ClickHouseWriter.this.writeJob.cluster.get, value).num))
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1918
+        </td>
+        <td>
+          5147
+          -
+          5147
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1084
+        </td>
+        <td>
+          5186
+          -
+          5186
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.concurrent.atomic.LongAdder()
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          666
+        </td>
+        <td>
+          5255
+          -
+          5255
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.longValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._currentBufferedRows.longValue()
+        </td>
+      </tr><tr>
+        <td>
+          115
+        </td>
+        <td>
+          2067
+        </td>
+        <td>
+          5294
+          -
+          5294
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.concurrent.atomic.LongAdder()
+        </td>
+      </tr><tr>
+        <td>
+          116
+        </td>
+        <td>
+          1190
+        </td>
+        <td>
+          5363
+          -
+          5363
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.longValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalRecordsWritten.longValue()
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          364
+        </td>
+        <td>
+          5405
+          -
+          5405
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.concurrent.atomic.LongAdder()
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          1747
+        </td>
+        <td>
+          5481
+          -
+          5481
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.longValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._currentRawBytesWritten.longValue()
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          1367
+        </td>
+        <td>
+          5521
+          -
+          5521
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.concurrent.atomic.LongAdder()
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          521
+        </td>
+        <td>
+          5592
+          -
+          5592
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.longValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalRawBytesWritten.longValue()
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          1921
+        </td>
+        <td>
+          5638
+          -
+          5638
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.concurrent.atomic.LongAdder()
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          1085
+        </td>
+        <td>
+          5721
+          -
+          5721
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.longValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._lastSerializedBytesWritten.longValue()
+        </td>
+      </tr><tr>
+        <td>
+          123
+        </td>
+        <td>
+          586
+        </td>
+        <td>
+          5768
+          -
+          5768
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.concurrent.atomic.LongAdder()
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          2075
+        </td>
+        <td>
+          5853
+          -
+          5853
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.longValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalSerializedBytesWritten.longValue()
+        </td>
+      </tr><tr>
+        <td>
+          125
+        </td>
+        <td>
+          1159
+        </td>
+        <td>
+          5890
+          -
+          5890
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.concurrent.atomic.LongAdder()
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          369
+        </td>
+        <td>
+          5955
+          -
+          5955
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.longValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._lastSerializeTime.longValue()
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1752
+        </td>
+        <td>
+          5993
+          -
+          5993
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.concurrent.atomic.LongAdder()
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          1297
+        </td>
+        <td>
+          6060
+          -
+          6060
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.longValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalSerializeTime.longValue()
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          444
+        </td>
+        <td>
+          6094
+          -
+          6094
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.util.concurrent.atomic.LongAdder()
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          1885
+        </td>
+        <td>
+          6153
+          -
+          6153
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.longValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalWriteTime.longValue()
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          1072
+        </td>
+        <td>
+          6189
+          -
+          6189
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ByteArrayOutputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.ByteArrayOutputStream(67108864)
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          1303
+        </td>
+        <td>
+          6390
+          -
+          6390
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.io.ObservableOutputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.io.ObservableOutputStream(ClickHouseWriter.this.serializedBuffer, scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._lastSerializedBytesWritten), scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._totalSerializedBytesWritten), io.this.ObservableOutputStream.&lt;init&gt;$default$4, io.this.ObservableOutputStream.&lt;init&gt;$default$5)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          177
+        </td>
+        <td>
+          6422
+          -
+          6422
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.serializedBuffer
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.serializedBuffer
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1999
+        </td>
+        <td>
+          6449
+          -
+          6449
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter._lastSerializedBytesWritten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._lastSerializedBytesWritten
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1161
+        </td>
+        <td>
+          6448
+          -
+          6448
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._lastSerializedBytesWritten)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          1719
+        </td>
+        <td>
+          6487
+          -
+          6487
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._totalSerializedBytesWritten)
+        </td>
+      </tr><tr>
+        <td>
+          139
+        </td>
+        <td>
+          373
+        </td>
+        <td>
+          6488
+          -
+          6488
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter._totalSerializedBytesWritten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalSerializedBytesWritten
+        </td>
+      </tr><tr>
+        <td>
+          142
+        </td>
+        <td>
+          511
+        </td>
+        <td>
+          6566
+          -
+          6566
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.io.ForwardingOutputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.io.ForwardingOutputStream(io.this.ForwardingOutputStream.&lt;init&gt;$default$1)
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          1980
+        </td>
+        <td>
+          6639
+          -
+          6639
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.io.ObservableOutputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.io.ObservableOutputStream(ClickHouseWriter.this.compressedForwardingOutput, scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._currentRawBytesWritten), scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._totalRawBytesWritten), scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._lastSerializeTime), scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._totalSerializeTime))
+        </td>
+      </tr><tr>
+        <td>
+          145
+        </td>
+        <td>
+          1890
+        </td>
+        <td>
+          6671
+          -
+          6671
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.compressedForwardingOutput
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.compressedForwardingOutput
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          1007
+        </td>
+        <td>
+          6708
+          -
+          6708
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter._currentRawBytesWritten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._currentRawBytesWritten
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          153
+        </td>
+        <td>
+          6707
+          -
+          6707
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._currentRawBytesWritten)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          1273
+        </td>
+        <td>
+          6742
+          -
+          6742
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._totalRawBytesWritten)
+        </td>
+      </tr><tr>
+        <td>
+          147
+        </td>
+        <td>
+          2065
+        </td>
+        <td>
+          6743
+          -
+          6743
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter._totalRawBytesWritten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalRawBytesWritten
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          341
+        </td>
+        <td>
+          6776
+          -
+          6776
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter._lastSerializeTime
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._lastSerializeTime
+        </td>
+      </tr><tr>
+        <td>
+          148
+        </td>
+        <td>
+          1723
+        </td>
+        <td>
+          6775
+          -
+          6775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._lastSerializeTime)
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          860
+        </td>
+        <td>
+          6806
+          -
+          6806
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter._totalSerializeTime
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalSerializeTime
+        </td>
+      </tr><tr>
+        <td>
+          149
+        </td>
+        <td>
+          519
+        </td>
+        <td>
+          6805
+          -
+          6805
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[java.util.concurrent.atomic.LongAdder](ClickHouseWriter.this._totalSerializeTime)
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          1116
+        </td>
+        <td>
+          6861
+          -
+          6861
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.observableCompressedOutput
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.observableCompressedOutput
+        </td>
+      </tr><tr>
+        <td>
+          156
+        </td>
+        <td>
+          159
+        </td>
+        <td>
+          7036
+          -
+          7036
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.observableSerializedOutput
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.observableSerializedOutput
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          2029
+        </td>
+        <td>
+          7286
+          -
+          7286
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.observableSerializedOutput
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.observableSerializedOutput
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          1245
+        </td>
+        <td>
+          7347
+          -
+          7347
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;unsupported compression codec: &quot;, &quot;&quot;).s(unsupported), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          164
+        </td>
+        <td>
+          366
+        </td>
+        <td>
+          7470
+          -
+          7470
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.io.ForwardingOutputStream.updateDelegate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.compressedForwardingOutput.updateDelegate(compressedOutput)
+        </td>
+      </tr><tr>
+        <td>
+          167
+        </td>
+        <td>
+          1822
+        </td>
+        <td>
+          7517
+          -
+          7517
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.renewCompressedOutput
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.renewCompressedOutput()
+        </td>
+      </tr><tr>
+        <td>
+          169
+        </td>
+        <td>
+          1047
+        </td>
+        <td>
+          7589
+          -
+          7589
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[org.apache.spark.sql.connector.metric.CustomTaskMetric](com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.RECORDS_WRITTEN, ClickHouseWriter.this.totalRecordsWritten), com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.BYTES_WRITTEN, ClickHouseWriter.this.totalSerializedBytesWritten), com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.SERIALIZE_TIME, ClickHouseWriter.this.totalSerializeTime), com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.WRITE_TIME, ClickHouseWriter.this.totalWriteTime))((ClassTag.apply[org.apache.spark.sql.connector.metric.CustomTaskMetric](classOf[org.apache.spark.sql.connector.metric.CustomTaskMetric]): scala.reflect.ClassTag[org.apache.spark.sql.connector.metric.CustomTaskMetric]))
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          1964
+        </td>
+        <td>
+          7605
+          -
+          7605
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.TaskMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.RECORDS_WRITTEN, ClickHouseWriter.this.totalRecordsWritten)
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          926
+        </td>
+        <td>
+          7606
+          -
+          7606
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.RECORDS_WRITTEN
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Metrics.RECORDS_WRITTEN
+        </td>
+      </tr><tr>
+        <td>
+          170
+        </td>
+        <td>
+          526
+        </td>
+        <td>
+          7623
+          -
+          7623
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.totalRecordsWritten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.totalRecordsWritten
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          1070
+        </td>
+        <td>
+          7660
+          -
+          7660
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.BYTES_WRITTEN
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Metrics.BYTES_WRITTEN
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          261
+        </td>
+        <td>
+          7675
+          -
+          7675
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.totalSerializedBytesWritten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.totalSerializedBytesWritten
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          2034
+        </td>
+        <td>
+          7659
+          -
+          7659
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.TaskMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.BYTES_WRITTEN, ClickHouseWriter.this.totalSerializedBytesWritten)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          334
+        </td>
+        <td>
+          7736
+          -
+          7736
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.totalSerializeTime
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.totalSerializeTime
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          1251
+        </td>
+        <td>
+          7720
+          -
+          7720
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.SERIALIZE_TIME
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Metrics.SERIALIZE_TIME
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          1767
+        </td>
+        <td>
+          7719
+          -
+          7719
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.TaskMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.SERIALIZE_TIME, ClickHouseWriter.this.totalSerializeTime)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          895
+        </td>
+        <td>
+          7772
+          -
+          7772
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.WRITE_TIME
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Metrics.WRITE_TIME
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          1888
+        </td>
+        <td>
+          7771
+          -
+          7771
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.TaskMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.TaskMetric.apply(com.clickhouse.spark.Metrics.WRITE_TIME, ClickHouseWriter.this.totalWriteTime)
+        </td>
+      </tr><tr>
+        <td>
+          173
+        </td>
+        <td>
+          482
+        </td>
+        <td>
+          7784
+          -
+          7784
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.totalWriteTime
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.totalWriteTime
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          7864
+          -
+          7864
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          1660
+        </td>
+        <td>
+          7950
+          -
+          7950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.calcShard
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.calcShard(record)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          1754
+        </td>
+        <td>
+          7986
+          -
+          8029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          shardNum.!=(ClickHouseWriter.this.currentShardNum).&amp;&amp;(ClickHouseWriter.this.currentBufferedRows.&gt;(0))
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          339
+        </td>
+        <td>
+          8028
+          -
+          8029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentBufferedRows.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          488
+        </td>
+        <td>
+          7968
+          -
+          7968
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.flush
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.flush(shardNum.!=(ClickHouseWriter.this.currentShardNum).&amp;&amp;(ClickHouseWriter.this.currentBufferedRows.&gt;(0)), ClickHouseWriter.this.currentShardNum)
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          1208
+        </td>
+        <td>
+          7989
+          -
+          7989
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.currentShardNum
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentShardNum
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          858
+        </td>
+        <td>
+          8033
+          -
+          8033
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.currentShardNum
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentShardNum
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          1858
+        </td>
+        <td>
+          8070
+          -
+          8070
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.currentShardNum_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentShardNum_=(shardNum)
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          1569
+        </td>
+        <td>
+          8089
+          -
+          8089
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.serializedTime
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          serializedTime
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          1051
+        </td>
+        <td>
+          8137
+          -
+          8137
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.writeRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeRow(record)
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          156
+        </td>
+        <td>
+          8128
+          -
+          8128
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.timeTakenMs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.timeTakenMs[Unit](ClickHouseWriter.this.writeRow(record))
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          1144
+        </td>
+        <td>
+          8173
+          -
+          8173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._lastSerializeTime.add(serializedTime)
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          299
+        </td>
+        <td>
+          8217
+          -
+          8217
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalSerializeTime.add(serializedTime)
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          1820
+        </td>
+        <td>
+          8262
+          -
+          8262
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._currentBufferedRows.add(1L)
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          559
+        </td>
+        <td>
+          8291
+          -
+          8291
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.currentShardNum
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentShardNum
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          1861
+        </td>
+        <td>
+          8275
+          -
+          8275
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.flush
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.flush(false, ClickHouseWriter.this.currentShardNum)
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          861
+        </td>
+        <td>
+          8284
+          -
+          8284
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          258
+        </td>
+        <td>
+          8406
+          -
+          8406
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$3._2
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          1014
+        </td>
+        <td>
+          8400
+          -
+          8400
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$3._1
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          1570
+        </td>
+        <td>
+          8483
+          -
+          8483
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._lastSerializeTime.add(serializedTime)
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          1197
+        </td>
+        <td>
+          8527
+          -
+          8527
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalSerializeTime.add(serializedTime)
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          305
+        </td>
+        <td>
+          8646
+          -
+          8646
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.reset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._currentBufferedRows.reset()
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          1826
+        </td>
+        <td>
+          8682
+          -
+          8682
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.reset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._currentRawBytesWritten.reset()
+        </td>
+      </tr><tr>
+        <td>
+          205
+        </td>
+        <td>
+          971
+        </td>
+        <td>
+          8722
+          -
+          8722
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.reset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._lastSerializedBytesWritten.reset()
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          108
+        </td>
+        <td>
+          8753
+          -
+          8753
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.reset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._lastSerializeTime.reset()
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1022
+        </td>
+        <td>
+          8776
+          -
+          8776
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.currentShardNum_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentShardNum_=(scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1927
+        </td>
+        <td>
+          8778
+          -
+          8778
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          263
+        </td>
+        <td>
+          8809
+          -
+          8809
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ByteArrayOutputStream.reset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.serializedBuffer.reset()
+        </td>
+      </tr><tr>
+        <td>
+          209
+        </td>
+        <td>
+          1692
+        </td>
+        <td>
+          8837
+          -
+          8837
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.renewCompressedOutput
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.renewCompressedOutput()
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          1205
+        </td>
+        <td>
+          8934
+          -
+          8934
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.doFlush
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.doFlush(shardNum)
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          398
+        </td>
+        <td>
+          8934
+          -
+          8934
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.doFlush
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.doFlush(shardNum)
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          1791
+        </td>
+        <td>
+          9005
+          -
+          9005
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.WriteOptions.batchSize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.writeOptions.batchSize
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          1049
+        </td>
+        <td>
+          8956
+          -
+          8956
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          220
+        </td>
+        <td>
+          8956
+          -
+          8956
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          1621
+        </td>
+        <td>
+          8956
+          -
+          8956
+        </td>
+        <td>
+          If
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          if (ClickHouseWriter.this.currentBufferedRows.&gt;=(ClickHouseWriter.this.writeJob.writeOptions.batchSize))
+  ClickHouseWriter.this.doFlush(shardNum)
+else
+  ()
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          975
+        </td>
+        <td>
+          8980
+          -
+          8982
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&gt;=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentBufferedRows.&gt;=(ClickHouseWriter.this.writeJob.writeOptions.batchSize)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1934
+        </td>
+        <td>
+          9031
+          -
+          9031
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.doFlush
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.doFlush(shardNum)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          9031
+          -
+          9031
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.doFlush
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.doFlush(shardNum)
+        </td>
+      </tr><tr>
+        <td>
+          220
+        </td>
+        <td>
+          801
+        </td>
+        <td>
+          9123
+          -
+          9123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.nodeClient(shardNum)
+        </td>
+      </tr><tr>
+        <td>
+          221
+        </td>
+        <td>
+          379
+        </td>
+        <td>
+          9158
+          -
+          9158
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.serialize
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.serialize()
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          1756
+        </td>
+        <td>
+          9181
+          -
+          9181
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          937
+        </td>
+        <td>
+          9257
+          -
+          9257
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.WriteOptions.maxRetry
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.writeOptions.maxRetry
+        </td>
+      </tr><tr>
+        <td>
+          225
+        </td>
+        <td>
+          76
+        </td>
+        <td>
+          9295
+          -
+          9295
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.WriteOptions.retryInterval
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.writeOptions.retryInterval
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          1125
+        </td>
+        <td>
+          9315
+          -
+          9315
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.retry
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.retry[Unit, com.clickhouse.spark.exception.RetryableCHException](ClickHouseWriter.this.writeJob.writeOptions.maxRetry, ClickHouseWriter.this.writeJob.writeOptions.retryInterval)({
+  var startWriteTime: Long = java.lang.System.currentTimeMillis();
+  client.syncInsertOutputJSONEachRow(ClickHouseWriter.this.database, ClickHouseWriter.this.table, ClickHouseWriter.this.format, ClickHouseWriter.this.codec, new java.io.ByteArrayInputStream(data), client.syncInsertOutputJSONEachRow$default$6) match {
+    case (value: com.clickhouse.spark.format.SimpleOutput[com.fasterxml.jackson.databind.node.ObjectNode])scala.util.Right[com.clickhouse.spark.exception.CHException,com.clickhouse.spark.format.SimpleOutput[com.fasterxml.jackson.databind.node.ObjectNode]](_) =&gt; {
+      writeTime = java.lang.System.currentTimeMillis().-(startWriteTime);
+      ClickHouseWriter.this._totalWriteTime.add(writeTime);
+      ClickHouseWriter.this._totalRecordsWritten.add(ClickHouseWriter.this.currentBufferedRows)
+    }
+    case (value: com.clickhouse.spark.exception.CHException)scala.util.Left[com.clickhouse.spark.exception.CHException,com.clickhouse.spark.format.SimpleOutput[com.fasterxml.jackson.databind.node.ObjectNode]]((retryable @ _)) if ClickHouseWriter.this.writeJob.writeOptions.retryableErrorCodes.contains[Int](retryable.code) =&gt; {
+      startWriteTime = java.lang.System.currentTimeMillis();
+      throw com.clickhouse.spark.exception.RetryableCHException.apply(retryable.code, retryable.reason, scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](client.nodeSpec), com.clickhouse.spark.exception.RetryableCHException.apply$default$4)
+    }
+    case (value: com.clickhouse.spark.exception.CHException)scala.util.Left[com.clickhouse.spark.exception.CHException,com.clickhouse.spark.format.SimpleOutput[com.fasterxml.jackson.databind.node.ObjectNode]]((rethrow @ _)) =&gt; throw rethrow
+  }
+})((ClassTag.apply[com.clickhouse.spark.exception.RetryableCHException](classOf[com.clickhouse.spark.exception.RetryableCHException]): scala.reflect.ClassTag[com.clickhouse.spark.exception.RetryableCHException]))
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          1940
+        </td>
+        <td>
+          9351
+          -
+          9351
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.currentTimeMillis
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.lang.System.currentTimeMillis()
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          182
+        </td>
+        <td>
+          9420
+          -
+          9420
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.table
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.table
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          1013
+        </td>
+        <td>
+          9410
+          -
+          9410
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.database
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.database
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          1727
+        </td>
+        <td>
+          9409
+          -
+          9409
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncInsertOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          client.syncInsertOutputJSONEachRow(ClickHouseWriter.this.database, ClickHouseWriter.this.table, ClickHouseWriter.this.format, ClickHouseWriter.this.codec, new java.io.ByteArrayInputStream(data), client.syncInsertOutputJSONEachRow$default$6)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          303
+        </td>
+        <td>
+          9442
+          -
+          9442
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.ByteArrayInputStream.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.ByteArrayInputStream(data)
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          1594
+        </td>
+        <td>
+          9427
+          -
+          9427
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.format
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.format
+        </td>
+      </tr><tr>
+        <td>
+          228
+        </td>
+        <td>
+          807
+        </td>
+        <td>
+          9435
+          -
+          9435
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.codec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.codec
+        </td>
+      </tr><tr>
+        <td>
+          229
+        </td>
+        <td>
+          164
+        </td>
+        <td>
+          9504
+          -
+          9504
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  writeTime = java.lang.System.currentTimeMillis().-(startWriteTime);
+  ClickHouseWriter.this._totalWriteTime.add(writeTime);
+  ClickHouseWriter.this._totalRecordsWritten.add(ClickHouseWriter.this.currentBufferedRows)
+}
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          968
+        </td>
+        <td>
+          9554
+          -
+          9555
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.lang.System.currentTimeMillis().-(startWriteTime)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          9600
+          -
+          9600
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalWriteTime.add(writeTime)
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          1018
+        </td>
+        <td>
+          9646
+          -
+          9646
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.atomic.LongAdder.add
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this._totalRecordsWritten.add(ClickHouseWriter.this.currentBufferedRows)
+        </td>
+      </tr><tr>
+        <td>
+          232
+        </td>
+        <td>
+          1902
+        </td>
+        <td>
+          9647
+          -
+          9647
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.currentBufferedRows
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentBufferedRows
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          1689
+        </td>
+        <td>
+          9761
+          -
+          9761
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.exception.CHException.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          retryable.code
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          932
+        </td>
+        <td>
+          9767
+          -
+          9767
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  startWriteTime = java.lang.System.currentTimeMillis();
+  throw com.clickhouse.spark.exception.RetryableCHException.apply(retryable.code, retryable.reason, scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](client.nodeSpec), com.clickhouse.spark.exception.RetryableCHException.apply$default$4)
+}
+        </td>
+      </tr><tr>
+        <td>
+          233
+        </td>
+        <td>
+          812
+        </td>
+        <td>
+          9750
+          -
+          9750
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.writeOptions.retryableErrorCodes.contains[Int](retryable.code)
+        </td>
+      </tr><tr>
+        <td>
+          234
+        </td>
+        <td>
+          417
+        </td>
+        <td>
+          9804
+          -
+          9804
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.currentTimeMillis
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.lang.System.currentTimeMillis()
+        </td>
+      </tr><tr>
+        <td>
+          235
+        </td>
+        <td>
+          1734
+        </td>
+        <td>
+          9832
+          -
+          9832
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.RetryableCHException.apply(retryable.code, retryable.reason, scala.Some.apply[com.clickhouse.spark.spec.NodeSpec](client.nodeSpec), com.clickhouse.spark.exception.RetryableCHException.apply$default$4)
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          133
+        </td>
+        <td>
+          9946
+          -
+          9946
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw rethrow
+        </td>
+      </tr><tr>
+        <td>
+          236
+        </td>
+        <td>
+          1453
+        </td>
+        <td>
+          9946
+          -
+          9946
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw rethrow
+        </td>
+      </tr><tr>
+        <td>
+          239
+        </td>
+        <td>
+          1633
+        </td>
+        <td>
+          10004
+          -
+          10004
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ClickHouseWriter.this.log.info(scala.Predef.augmentString(scala.StringContext.apply(&quot;Job[&quot;, &quot;]: batch write completed\n             |cluster: &quot;, &quot;, shard: &quot;, &quot;\n             |node: &quot;, &quot;\n             |        row count: &quot;, &quot;\n             |         raw size: &quot;, &quot;\n             |           format: &quot;, &quot;\n             |compression codec: &quot;, &quot;\n             |  serialized size: &quot;, &quot;\n             |   serialize time: &quot;, &quot;ms\n             |       write time: &quot;, &quot;ms\n             |&quot;).s(ClickHouseWriter.this.writeJob.queryId, ClickHouseWriter.this.writeJob.cluster.map[String](((x$4: com.clickhouse.spark.spec.ClusterSpec) =&gt; x$4.name)).getOrElse[String](&quot;none&quot;), shardNum.getOrElse[Any](&quot;none&quot;), client.nodeSpec, ClickHouseWriter.this.currentBufferedRows, com.clickhouse.spark.Utils.bytesToString(ClickHouseWriter.this.currentBufferedRawBytes), ClickHouseWriter.this.format, ClickHouseWriter.this.codec, com.clickhouse.spark.Utils.bytesToString(ClickHouseWriter.this.lastSerializedBytesWritten), ClickHouseWriter.this.lastSerializeTime, writeTime)).stripMargin);
+  ClickHouseWriter.this.reset()
+}
+        </td>
+      </tr><tr>
+        <td>
+          240
+        </td>
+        <td>
+          1060
+        </td>
+        <td>
+          10023
+          -
+          10023
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.log.info(scala.Predef.augmentString(scala.StringContext.apply(&quot;Job[&quot;, &quot;]: batch write completed\n             |cluster: &quot;, &quot;, shard: &quot;, &quot;\n             |node: &quot;, &quot;\n             |        row count: &quot;, &quot;\n             |         raw size: &quot;, &quot;\n             |           format: &quot;, &quot;\n             |compression codec: &quot;, &quot;\n             |  serialized size: &quot;, &quot;\n             |   serialize time: &quot;, &quot;ms\n             |       write time: &quot;, &quot;ms\n             |&quot;).s(ClickHouseWriter.this.writeJob.queryId, ClickHouseWriter.this.writeJob.cluster.map[String](((x$4: com.clickhouse.spark.spec.ClusterSpec) =&gt; x$4.name)).getOrElse[String](&quot;none&quot;), shardNum.getOrElse[Any](&quot;none&quot;), client.nodeSpec, ClickHouseWriter.this.currentBufferedRows, com.clickhouse.spark.Utils.bytesToString(ClickHouseWriter.this.currentBufferedRawBytes), ClickHouseWriter.this.format, ClickHouseWriter.this.codec, com.clickhouse.spark.Utils.bytesToString(ClickHouseWriter.this.lastSerializedBytesWritten), ClickHouseWriter.this.lastSerializeTime, writeTime)).stripMargin)
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          1695
+        </td>
+        <td>
+          10062
+          -
+          10062
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]: batch write completed\n             |cluster: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          343
+        </td>
+        <td>
+          10054
+          -
+          10054
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.queryId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.queryId
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          217
+        </td>
+        <td>
+          10039
+          -
+          10039
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Job[&quot;
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          39
+        </td>
+        <td>
+          10035
+          -
+          10035
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Job[&quot;, &quot;]: batch write completed\n             |cluster: &quot;, &quot;, shard: &quot;, &quot;\n             |node: &quot;, &quot;\n             |        row count: &quot;, &quot;\n             |         raw size: &quot;, &quot;\n             |           format: &quot;, &quot;\n             |compression codec: &quot;, &quot;\n             |  serialized size: &quot;, &quot;\n             |   serialize time: &quot;, &quot;ms\n             |       write time: &quot;, &quot;ms\n             |&quot;).s(ClickHouseWriter.this.writeJob.queryId, ClickHouseWriter.this.writeJob.cluster.map[String](((x$4: com.clickhouse.spark.spec.ClusterSpec) =&gt; x$4.name)).getOrElse[String](&quot;none&quot;), shardNum.getOrElse[Any](&quot;none&quot;), client.nodeSpec, ClickHouseWriter.this.currentBufferedRows, com.clickhouse.spark.Utils.bytesToString(ClickHouseWriter.this.currentBufferedRawBytes), ClickHouseWriter.this.format, ClickHouseWriter.this.codec, com.clickhouse.spark.Utils.bytesToString(ClickHouseWriter.this.lastSerializedBytesWritten), ClickHouseWriter.this.lastSerializeTime, writeTime)
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          846
+        </td>
+        <td>
+          10159
+          -
+          10159
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;, shard: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          1842
+        </td>
+        <td>
+          10150
+          -
+          10150
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.cluster.map[String](((x$4: com.clickhouse.spark.spec.ClusterSpec) =&gt; x$4.name)).getOrElse[String](&quot;none&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          941
+        </td>
+        <td>
+          10188
+          -
+          10188
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          shardNum.getOrElse[Any](&quot;none&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          420
+        </td>
+        <td>
+          10197
+          -
+          10197
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\n             |node: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          1834
+        </td>
+        <td>
+          10236
+          -
+          10236
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\n             |        row count: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          243
+        </td>
+        <td>
+          117
+        </td>
+        <td>
+          10227
+          -
+          10227
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.nodeSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          client.nodeSpec
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          935
+        </td>
+        <td>
+          10290
+          -
+          10290
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\n             |         raw size: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          244
+        </td>
+        <td>
+          1533
+        </td>
+        <td>
+          10271
+          -
+          10271
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.currentBufferedRows
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentBufferedRows
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          1055
+        </td>
+        <td>
+          10346
+          -
+          10346
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.currentBufferedRawBytes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentBufferedRawBytes
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          135
+        </td>
+        <td>
+          10371
+          -
+          10371
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\n             |           format: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          245
+        </td>
+        <td>
+          197
+        </td>
+        <td>
+          10345
+          -
+          10345
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.bytesToString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.bytesToString(ClickHouseWriter.this.currentBufferedRawBytes)
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          1670
+        </td>
+        <td>
+          10406
+          -
+          10406
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.format
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.format
+        </td>
+      </tr><tr>
+        <td>
+          246
+        </td>
+        <td>
+          1531
+        </td>
+        <td>
+          10412
+          -
+          10412
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\n             |compression codec: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          767
+        </td>
+        <td>
+          10447
+          -
+          10447
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.codec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.codec
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          1131
+        </td>
+        <td>
+          10452
+          -
+          10452
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\n             |  serialized size: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          196
+        </td>
+        <td>
+          10536
+          -
+          10536
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\n             |   serialize time: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          2226
+        </td>
+        <td>
+          10508
+          -
+          10508
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.lastSerializedBytesWritten
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.lastSerializedBytesWritten
+        </td>
+      </tr><tr>
+        <td>
+          248
+        </td>
+        <td>
+          1825
+        </td>
+        <td>
+          10507
+          -
+          10507
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.bytesToString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.bytesToString(ClickHouseWriter.this.lastSerializedBytesWritten)
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1665
+        </td>
+        <td>
+          10590
+          -
+          10590
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ms\n             |       write time: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          904
+        </td>
+        <td>
+          10572
+          -
+          10572
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.lastSerializeTime
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.lastSerializeTime
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          805
+        </td>
+        <td>
+          10638
+          -
+          10638
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ms\n             |&quot;
+        </td>
+      </tr><tr>
+        <td>
+          251
+        </td>
+        <td>
+          1498
+        </td>
+        <td>
+          10659
+          -
+          10659
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripMargin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(scala.StringContext.apply(&quot;Job[&quot;, &quot;]: batch write completed\n             |cluster: &quot;, &quot;, shard: &quot;, &quot;\n             |node: &quot;, &quot;\n             |        row count: &quot;, &quot;\n             |         raw size: &quot;, &quot;\n             |           format: &quot;, &quot;\n             |compression codec: &quot;, &quot;\n             |  serialized size: &quot;, &quot;\n             |   serialize time: &quot;, &quot;ms\n             |       write time: &quot;, &quot;ms\n             |&quot;).s(ClickHouseWriter.this.writeJob.queryId, ClickHouseWriter.this.writeJob.cluster.map[String](((x$4: com.clickhouse.spark.spec.ClusterSpec) =&gt; x$4.name)).getOrElse[String](&quot;none&quot;), shardNum.getOrElse[Any](&quot;none&quot;), client.nodeSpec, ClickHouseWriter.this.currentBufferedRows, com.clickhouse.spark.Utils.bytesToString(ClickHouseWriter.this.currentBufferedRawBytes), ClickHouseWriter.this.format, ClickHouseWriter.this.codec, com.clickhouse.spark.Utils.bytesToString(ClickHouseWriter.this.lastSerializedBytesWritten), ClickHouseWriter.this.lastSerializeTime, writeTime)).stripMargin
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          10694
+          -
+          10694
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.reset
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.reset()
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          769
+        </td>
+        <td>
+          10728
+          -
+          10728
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw rethrow
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          2204
+        </td>
+        <td>
+          10728
+          -
+          10728
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw rethrow
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          13
+        </td>
+        <td>
+          10811
+          -
+          10811
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.flush
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.flush(ClickHouseWriter.this.currentBufferedRows.&gt;(0), ClickHouseWriter.this.currentShardNum)
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          1831
+        </td>
+        <td>
+          10832
+          -
+          10833
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentBufferedRows.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          259
+        </td>
+        <td>
+          867
+        </td>
+        <td>
+          10837
+          -
+          10837
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.currentShardNum
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.currentShardNum
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1662
+        </td>
+        <td>
+          10872
+          -
+          10872
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Job[&quot;, &quot;]: commit&quot;).s(ClickHouseWriter.this.writeJob.queryId)
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          271
+        </td>
+        <td>
+          10889
+          -
+          10889
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.queryId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.writeJob.queryId
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          1503
+        </td>
+        <td>
+          10874
+          -
+          10874
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Job[&quot;
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          605
+        </td>
+        <td>
+          10897
+          -
+          10897
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]: commit&quot;
+        </td>
+      </tr><tr>
+        <td>
+          260
+        </td>
+        <td>
+          733
+        </td>
+        <td>
+          10871
+          -
+          10871
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.CommitMessage.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.CommitMessage.apply(scala.StringContext.apply(&quot;Job[&quot;, &quot;]: commit&quot;).s(ClickHouseWriter.this.writeJob.queryId))
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          2207
+        </td>
+        <td>
+          10945
+          -
+          10945
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          983
+        </td>
+        <td>
+          11006
+          -
+          11006
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.commons.io.IOUtils.closeQuietly
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.commons.io.IOUtils.closeQuietly(ClickHouseWriter.this.output)
+        </td>
+      </tr><tr>
+        <td>
+          266
+        </td>
+        <td>
+          1840
+        </td>
+        <td>
+          11007
+          -
+          11007
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriter.output
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriter.this.output
+        </td>
+      </tr><tr>
+        <td>
+          268
+        </td>
+        <td>
+          1459
+        </td>
+        <td>
+          11087
+          -
+          11087
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.client.ClusterClient.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          clusterClient.close()
+        </td>
+      </tr><tr>
+        <td>
+          268
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          11087
+          -
+          11087
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.ClusterClient.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          clusterClient.close()
+        </td>
+      </tr><tr>
+        <td>
+          269
+        </td>
+        <td>
+          707
+        </td>
+        <td>
+          11138
+          -
+          11138
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.close()
+        </td>
+      </tr><tr>
+        <td>
+          269
+        </td>
+        <td>
+          278
+        </td>
+        <td>
+          11138
+          -
+          11138
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.close()
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

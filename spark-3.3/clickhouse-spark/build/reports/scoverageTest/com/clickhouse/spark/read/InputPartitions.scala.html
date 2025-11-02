@@ -1,0 +1,698 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/read/InputPartitions.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.read
+</span>16 <span style=''>
+</span>17 <span style=''>import org.apache.spark.sql.connector.read.InputPartition
+</span>18 <span style=''>import org.apache.spark.sql.connector.read.partitioning.Partitioning
+</span>19 <span style=''>import com.clickhouse.spark.spec._
+</span>20 <span style=''>
+</span>21 <span style=''>case class ClickHousePartitioning(inputParts: Array[ClickHouseInputPartition]) extends Partitioning {
+</span>22 <span style=''>
+</span>23 <span style=''>  override def numPartitions(): Int = inputParts.length
+</span>24 <span style=''>
+</span>25 <span style=''>}
+</span>26 <span style=''>
+</span>27 <span style=''>case class ClickHouseInputPartition(
+</span>28 <span style=''>  table: TableSpec,
+</span>29 <span style=''>  partition: PartitionSpec,
+</span>30 <span style=''>  filterByPartitionId: Boolean,
+</span>31 <span style=''>  candidateNodes: Nodes, // try to use them only when preferredNode unavailable
+</span>32 <span style=''>  preferredNode: Option[NodeSpec] = None // TODO assigned by ScanBuilder in Spark Driver side
+</span>33 <span style=''>) extends InputPartition {
+</span>34 <span style=''>
+</span>35 <span style=''>  override def preferredLocations(): Array[String] = preferredNode match {
+</span>36 <span style=''>    case Some(preferred) =&gt; Array(preferred.host)
+</span>37 <span style=''>    case None =&gt; candidateNodes.nodes.map(_.host)
+</span>38 <span style=''>  }
+</span>39 <span style=''>
+</span>40 <span style=''>  def partFilterExpr: String = partition match {
+</span>41 <span style=''>    case NoPartitionSpec =&gt; &quot;1=1&quot;
+</span>42 <span style=''>    case PartitionSpec(_, partitionId, _, _) if filterByPartitionId =&gt;
+</span>43 <span style=''>      s&quot;_partition_id = '$partitionId'&quot;
+</span>44 <span style=''>    case PartitionSpec(partitionValue, _, _, _) =&gt;
+</span>45 <span style=''>      s&quot;${table.partition_key} = ${compilePartitionFilterValue(partitionValue)}&quot;
+</span>46 <span style=''>  }
+</span>47 <span style=''>
+</span>48 <span style=''>  // TODO improve and test
+</span>49 <span style=''>  def compilePartitionFilterValue(partitionValue: String): String =
+</span>50 <span style=''>    (partitionValue.contains(&quot;-&quot;), partitionValue.contains(&quot;(&quot;)) match {
+</span>51 <span style=''>      // quote when partition by a single Date Type column to avoid illegal types of arguments (Date, Int64)
+</span>52 <span style=''>      case (true, false) =&gt; s&quot;'$partitionValue'&quot;
+</span>53 <span style=''>      // Date type column is quoted if there are multi partition columns
+</span>54 <span style=''>      case _ =&gt; s&quot;$partitionValue&quot;
+</span>55 <span style=''>    }
+</span>56 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          2009
+        </td>
+        <td>
+          914
+          -
+          914
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHousePartitioning.this.inputParts.length
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1155
+        </td>
+        <td>
+          1297
+          -
+          1297
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseInputPartition.preferredNode
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseInputPartition.this.preferredNode
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          759
+        </td>
+        <td>
+          1363
+          -
+          1363
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.NodeSpec.host
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          preferred.host
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          2246
+        </td>
+        <td>
+          1352
+          -
+          1352
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[String](preferred.host)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1295
+        </td>
+        <td>
+          1352
+          -
+          1352
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[String](preferred.host)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1492
+        </td>
+        <td>
+          1410
+          -
+          1410
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          687
+        </td>
+        <td>
+          1410
+          -
+          1410
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[com.clickhouse.spark.spec.NodeSpec](ClickHouseInputPartition.this.candidateNodes.nodes).map[String, Array[String]](((x$1: com.clickhouse.spark.spec.NodeSpec) =&gt; x$1.host))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1996
+        </td>
+        <td>
+          1410
+          -
+          1410
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[com.clickhouse.spark.spec.NodeSpec](ClickHouseInputPartition.this.candidateNodes.nodes).map[String, Array[String]](((x$1: com.clickhouse.spark.spec.NodeSpec) =&gt; x$1.host))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          548
+        </td>
+        <td>
+          1401
+          -
+          1401
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.Nodes.nodes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseInputPartition.this.candidateNodes.nodes
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          6
+        </td>
+        <td>
+          1413
+          -
+          1413
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.NodeSpec.host
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.host
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1267
+        </td>
+        <td>
+          1455
+          -
+          1455
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseInputPartition.partition
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseInputPartition.this.partition
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          2250
+        </td>
+        <td>
+          1501
+          -
+          1501
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;1=1&quot;
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          724
+        </td>
+        <td>
+          1501
+          -
+          1501
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;1=1&quot;
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1299
+        </td>
+        <td>
+          1555
+          -
+          1555
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseInputPartition.filterByPartitionId
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseInputPartition.this.filterByPartitionId
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          1584
+          -
+          1584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;_partition_id = \'&quot;, &quot;\'&quot;).s(partitionId)
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          105
+        </td>
+        <td>
+          1584
+          -
+          1584
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;_partition_id = \'&quot;, &quot;\'&quot;).s(partitionId)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1548
+        </td>
+        <td>
+          1677
+          -
+          1677
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          692
+        </td>
+        <td>
+          1699
+          -
+          1699
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; = &quot;
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          829
+        </td>
+        <td>
+          1731
+          -
+          1731
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.read.ClickHouseInputPartition.compilePartitionFilterValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseInputPartition.this.compilePartitionFilterValue(partitionValue)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          2058
+        </td>
+        <td>
+          1748
+          -
+          1748
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1406
+        </td>
+        <td>
+          1675
+          -
+          1675
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; = &quot;, &quot;&quot;).s(ClickHouseInputPartition.this.table.partition_key, ClickHouseInputPartition.this.compilePartitionFilterValue(partitionValue))
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          2252
+        </td>
+        <td>
+          1675
+          -
+          1675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; = &quot;, &quot;&quot;).s(ClickHouseInputPartition.this.table.partition_key, ClickHouseInputPartition.this.compilePartitionFilterValue(partitionValue))
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1235
+        </td>
+        <td>
+          1685
+          -
+          1685
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.partition_key
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseInputPartition.this.table.partition_key
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          513
+        </td>
+        <td>
+          2060
+          -
+          2060
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(partitionValue)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1957
+        </td>
+        <td>
+          2170
+          -
+          2170
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;&quot;).s(partitionValue)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

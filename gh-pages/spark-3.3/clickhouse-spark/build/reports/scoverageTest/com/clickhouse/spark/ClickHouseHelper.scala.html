@@ -1,0 +1,6062 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/ClickHouseHelper.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.client.ClickHouseProtocol
+</span>18 <span style=''>import com.fasterxml.jackson.databind.JsonNode
+</span>19 <span style=''>import com.fasterxml.jackson.databind.node.NullNode
+</span>20 <span style=''>import org.apache.spark.sql.catalyst.analysis.{NoSuchNamespaceException, NoSuchTableException}
+</span>21 <span style=''>import org.apache.spark.sql.clickhouse.SchemaUtils
+</span>22 <span style=''>import org.apache.spark.sql.connector.catalog.Identifier
+</span>23 <span style=''>import org.apache.spark.sql.types.StructType
+</span>24 <span style=''>import org.apache.spark.sql.util.CaseInsensitiveStringMap
+</span>25 <span style=''>import com.clickhouse.spark.Constants._
+</span>26 <span style=''>import com.clickhouse.spark.Utils.dateTimeFmt
+</span>27 <span style=''>import com.clickhouse.spark.client.NodeClient
+</span>28 <span style=''>import com.clickhouse.spark.exception.CHException
+</span>29 <span style=''>import com.clickhouse.spark.spec._
+</span>30 <span style=''>
+</span>31 <span style=''>import java.time.{LocalDateTime, ZoneId}
+</span>32 <span style=''>import java.util.{HashMap =&gt; JHashMap}
+</span>33 <span style=''>import scala.collection.JavaConverters._
+</span>34 <span style=''>
+</span>35 <span style=''>trait ClickHouseHelper extends Logging {
+</span>36 <span style=''>
+</span>37 <span style=''>  @volatile lazy val DEFAULT_ACTION_IF_NO_SUCH_DATABASE: String =&gt; Unit =
+</span>38 <span style=''>    (db: String) =&gt; throw NoSuchNamespaceException(db)
+</span>39 <span style=''>
+</span>40 <span style=''>  @volatile lazy val DEFAULT_ACTION_IF_NO_SUCH_TABLE: (String, String) =&gt; Unit =
+</span>41 <span style=''>    (database, table) =&gt; throw NoSuchTableException(s&quot;$database.$table&quot;)
+</span>42 <span style=''>
+</span>43 <span style=''>  def unwrap(ident: Identifier): Option[(String, String)] = ident.namespace() match {
+</span>44 <span style=''>    case Array(database) =&gt; Some((database, ident.name()))
+</span>45 <span style=''>    case _ =&gt; None
+</span>46 <span style=''>  }
+</span>47 <span style=''>
+</span>48 <span style=''>  def buildNodeSpec(options: CaseInsensitiveStringMap): NodeSpec = {
+</span>49 <span style=''>    val clientOpts = options.asScala
+</span>50 <span style=''>      .filterKeys(_.startsWith(CATALOG_PROP_OPTION_PREFIX))
+</span>51 <span style=''>      .map { case (k, v) =&gt; k.substring(CATALOG_PROP_OPTION_PREFIX.length) </span><span style='background: #AEF1AE'>-&gt;</span><span style=''> v }
+</span>52 <span style=''>      .toMap
+</span>53 <span style=''>      .filterKeys { key =&gt;
+</span>54 <span style=''>        val ignore = CATALOG_PROP_IGNORE_OPTIONS.contains(key)
+</span>55 <span style=''>        if (ignore) {
+</span>56 <span style=''>          log.warn(s&quot;Ignore configuration $key.&quot;)
+</span>57 <span style=''>        }
+</span>58 <span style=''>        !ignore
+</span>59 <span style=''>      }.toMap
+</span>60 <span style=''>    NodeSpec(
+</span>61 <span style=''>      _host = options.getOrDefault(CATALOG_PROP_HOST, &quot;localhost&quot;),
+</span>62 <span style=''>      _tcp_port = Some(options.getInt(CATALOG_PROP_TCP_PORT, 9000)),
+</span>63 <span style=''>      _http_port = Some(options.getInt(CATALOG_PROP_HTTP_PORT, 8123)),
+</span>64 <span style=''>      protocol = ClickHouseProtocol.fromUriScheme(options.getOrDefault(CATALOG_PROP_PROTOCOL, &quot;http&quot;)),
+</span>65 <span style=''>      username = options.getOrDefault(CATALOG_PROP_USER, &quot;default&quot;),
+</span>66 <span style=''>      password = options.getOrDefault(CATALOG_PROP_PASSWORD, &quot;&quot;),
+</span>67 <span style=''>      database = options.getOrDefault(CATALOG_PROP_DATABASE, &quot;default&quot;),
+</span>68 <span style=''>      options = new JHashMap(clientOpts.asJava)
+</span>69 <span style=''>    )
+</span>70 <span style=''>  }
+</span>71 <span style=''>
+</span>72 <span style=''>  def queryClusterSpecs(nodeSpec: NodeSpec)(implicit nodeClient: NodeClient): Seq[ClusterSpec] = {
+</span>73 <span style=''>    val clustersOutput = nodeClient.syncQueryAndCheckOutputJSONEachRow(
+</span>74 <span style=''>      &quot;&quot;&quot; SELECT
+</span>75 <span style=''>        |   `cluster`,                 -- String
+</span>76 <span style=''>        |   `shard_num`,               -- UInt32
+</span>77 <span style=''>        |   `shard_weight`,            -- UInt32
+</span>78 <span style=''>        |   `replica_num`,             -- UInt32
+</span>79 <span style=''>        |   `host_name`,               -- String
+</span>80 <span style=''>        |   `host_address`,            -- String
+</span>81 <span style=''>        |   `port`,                    -- UInt16
+</span>82 <span style=''>        |   `is_local`,                -- UInt8
+</span>83 <span style=''>        |   `user`,                    -- String
+</span>84 <span style=''>        |   `default_database`,        -- String
+</span>85 <span style=''>        |   `errors_count`,            -- UInt32
+</span>86 <span style=''>        |   `estimated_recovery_time`  -- UInt32
+</span>87 <span style=''>        | FROM `system`.`clusters`
+</span>88 <span style=''>        |&quot;&quot;&quot;.stripMargin
+</span>89 <span style=''>    )
+</span>90 <span style=''>    clustersOutput.records
+</span>91 <span style=''>      .groupBy(_.get(&quot;cluster&quot;).asText)
+</span>92 <span style=''>      .map { case (cluster, rows) =&gt;
+</span>93 <span style=''>        val shards = rows
+</span>94 <span style=''>          .groupBy(_.get(&quot;shard_num&quot;).asInt)
+</span>95 <span style=''>          .map { case (shardNum, rows) =&gt;
+</span>96 <span style=''>            val shardWeight = rows.head.get(&quot;shard_weight&quot;).asInt
+</span>97 <span style=''>            val nodes = rows.map { row =&gt;
+</span>98 <span style=''>              val replicaNum = row.get(&quot;replica_num&quot;).asInt
+</span>99 <span style=''>              // should other properties be provided by `SparkConf`?
+</span>100 <span style=''>              val clickhouseNode = nodeSpec.copy(
+</span>101 <span style=''>                // host_address is not works for testcontainers
+</span>102 <span style=''>                _host = row.get(&quot;host_name&quot;).asText,
+</span>103 <span style=''>                _tcp_port = Some(row.get(&quot;port&quot;).asInt),
+</span>104 <span style=''>                _http_port = if (Utils.isTesting) Some(8123) else nodeSpec.http_port
+</span>105 <span style=''>              )
+</span>106 <span style=''>              ReplicaSpec(replicaNum, clickhouseNode)
+</span>107 <span style=''>            }.toArray
+</span>108 <span style=''>            ShardSpec(shardNum, shardWeight, nodes)
+</span>109 <span style=''>          }.toArray
+</span>110 <span style=''>        ClusterSpec(cluster, shards)
+</span>111 <span style=''>      }.toSeq
+</span>112 <span style=''>  }
+</span>113 <span style=''>
+</span>114 <span style=''>  def queryDatabaseSpec(
+</span>115 <span style=''>    database: String,
+</span>116 <span style=''>    actionIfNoSuchDatabase: String =&gt; Unit = DEFAULT_ACTION_IF_NO_SUCH_DATABASE
+</span>117 <span style=''>  )(implicit nodeClient: NodeClient): DatabaseSpec = {
+</span>118 <span style=''>    val output = nodeClient.syncQueryAndCheckOutputJSONEachRow(
+</span>119 <span style=''>      s&quot;&quot;&quot;SELECT
+</span>120 <span style=''>         |  `name`,          -- String
+</span>121 <span style=''>         |  `engine`,        -- String
+</span>122 <span style=''>         |  `data_path`,     -- String
+</span>123 <span style=''>         |  `metadata_path`, -- String
+</span>124 <span style=''>         |  `uuid`           -- String
+</span>125 <span style=''>         |FROM `system`.`databases`
+</span>126 <span style=''>         |WHERE `name`='$database'
+</span>127 <span style=''>         |&quot;&quot;&quot;.stripMargin
+</span>128 <span style=''>    )
+</span>129 <span style=''>    if (output.rows </span><span style='background: #F0ADAD'>==</span><span style=''> 0) {
+</span>130 <span style=''>      actionIfNoSuchDatabase(database)
+</span>131 <span style=''>    }
+</span>132 <span style=''>    val row = output.records.head
+</span>133 <span style=''>    DatabaseSpec(
+</span>134 <span style=''>      name = row.get(&quot;name&quot;).asText,
+</span>135 <span style=''>      engine = row.get(&quot;engine&quot;).asText,
+</span>136 <span style=''>      data_path = row.get(&quot;data_path&quot;).asText,
+</span>137 <span style=''>      metadata_path = row.get(&quot;metadata_path&quot;).asText,
+</span>138 <span style=''>      uuid = row.get(&quot;uuid&quot;).asText
+</span>139 <span style=''>    )
+</span>140 <span style=''>  }
+</span>141 <span style=''>
+</span>142 <span style=''>  def queryTableSpec(
+</span>143 <span style=''>    database: String,
+</span>144 <span style=''>    table: String,
+</span>145 <span style=''>    actionIfNoSuchTable: (String, String) =&gt; Unit = DEFAULT_ACTION_IF_NO_SUCH_TABLE
+</span>146 <span style=''>  )(implicit
+</span>147 <span style=''>    nodeClient: NodeClient,
+</span>148 <span style=''>    tz: ZoneId
+</span>149 <span style=''>  ): TableSpec = {
+</span>150 <span style=''>    val tableOutput = nodeClient.syncQueryAndCheckOutputJSONEachRow(
+</span>151 <span style=''>      s&quot;&quot;&quot;SELECT
+</span>152 <span style=''>         |  `database`,                   -- String
+</span>153 <span style=''>         |  `name`,                       -- String
+</span>154 <span style=''>         |  `uuid`,                       -- UUID
+</span>155 <span style=''>         |  `engine`,                     -- String
+</span>156 <span style=''>         |  `is_temporary`,               -- UInt8
+</span>157 <span style=''>         |  `data_paths`,                 -- Array(String)
+</span>158 <span style=''>         |  `metadata_path`,              -- String
+</span>159 <span style=''>         |  `metadata_modification_time`, -- DateTime
+</span>160 <span style=''>         |  `dependencies_database`,      -- Array(String)
+</span>161 <span style=''>         |  `dependencies_table`,         -- Array(String)
+</span>162 <span style=''>         |  `create_table_query`,         -- String
+</span>163 <span style=''>         |  `engine_full`,                -- String
+</span>164 <span style=''>         |  `partition_key`,              -- String
+</span>165 <span style=''>         |  `sorting_key`,                -- String
+</span>166 <span style=''>         |  `primary_key`,                -- String
+</span>167 <span style=''>         |  `sampling_key`,               -- String
+</span>168 <span style=''>         |  `storage_policy`,             -- String
+</span>169 <span style=''>         |  `total_rows`,                 -- Nullable(UInt64)
+</span>170 <span style=''>         |  `total_bytes`,                -- Nullable(UInt64)
+</span>171 <span style=''>         |  `lifetime_rows`,              -- Nullable(UInt64)
+</span>172 <span style=''>         |  `lifetime_bytes`              -- Nullable(UInt64)
+</span>173 <span style=''>         |FROM `system`.`tables`
+</span>174 <span style=''>         |WHERE `database`='$database' AND `name`='$table'
+</span>175 <span style=''>         |&quot;&quot;&quot;.stripMargin
+</span>176 <span style=''>    )
+</span>177 <span style=''>    if (tableOutput.isEmpty) {
+</span>178 <span style=''>      actionIfNoSuchTable(database, table)
+</span>179 <span style=''>    }
+</span>180 <span style=''>    val tableRow = tableOutput.records.head
+</span>181 <span style=''>    TableSpec(
+</span>182 <span style=''>      database = tableRow.get(&quot;database&quot;).asText,
+</span>183 <span style=''>      name = tableRow.get(&quot;name&quot;).asText,
+</span>184 <span style=''>      uuid = tableRow.get(&quot;uuid&quot;).asText,
+</span>185 <span style=''>      engine = tableRow.get(&quot;engine&quot;).asText,
+</span>186 <span style=''>      is_temporary = tableRow.get(&quot;is_temporary&quot;).asBoolean,
+</span>187 <span style=''>      data_paths = tableRow.get(&quot;data_paths&quot;).elements().asScala.map(_.asText).toList,
+</span>188 <span style=''>      metadata_path = tableRow.get(&quot;metadata_path&quot;).asText,
+</span>189 <span style=''>      metadata_modification_time = LocalDateTime.parse(
+</span>190 <span style=''>        tableRow.get(&quot;metadata_modification_time&quot;).asText,
+</span>191 <span style=''>        dateTimeFmt.withZone(tz)
+</span>192 <span style=''>      ),
+</span>193 <span style=''>      dependencies_database = tableRow.get(&quot;dependencies_database&quot;).elements().asScala.map(_.asText).toList,
+</span>194 <span style=''>      dependencies_table = tableRow.get(&quot;dependencies_table&quot;).elements().asScala.map(_.asText).toList,
+</span>195 <span style=''>      create_table_query = tableRow.get(&quot;create_table_query&quot;).asText,
+</span>196 <span style=''>      engine_full = tableRow.get(&quot;engine_full&quot;).asText,
+</span>197 <span style=''>      partition_key = tableRow.get(&quot;partition_key&quot;).asText,
+</span>198 <span style=''>      sorting_key = tableRow.get(&quot;sorting_key&quot;).asText,
+</span>199 <span style=''>      primary_key = tableRow.get(&quot;primary_key&quot;).asText,
+</span>200 <span style=''>      sampling_key = tableRow.get(&quot;sampling_key&quot;).asText,
+</span>201 <span style=''>      storage_policy = tableRow.get(&quot;storage_policy&quot;).asText,
+</span>202 <span style=''>      total_rows = tableRow.get(&quot;total_rows&quot;) match {
+</span>203 <span style=''>        case _: NullNode | null =&gt; None
+</span>204 <span style=''>        case node: JsonNode =&gt; Some(node.asLong)
+</span>205 <span style=''>      },
+</span>206 <span style=''>      total_bytes = tableRow.get(&quot;total_bytes&quot;) match {
+</span>207 <span style=''>        case _: NullNode | null =&gt; None
+</span>208 <span style=''>        case node: JsonNode =&gt; Some(node.asLong)
+</span>209 <span style=''>      },
+</span>210 <span style=''>      lifetime_rows = tableRow.get(&quot;lifetime_rows&quot;) match {
+</span>211 <span style=''>        case _: NullNode | null =&gt; None
+</span>212 <span style=''>        case node: JsonNode =&gt; Some(node.asLong)
+</span>213 <span style=''>      },
+</span>214 <span style=''>      lifetime_bytes = tableRow.get(&quot;lifetime_bytes&quot;) match {
+</span>215 <span style=''>        case _: NullNode | null =&gt; None
+</span>216 <span style=''>        case node: JsonNode =&gt; Some(node.asLong)
+</span>217 <span style=''>      }
+</span>218 <span style=''>    )
+</span>219 <span style=''>  }
+</span>220 <span style=''>
+</span>221 <span style=''>  def queryTableSchema(
+</span>222 <span style=''>    database: String,
+</span>223 <span style=''>    table: String,
+</span>224 <span style=''>    actionIfNoSuchTable: (String, String) =&gt; Unit = DEFAULT_ACTION_IF_NO_SUCH_TABLE
+</span>225 <span style=''>  )(implicit nodeClient: NodeClient): StructType = {
+</span>226 <span style=''>    val columnOutput = nodeClient.syncQueryAndCheckOutputJSONEachRow(
+</span>227 <span style=''>      s&quot;&quot;&quot;SELECT
+</span>228 <span style=''>         |  `database`,                -- String
+</span>229 <span style=''>         |  `table`,                   -- String
+</span>230 <span style=''>         |  `name`,                    -- String
+</span>231 <span style=''>         |  `type`,                    -- String
+</span>232 <span style=''>         |  `position`,                -- UInt64
+</span>233 <span style=''>         |  `default_kind`,            -- String
+</span>234 <span style=''>         |  `default_expression`,      -- String
+</span>235 <span style=''>         |  `data_compressed_bytes`,   -- UInt64
+</span>236 <span style=''>         |  `data_uncompressed_bytes`, -- UInt64
+</span>237 <span style=''>         |  `marks_bytes`,             -- UInt64
+</span>238 <span style=''>         |  `comment`,                 -- String
+</span>239 <span style=''>         |  `is_in_partition_key`,     -- UInt8
+</span>240 <span style=''>         |  `is_in_sorting_key`,       -- UInt8
+</span>241 <span style=''>         |  `is_in_primary_key`,       -- UInt8
+</span>242 <span style=''>         |  `is_in_sampling_key`,      -- UInt8
+</span>243 <span style=''>         |  `compression_codec`        -- String
+</span>244 <span style=''>         |FROM `system`.`columns`
+</span>245 <span style=''>         |WHERE `database`='$database' AND `table`='$table'
+</span>246 <span style=''>         |ORDER BY `position` ASC
+</span>247 <span style=''>         |&quot;&quot;&quot;.stripMargin
+</span>248 <span style=''>    )
+</span>249 <span style=''>    if (columnOutput.isEmpty) {
+</span>250 <span style=''>      actionIfNoSuchTable(database, table)
+</span>251 <span style=''>    }
+</span>252 <span style=''>    SchemaUtils.fromClickHouseSchema(columnOutput.records.map { row =&gt;
+</span>253 <span style=''>      val fieldName = row.get(&quot;name&quot;).asText
+</span>254 <span style=''>      val ckType = row.get(&quot;type&quot;).asText
+</span>255 <span style=''>      (fieldName, ckType)
+</span>256 <span style=''>    })
+</span>257 <span style=''>  }
+</span>258 <span style=''>
+</span>259 <span style=''>  def queryPartitionSpec(
+</span>260 <span style=''>    database: String,
+</span>261 <span style=''>    table: String
+</span>262 <span style=''>  )(implicit nodeClient: NodeClient): Seq[PartitionSpec] = {
+</span>263 <span style=''>    val partOutput = nodeClient.syncQueryAndCheckOutputJSONEachRow(
+</span>264 <span style=''>      s&quot;&quot;&quot;SELECT
+</span>265 <span style=''>         |  partition,                           -- String
+</span>266 <span style=''>         |  partition_id,                        -- String
+</span>267 <span style=''>         |  sum(rows)          AS row_count,     -- UInt64
+</span>268 <span style=''>         |  sum(bytes_on_disk) AS size_in_bytes  -- UInt64
+</span>269 <span style=''>         |FROM `system`.`parts`
+</span>270 <span style=''>         |WHERE `database`='$database' AND `table`='$table' AND `active`=1
+</span>271 <span style=''>         |GROUP BY `partition`, `partition_id`
+</span>272 <span style=''>         |ORDER BY `partition` ASC, partition_id ASC
+</span>273 <span style=''>         |&quot;&quot;&quot;.stripMargin
+</span>274 <span style=''>    )
+</span>275 <span style=''>    if (partOutput.isEmpty </span><span style='background: #F0ADAD'>|| partOutput.rows == 1 &amp;&amp; partOutput.records.head.get(&quot;partition&quot;).asText ==</span><span style=''> &quot;tuple()&quot;) {
+</span>276 <span style=''>      return Array(NoPartitionSpec)
+</span>277 <span style=''>    }
+</span>278 <span style=''>    partOutput.records.map { row =&gt;
+</span>279 <span style=''>      PartitionSpec(
+</span>280 <span style=''>        partition_value = row.get(&quot;partition&quot;).asText,
+</span>281 <span style=''>        partition_id = row.get(&quot;partition_id&quot;).asText,
+</span>282 <span style=''>        row_count = row.get(&quot;row_count&quot;).asLong,
+</span>283 <span style=''>        size_in_bytes = row.get(&quot;size_in_bytes&quot;).asLong
+</span>284 <span style=''>      )
+</span>285 <span style=''>    }
+</span>286 <span style=''>  }
+</span>287 <span style=''>
+</span>288 <span style=''>  /**
+</span>289 <span style=''>   * This method is considered as lightweight. Typically `sql` should contains `where 1=0` to avoid running the query on
+</span>290 <span style=''>   * ClickHouse.
+</span>291 <span style=''>   */
+</span>292 <span style=''>  def getQueryOutputSchema(sql: String)(implicit nodeClient: NodeClient): StructType = {
+</span>293 <span style=''>    val namesAndTypes = nodeClient.syncQueryAndCheckOutputJSONCompactEachRowWithNamesAndTypes(sql).namesAndTypes
+</span>294 <span style=''>    SchemaUtils.fromClickHouseSchema(namesAndTypes.toSeq)
+</span>295 <span style=''>  }
+</span>296 <span style=''>
+</span>297 <span style=''>  def dropPartition(
+</span>298 <span style=''>    database: String,
+</span>299 <span style=''>    table: String,
+</span>300 <span style=''>    partitionExpr: String,
+</span>301 <span style=''>    cluster: Option[String] = None
+</span>302 <span style=''>  )(implicit
+</span>303 <span style=''>    nodeClient: NodeClient
+</span>304 <span style=''>  ): Boolean =
+</span>305 <span style=''>    nodeClient.syncQueryOutputJSONEachRow(
+</span>306 <span style=''>      s&quot;ALTER TABLE `$database`.`$table` ${cluster.map(c =&gt; s&quot;ON CLUSTER $c&quot;).getOrElse(&quot;&quot;)} DROP PARTITION $partitionExpr&quot;
+</span>307 <span style=''>    ) match {
+</span>308 <span style=''>      case Right(_) =&gt; true
+</span>309 <span style=''>      case Left(ex: CHException) =&gt;
+</span>310 <span style=''>        log.error(s&quot;[${ex.code}]: ${ex.getMessage}&quot;)
+</span>311 <span style=''>        false
+</span>312 <span style=''>    }
+</span>313 <span style=''>
+</span>314 <span style=''>  def delete(
+</span>315 <span style=''>    database: String,
+</span>316 <span style=''>    table: String,
+</span>317 <span style=''>    deleteExpr: String,
+</span>318 <span style=''>    cluster: Option[String] = None
+</span>319 <span style=''>  )(implicit
+</span>320 <span style=''>    nodeClient: NodeClient
+</span>321 <span style=''>  ): Boolean =
+</span>322 <span style=''>    nodeClient.syncQueryOutputJSONEachRow(
+</span>323 <span style=''>      s&quot;ALTER TABLE `$database`.`$table` ${cluster.map(c =&gt; s&quot;ON CLUSTER $c&quot;).getOrElse(&quot;&quot;)} DELETE WHERE $deleteExpr&quot;,
+</span>324 <span style=''>      // https://clickhouse.com/docs/en/sql-reference/statements/alter/#synchronicity-of-alter-queries
+</span>325 <span style=''>      Map(&quot;mutations_sync&quot; </span><span style='background: #F0ADAD'>-&gt;</span><span style=''> &quot;2&quot;)
+</span>326 <span style=''>    ) match {
+</span>327 <span style=''>      case Right(_) =&gt; true
+</span>328 <span style=''>      case Left(ex: CHException) =&gt;
+</span>329 <span style=''>        log.error(s&quot;[${ex.code}]: ${ex.getMessage}&quot;)
+</span>330 <span style=''>        false
+</span>331 <span style=''>    }
+</span>332 <span style=''>
+</span>333 <span style=''>  def truncateTable(
+</span>334 <span style=''>    database: String,
+</span>335 <span style=''>    table: String,
+</span>336 <span style=''>    cluster: Option[String] = None
+</span>337 <span style=''>  )(implicit
+</span>338 <span style=''>    nodeClient: NodeClient
+</span>339 <span style=''>  ): Boolean = nodeClient.syncQueryOutputJSONEachRow(
+</span>340 <span style=''>    s&quot;TRUNCATE TABLE `$database`.`$table` ${cluster.map(c =&gt; s&quot;ON CLUSTER $c&quot;).getOrElse(&quot;&quot;)}&quot;
+</span>341 <span style=''>  ) match {
+</span>342 <span style=''>    case Right(_) =&gt; true
+</span>343 <span style=''>    case Left(ex: CHException) =&gt;
+</span>344 <span style=''>      log.error(s&quot;[${ex.code}]: ${ex.getMessage}&quot;)
+</span>345 <span style=''>      false
+</span>346 <span style=''>  }
+</span>347 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          725
+        </td>
+        <td>
+          1789
+          -
+          1789
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.catalog.Identifier.namespace
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ident.namespace()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          2242
+        </td>
+        <td>
+          1854
+          -
+          1854
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.catalog.Identifier.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ident.name()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          38
+        </td>
+        <td>
+          1832
+          -
+          1832
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[(String, String)](scala.Tuple2.apply[String, String](database, ident.name()))
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          486
+        </td>
+        <td>
+          1832
+          -
+          1832
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[(String, String)](scala.Tuple2.apply[String, String](database, ident.name()))
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1379
+        </td>
+        <td>
+          1833
+          -
+          1833
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[String, String](database, ident.name())
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1449
+        </td>
+        <td>
+          1873
+          -
+          1873
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          633
+        </td>
+        <td>
+          1873
+          -
+          1873
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          2015
+        </td>
+        <td>
+          2019
+          -
+          2019
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.startsWith
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          x$1.startsWith(&quot;option.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          729
+        </td>
+        <td>
+          2124
+          -
+          2126
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[String](k.substring(&quot;option.&quot;.length())).-&gt;[String](v)
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          2160
+        </td>
+        <td>
+          2060
+          -
+          2060
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Map.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          collection.this.Map.canBuildFrom[String, String]
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1212
+        </td>
+        <td>
+          2124
+          -
+          2126
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.ArrowAssoc[String](k.substring(&quot;option.&quot;.length())).-&gt;[String](v)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1410
+        </td>
+        <td>
+          2138
+          -
+          2138
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[(String, String)]
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          449
+        </td>
+        <td>
+          2228
+          -
+          2228
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.SeqLike.contains
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.Constants.CATALOG_PROP_IGNORE_OPTIONS.contains[String](key)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          2119
+        </td>
+        <td>
+          2242
+          -
+          2242
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1218
+        </td>
+        <td>
+          2242
+          -
+          2242
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          603
+        </td>
+        <td>
+          2274
+          -
+          2274
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.slf4j.Logger.warn
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ClickHouseHelper.this.log.warn(scala.StringContext.apply(&quot;Ignore configuration &quot;, &quot;.&quot;).s(key))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1859
+        </td>
+        <td>
+          2275
+          -
+          2275
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Ignore configuration &quot;, &quot;.&quot;).s(key)
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1455
+        </td>
+        <td>
+          2274
+          -
+          2274
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.warn
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ClickHouseHelper.this.log.warn(scala.StringContext.apply(&quot;Ignore configuration &quot;, &quot;.&quot;).s(key))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          850
+        </td>
+        <td>
+          2324
+          -
+          2324
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ignore.unary_!
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1372
+        </td>
+        <td>
+          2340
+          -
+          2340
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.immutable.Map.toMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.mapAsScalaMapConverter[String, String](options).asScala.filterKeys(((x$1: String) =&gt; x$1.startsWith(&quot;option.&quot;))).map[(String, String), scala.collection.Map[String,String]](((x0$1: (String, String)) =&gt; x0$1 match {
+  case (_1: String, _2: String)(String, String)((k @ _), (v @ _)) =&gt; scala.Predef.ArrowAssoc[String](k.substring(&quot;option.&quot;.length())).-&gt;[String](v)
+}))(collection.this.Map.canBuildFrom[String, String]).toMap[String, String](scala.Predef.$conforms[(String, String)]).filterKeys(((key: String) =&gt; {
+  val ignore: Boolean = com.clickhouse.spark.Constants.CATALOG_PROP_IGNORE_OPTIONS.contains[String](key);
+  if (ignore)
+    ClickHouseHelper.this.log.warn(scala.StringContext.apply(&quot;Ignore configuration &quot;, &quot;.&quot;).s(key))
+  else
+    ();
+  ignore.unary_!
+})).toMap[String, String](scala.Predef.$conforms[(String, String)])
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          2163
+        </td>
+        <td>
+          2340
+          -
+          2340
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.$conforms[(String, String)]
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          656
+        </td>
+        <td>
+          2358
+          -
+          2358
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.NodeSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.spark.spec.NodeSpec.apply(x$1, x$3, x$2, x$4, x$5, x$6, x$7, x$8)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          561
+        </td>
+        <td>
+          2394
+          -
+          2394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.getOrDefault
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          options.getOrDefault(&quot;host&quot;, &quot;localhost&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1864
+        </td>
+        <td>
+          2465
+          -
+          2465
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.util.CaseInsensitiveStringMap.getInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          options.getInt(&quot;tcp_port&quot;, 9000)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1565
+        </td>
+        <td>
+          2450
+          -
+          2450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Int](options.getInt(&quot;tcp_port&quot;, 9000))
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          672
+        </td>
+        <td>
+          2535
+          -
+          2535
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.util.CaseInsensitiveStringMap.getInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          options.getInt(&quot;http_port&quot;, 8123)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          2079
+        </td>
+        <td>
+          2520
+          -
+          2520
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Some.apply[Int](options.getInt(&quot;http_port&quot;, 8123))
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          1198
+        </td>
+        <td>
+          2638
+          -
+          2638
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.getOrDefault
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          options.getOrDefault(&quot;protocol&quot;, &quot;http&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          712
+        </td>
+        <td>
+          2617
+          -
+          2617
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.client.ClickHouseProtocol.fromUriScheme
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          com.clickhouse.client.ClickHouseProtocol.fromUriScheme(options.getOrDefault(&quot;protocol&quot;, &quot;http&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          2266
+        </td>
+        <td>
+          2709
+          -
+          2709
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.getOrDefault
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          options.getOrDefault(&quot;user&quot;, &quot;default&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1375
+        </td>
+        <td>
+          2778
+          -
+          2778
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.getOrDefault
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          options.getOrDefault(&quot;password&quot;, &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          563
+        </td>
+        <td>
+          2844
+          -
+          2844
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.Map.getOrDefault
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          options.getOrDefault(&quot;database&quot;, &quot;default&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1931
+        </td>
+        <td>
+          2920
+          -
+          2920
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsJava.asJava
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.collection.JavaConverters.mapAsJavaMapConverter[String, String](clientOpts).asJava
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1427
+        </td>
+        <td>
+          2896
+          -
+          2896
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.HashMap.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new java.util.HashMap[String,String](scala.collection.JavaConverters.mapAsJavaMapConverter[String, String](clientOpts).asJava)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          377
+        </td>
+        <td>
+          3108
+          -
+          3108
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryAndCheckOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.syncQueryAndCheckOutputJSONEachRow(scala.Predef.augmentString(&quot; SELECT\n        |   `cluster`,                 -- String\n        |   `shard_num`,               -- UInt32\n        |   `shard_weight`,            -- UInt32\n        |   `replica_num`,             -- UInt32\n        |   `host_name`,               -- String\n        |   `host_address`,            -- String\n        |   `port`,                    -- UInt16\n        |   `is_local`,                -- UInt8\n        |   `user`,                    -- String\n        |   `default_database`,        -- String\n        |   `errors_count`,            -- UInt32\n        |   `estimated_recovery_time`  -- UInt32\n        | FROM `system`.`clusters`\n        |&quot;).stripMargin, nodeClient.syncQueryAndCheckOutputJSONEachRow$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          2085
+        </td>
+        <td>
+          3116
+          -
+          3116
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; SELECT\n        |   `cluster`,                 -- String\n        |   `shard_num`,               -- UInt32\n        |   `shard_weight`,            -- UInt32\n        |   `replica_num`,             -- UInt32\n        |   `host_name`,               -- String\n        |   `host_address`,            -- String\n        |   `port`,                    -- UInt16\n        |   `is_local`,                -- UInt8\n        |   `user`,                    -- String\n        |   `default_database`,        -- String\n        |   `errors_count`,            -- UInt32\n        |   `estimated_recovery_time`  -- UInt32\n        | FROM `system`.`clusters`\n        |&quot;
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1209
+        </td>
+        <td>
+          3762
+          -
+          3762
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripMargin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(&quot; SELECT\n        |   `cluster`,                 -- String\n        |   `shard_num`,               -- UInt32\n        |   `shard_weight`,            -- UInt32\n        |   `replica_num`,             -- UInt32\n        |   `host_name`,               -- String\n        |   `host_address`,            -- String\n        |   `port`,                    -- UInt16\n        |   `is_local`,                -- UInt8\n        |   `user`,                    -- String\n        |   `default_database`,        -- String\n        |   `errors_count`,            -- UInt32\n        |   `estimated_recovery_time`  -- UInt32\n        | FROM `system`.`clusters`\n        |&quot;).stripMargin
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          2232
+        </td>
+        <td>
+          3839
+          -
+          3839
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$2.get(&quot;cluster&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1906
+        </td>
+        <td>
+          3881
+          -
+          3881
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val shards: Array[com.clickhouse.spark.spec.ShardSpec] = rows.groupBy[Int](((x$3: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; x$3.get(&quot;shard_num&quot;).asInt())).map[com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Iterable[com.clickhouse.spark.spec.ShardSpec]](((x0$2: (Int, Seq[com.fasterxml.jackson.databind.node.ObjectNode])) =&gt; x0$2 match {
+  case (_1: Int, _2: Seq[com.fasterxml.jackson.databind.node.ObjectNode])(Int, Seq[com.fasterxml.jackson.databind.node.ObjectNode])((shardNum @ _), (rows @ _)) =&gt; {
+    val shardWeight: Int = rows.head.get(&quot;shard_weight&quot;).asInt();
+    val nodes: Array[com.clickhouse.spark.spec.ReplicaSpec] = rows.map[com.clickhouse.spark.spec.ReplicaSpec, Seq[com.clickhouse.spark.spec.ReplicaSpec]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; {
+  val replicaNum: Int = row.get(&quot;replica_num&quot;).asInt();
+  val clickhouseNode: com.clickhouse.spark.spec.NodeSpec = {
+    &lt;artifact&gt; val x$1: String = row.get(&quot;host_name&quot;).asText();
+    &lt;artifact&gt; val x$2: Some[Int] @scala.reflect.internal.annotations.uncheckedBounds = scala.Some.apply[Int](row.get(&quot;port&quot;).asInt());
+    &lt;artifact&gt; val x$3: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = if (Utils.isTesting)
+      scala.Some.apply[Int](8123)
+    else
+      nodeSpec.http_port;
+    &lt;artifact&gt; val x$4: com.clickhouse.client.ClickHouseProtocol = nodeSpec.copy$default$4;
+    &lt;artifact&gt; val x$5: String = nodeSpec.copy$default$5;
+    &lt;artifact&gt; val x$6: String = nodeSpec.copy$default$6;
+    &lt;artifact&gt; val x$7: String = nodeSpec.copy$default$7;
+    &lt;artifact&gt; val x$8: java.util.Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = nodeSpec.copy$default$8;
+    nodeSpec.copy(x$1, x$3, x$2, x$4, x$5, x$6, x$7, x$8)
+  };
+  com.clickhouse.spark.spec.ReplicaSpec.apply(replicaNum, clickhouseNode)
+}))(collection.this.Seq.canBuildFrom[com.clickhouse.spark.spec.ReplicaSpec]).toArray[com.clickhouse.spark.spec.ReplicaSpec]((ClassTag.apply[com.clickhouse.spark.spec.ReplicaSpec](classOf[com.clickhouse.spark.spec.ReplicaSpec]): scala.reflect.ClassTag[com.clickhouse.spark.spec.ReplicaSpec]));
+    com.clickhouse.spark.spec.ShardSpec.apply(shardNum, shardWeight, nodes)
+  }
+}))(immutable.this.Iterable.canBuildFrom[com.clickhouse.spark.spec.ShardSpec]).toArray[com.clickhouse.spark.spec.ShardSpec]((ClassTag.apply[com.clickhouse.spark.spec.ShardSpec](classOf[com.clickhouse.spark.spec.ShardSpec]): scala.reflect.ClassTag[com.clickhouse.spark.spec.ShardSpec]));
+  com.clickhouse.spark.spec.ClusterSpec.apply(cluster, shards)
+}
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1121
+        </td>
+        <td>
+          3858
+          -
+          3858
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Iterable.canBuildFrom[com.clickhouse.spark.spec.ClusterSpec]
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1349
+        </td>
+        <td>
+          3948
+          -
+          3948
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$3.get(&quot;shard_num&quot;).asInt()
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          350
+        </td>
+        <td>
+          3994
+          -
+          3994
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val shardWeight: Int = rows.head.get(&quot;shard_weight&quot;).asInt();
+  val nodes: Array[com.clickhouse.spark.spec.ReplicaSpec] = rows.map[com.clickhouse.spark.spec.ReplicaSpec, Seq[com.clickhouse.spark.spec.ReplicaSpec]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; {
+  val replicaNum: Int = row.get(&quot;replica_num&quot;).asInt();
+  val clickhouseNode: com.clickhouse.spark.spec.NodeSpec = {
+    &lt;artifact&gt; val x$1: String = row.get(&quot;host_name&quot;).asText();
+    &lt;artifact&gt; val x$2: Some[Int] @scala.reflect.internal.annotations.uncheckedBounds = scala.Some.apply[Int](row.get(&quot;port&quot;).asInt());
+    &lt;artifact&gt; val x$3: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = if (Utils.isTesting)
+      scala.Some.apply[Int](8123)
+    else
+      nodeSpec.http_port;
+    &lt;artifact&gt; val x$4: com.clickhouse.client.ClickHouseProtocol = nodeSpec.copy$default$4;
+    &lt;artifact&gt; val x$5: String = nodeSpec.copy$default$5;
+    &lt;artifact&gt; val x$6: String = nodeSpec.copy$default$6;
+    &lt;artifact&gt; val x$7: String = nodeSpec.copy$default$7;
+    &lt;artifact&gt; val x$8: java.util.Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = nodeSpec.copy$default$8;
+    nodeSpec.copy(x$1, x$3, x$2, x$4, x$5, x$6, x$7, x$8)
+  };
+  com.clickhouse.spark.spec.ReplicaSpec.apply(replicaNum, clickhouseNode)
+}))(collection.this.Seq.canBuildFrom[com.clickhouse.spark.spec.ReplicaSpec]).toArray[com.clickhouse.spark.spec.ReplicaSpec]((ClassTag.apply[com.clickhouse.spark.spec.ReplicaSpec](classOf[com.clickhouse.spark.spec.ReplicaSpec]): scala.reflect.ClassTag[com.clickhouse.spark.spec.ReplicaSpec]));
+  com.clickhouse.spark.spec.ShardSpec.apply(shardNum, shardWeight, nodes)
+}
+        </td>
+      </tr><tr>
+        <td>
+          95
+        </td>
+        <td>
+          2264
+        </td>
+        <td>
+          3970
+          -
+          3970
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.immutable.Iterable.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          immutable.this.Iterable.canBuildFrom[com.clickhouse.spark.spec.ShardSpec]
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          536
+        </td>
+        <td>
+          4057
+          -
+          4057
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          rows.head.get(&quot;shard_weight&quot;).asInt()
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          606
+        </td>
+        <td>
+          4096
+          -
+          4096
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[com.clickhouse.spark.spec.ReplicaSpec]
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          1939
+        </td>
+        <td>
+          4159
+          -
+          4159
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;replica_num&quot;).asInt()
+        </td>
+      </tr><tr>
+        <td>
+          100
+        </td>
+        <td>
+          1901
+        </td>
+        <td>
+          4282
+          -
+          4282
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.NodeSpec.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeSpec.copy(x$1, x$3, x$2, x$4, x$5, x$6, x$7, x$8)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1499
+        </td>
+        <td>
+          4393
+          -
+          4393
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;host_name&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          2087
+        </td>
+        <td>
+          4433
+          -
+          4433
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Int](row.get(&quot;port&quot;).asInt())
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          658
+        </td>
+        <td>
+          4450
+          -
+          4450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;port&quot;).asInt()
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1168
+        </td>
+        <td>
+          4497
+          -
+          4497
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.isTesting
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.isTesting
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          381
+        </td>
+        <td>
+          4512
+          -
+          4512
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Int](8123)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          2259
+        </td>
+        <td>
+          4512
+          -
+          4512
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Int](8123)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1353
+        </td>
+        <td>
+          4533
+          -
+          4533
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.NodeSpec.http_port
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeSpec.http_port
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          452
+        </td>
+        <td>
+          4533
+          -
+          4533
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.NodeSpec.http_port
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeSpec.http_port
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1015
+        </td>
+        <td>
+          4584
+          -
+          4584
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ReplicaSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.ReplicaSpec.apply(replicaNum, clickhouseNode)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          2051
+        </td>
+        <td>
+          4627
+          -
+          4627
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          rows.map[com.clickhouse.spark.spec.ReplicaSpec, Seq[com.clickhouse.spark.spec.ReplicaSpec]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; {
+  val replicaNum: Int = row.get(&quot;replica_num&quot;).asInt();
+  val clickhouseNode: com.clickhouse.spark.spec.NodeSpec = {
+    &lt;artifact&gt; val x$1: String = row.get(&quot;host_name&quot;).asText();
+    &lt;artifact&gt; val x$2: Some[Int] @scala.reflect.internal.annotations.uncheckedBounds = scala.Some.apply[Int](row.get(&quot;port&quot;).asInt());
+    &lt;artifact&gt; val x$3: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = if (Utils.isTesting)
+      scala.Some.apply[Int](8123)
+    else
+      nodeSpec.http_port;
+    &lt;artifact&gt; val x$4: com.clickhouse.client.ClickHouseProtocol = nodeSpec.copy$default$4;
+    &lt;artifact&gt; val x$5: String = nodeSpec.copy$default$5;
+    &lt;artifact&gt; val x$6: String = nodeSpec.copy$default$6;
+    &lt;artifact&gt; val x$7: String = nodeSpec.copy$default$7;
+    &lt;artifact&gt; val x$8: java.util.Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = nodeSpec.copy$default$8;
+    nodeSpec.copy(x$1, x$3, x$2, x$4, x$5, x$6, x$7, x$8)
+  };
+  com.clickhouse.spark.spec.ReplicaSpec.apply(replicaNum, clickhouseNode)
+}))(collection.this.Seq.canBuildFrom[com.clickhouse.spark.spec.ReplicaSpec]).toArray[com.clickhouse.spark.spec.ReplicaSpec]((ClassTag.apply[com.clickhouse.spark.spec.ReplicaSpec](classOf[com.clickhouse.spark.spec.ReplicaSpec]): scala.reflect.ClassTag[com.clickhouse.spark.spec.ReplicaSpec]))
+        </td>
+      </tr><tr>
+        <td>
+          108
+        </td>
+        <td>
+          1174
+        </td>
+        <td>
+          4656
+          -
+          4656
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ShardSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.ShardSpec.apply(shardNum, shardWeight, nodes)
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1310
+        </td>
+        <td>
+          4699
+          -
+          4699
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          rows.groupBy[Int](((x$3: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; x$3.get(&quot;shard_num&quot;).asInt())).map[com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Iterable[com.clickhouse.spark.spec.ShardSpec]](((x0$2: (Int, Seq[com.fasterxml.jackson.databind.node.ObjectNode])) =&gt; x0$2 match {
+  case (_1: Int, _2: Seq[com.fasterxml.jackson.databind.node.ObjectNode])(Int, Seq[com.fasterxml.jackson.databind.node.ObjectNode])((shardNum @ _), (rows @ _)) =&gt; {
+    val shardWeight: Int = rows.head.get(&quot;shard_weight&quot;).asInt();
+    val nodes: Array[com.clickhouse.spark.spec.ReplicaSpec] = rows.map[com.clickhouse.spark.spec.ReplicaSpec, Seq[com.clickhouse.spark.spec.ReplicaSpec]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; {
+  val replicaNum: Int = row.get(&quot;replica_num&quot;).asInt();
+  val clickhouseNode: com.clickhouse.spark.spec.NodeSpec = {
+    &lt;artifact&gt; val x$1: String = row.get(&quot;host_name&quot;).asText();
+    &lt;artifact&gt; val x$2: Some[Int] @scala.reflect.internal.annotations.uncheckedBounds = scala.Some.apply[Int](row.get(&quot;port&quot;).asInt());
+    &lt;artifact&gt; val x$3: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = if (Utils.isTesting)
+      scala.Some.apply[Int](8123)
+    else
+      nodeSpec.http_port;
+    &lt;artifact&gt; val x$4: com.clickhouse.client.ClickHouseProtocol = nodeSpec.copy$default$4;
+    &lt;artifact&gt; val x$5: String = nodeSpec.copy$default$5;
+    &lt;artifact&gt; val x$6: String = nodeSpec.copy$default$6;
+    &lt;artifact&gt; val x$7: String = nodeSpec.copy$default$7;
+    &lt;artifact&gt; val x$8: java.util.Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = nodeSpec.copy$default$8;
+    nodeSpec.copy(x$1, x$3, x$2, x$4, x$5, x$6, x$7, x$8)
+  };
+  com.clickhouse.spark.spec.ReplicaSpec.apply(replicaNum, clickhouseNode)
+}))(collection.this.Seq.canBuildFrom[com.clickhouse.spark.spec.ReplicaSpec]).toArray[com.clickhouse.spark.spec.ReplicaSpec]((ClassTag.apply[com.clickhouse.spark.spec.ReplicaSpec](classOf[com.clickhouse.spark.spec.ReplicaSpec]): scala.reflect.ClassTag[com.clickhouse.spark.spec.ReplicaSpec]));
+    com.clickhouse.spark.spec.ShardSpec.apply(shardNum, shardWeight, nodes)
+  }
+}))(immutable.this.Iterable.canBuildFrom[com.clickhouse.spark.spec.ShardSpec]).toArray[com.clickhouse.spark.spec.ShardSpec]((ClassTag.apply[com.clickhouse.spark.spec.ShardSpec](classOf[com.clickhouse.spark.spec.ShardSpec]): scala.reflect.ClassTag[com.clickhouse.spark.spec.ShardSpec]))
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          437
+        </td>
+        <td>
+          4726
+          -
+          4726
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.ClusterSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.ClusterSpec.apply(cluster, shards)
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          709
+        </td>
+        <td>
+          4752
+          -
+          4752
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          clustersOutput.records.groupBy[String](((x$2: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; x$2.get(&quot;cluster&quot;).asText())).map[com.clickhouse.spark.spec.ClusterSpec, scala.collection.immutable.Iterable[com.clickhouse.spark.spec.ClusterSpec]](((x0$1: (String, Seq[com.fasterxml.jackson.databind.node.ObjectNode])) =&gt; x0$1 match {
+  case (_1: String, _2: Seq[com.fasterxml.jackson.databind.node.ObjectNode])(String, Seq[com.fasterxml.jackson.databind.node.ObjectNode])((cluster @ _), (rows @ _)) =&gt; {
+    val shards: Array[com.clickhouse.spark.spec.ShardSpec] = rows.groupBy[Int](((x$3: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; x$3.get(&quot;shard_num&quot;).asInt())).map[com.clickhouse.spark.spec.ShardSpec, scala.collection.immutable.Iterable[com.clickhouse.spark.spec.ShardSpec]](((x0$2: (Int, Seq[com.fasterxml.jackson.databind.node.ObjectNode])) =&gt; x0$2 match {
+  case (_1: Int, _2: Seq[com.fasterxml.jackson.databind.node.ObjectNode])(Int, Seq[com.fasterxml.jackson.databind.node.ObjectNode])((shardNum @ _), (rows @ _)) =&gt; {
+    val shardWeight: Int = rows.head.get(&quot;shard_weight&quot;).asInt();
+    val nodes: Array[com.clickhouse.spark.spec.ReplicaSpec] = rows.map[com.clickhouse.spark.spec.ReplicaSpec, Seq[com.clickhouse.spark.spec.ReplicaSpec]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; {
+  val replicaNum: Int = row.get(&quot;replica_num&quot;).asInt();
+  val clickhouseNode: com.clickhouse.spark.spec.NodeSpec = {
+    &lt;artifact&gt; val x$1: String = row.get(&quot;host_name&quot;).asText();
+    &lt;artifact&gt; val x$2: Some[Int] @scala.reflect.internal.annotations.uncheckedBounds = scala.Some.apply[Int](row.get(&quot;port&quot;).asInt());
+    &lt;artifact&gt; val x$3: Option[Int] @scala.reflect.internal.annotations.uncheckedBounds = if (Utils.isTesting)
+      scala.Some.apply[Int](8123)
+    else
+      nodeSpec.http_port;
+    &lt;artifact&gt; val x$4: com.clickhouse.client.ClickHouseProtocol = nodeSpec.copy$default$4;
+    &lt;artifact&gt; val x$5: String = nodeSpec.copy$default$5;
+    &lt;artifact&gt; val x$6: String = nodeSpec.copy$default$6;
+    &lt;artifact&gt; val x$7: String = nodeSpec.copy$default$7;
+    &lt;artifact&gt; val x$8: java.util.Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = nodeSpec.copy$default$8;
+    nodeSpec.copy(x$1, x$3, x$2, x$4, x$5, x$6, x$7, x$8)
+  };
+  com.clickhouse.spark.spec.ReplicaSpec.apply(replicaNum, clickhouseNode)
+}))(collection.this.Seq.canBuildFrom[com.clickhouse.spark.spec.ReplicaSpec]).toArray[com.clickhouse.spark.spec.ReplicaSpec]((ClassTag.apply[com.clickhouse.spark.spec.ReplicaSpec](classOf[com.clickhouse.spark.spec.ReplicaSpec]): scala.reflect.ClassTag[com.clickhouse.spark.spec.ReplicaSpec]));
+    com.clickhouse.spark.spec.ShardSpec.apply(shardNum, shardWeight, nodes)
+  }
+}))(immutable.this.Iterable.canBuildFrom[com.clickhouse.spark.spec.ShardSpec]).toArray[com.clickhouse.spark.spec.ShardSpec]((ClassTag.apply[com.clickhouse.spark.spec.ShardSpec](classOf[com.clickhouse.spark.spec.ShardSpec]): scala.reflect.ClassTag[com.clickhouse.spark.spec.ShardSpec]));
+    com.clickhouse.spark.spec.ClusterSpec.apply(cluster, shards)
+  }
+}))(immutable.this.Iterable.canBuildFrom[com.clickhouse.spark.spec.ClusterSpec]).toSeq
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          419
+        </td>
+        <td>
+          5007
+          -
+          5007
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryAndCheckOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.syncQueryAndCheckOutputJSONEachRow(scala.Predef.augmentString(scala.StringContext.apply(&quot;SELECT\n         |  `name`,          -- String\n         |  `engine`,        -- String\n         |  `data_path`,     -- String\n         |  `metadata_path`, -- String\n         |  `uuid`           -- String\n         |FROM `system`.`databases`\n         |WHERE `name`=\'&quot;, &quot;\'\n         |&quot;).s(database)).stripMargin, nodeClient.syncQueryAndCheckOutputJSONEachRow$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          2082
+        </td>
+        <td>
+          5015
+          -
+          5015
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;SELECT\n         |  `name`,          -- String\n         |  `engine`,        -- String\n         |  `data_path`,     -- String\n         |  `metadata_path`, -- String\n         |  `uuid`           -- String\n         |FROM `system`.`databases`\n         |WHERE `name`=\'&quot;, &quot;\'\n         |&quot;).s(database)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          1149
+        </td>
+        <td>
+          5306
+          -
+          5306
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripMargin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(scala.StringContext.apply(&quot;SELECT\n         |  `name`,          -- String\n         |  `engine`,        -- String\n         |  `data_path`,     -- String\n         |  `metadata_path`, -- String\n         |  `uuid`           -- String\n         |FROM `system`.`databases`\n         |WHERE `name`=\'&quot;, &quot;\'\n         |&quot;).s(database)).stripMargin
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          2129
+        </td>
+        <td>
+          5344
+          -
+          5346
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          output.rows.==(0)
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          1129
+        </td>
+        <td>
+          5328
+          -
+          5328
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          129
+        </td>
+        <td>
+          1872
+        </td>
+        <td>
+          5328
+          -
+          5328
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          532
+        </td>
+        <td>
+          5380
+          -
+          5380
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          actionIfNoSuchDatabase.apply(database)
+        </td>
+      </tr><tr>
+        <td>
+          130
+        </td>
+        <td>
+          1422
+        </td>
+        <td>
+          5380
+          -
+          5380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          actionIfNoSuchDatabase.apply(database)
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          5426
+          -
+          5426
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          output.records.head
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          493
+        </td>
+        <td>
+          5447
+          -
+          5447
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DatabaseSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.DatabaseSpec.apply(row.get(&quot;name&quot;).asText(), row.get(&quot;engine&quot;).asText(), row.get(&quot;data_path&quot;).asText(), row.get(&quot;metadata_path&quot;).asText(), row.get(&quot;uuid&quot;).asText())
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          2043
+        </td>
+        <td>
+          5478
+          -
+          5478
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;name&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          135
+        </td>
+        <td>
+          1255
+        </td>
+        <td>
+          5519
+          -
+          5519
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;engine&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          136
+        </td>
+        <td>
+          424
+        </td>
+        <td>
+          5566
+          -
+          5566
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;data_path&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1839
+        </td>
+        <td>
+          5621
+          -
+          5621
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;metadata_path&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          1350
+        </td>
+        <td>
+          5658
+          -
+          5658
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;uuid&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          150
+        </td>
+        <td>
+          678
+        </td>
+        <td>
+          5965
+          -
+          5965
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryAndCheckOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.syncQueryAndCheckOutputJSONEachRow(scala.Predef.augmentString(scala.StringContext.apply(&quot;SELECT\n         |  `database`,                   -- String\n         |  `name`,                       -- String\n         |  `uuid`,                       -- UUID\n         |  `engine`,                     -- String\n         |  `is_temporary`,               -- UInt8\n         |  `data_paths`,                 -- Array(String)\n         |  `metadata_path`,              -- String\n         |  `metadata_modification_time`, -- DateTime\n         |  `dependencies_database`,      -- Array(String)\n         |  `dependencies_table`,         -- Array(String)\n         |  `create_table_query`,         -- String\n         |  `engine_full`,                -- String\n         |  `partition_key`,              -- String\n         |  `sorting_key`,                -- String\n         |  `primary_key`,                -- String\n         |  `sampling_key`,               -- String\n         |  `storage_policy`,             -- String\n         |  `total_rows`,                 -- Nullable(UInt64)\n         |  `total_bytes`,                -- Nullable(UInt64)\n         |  `lifetime_rows`,              -- Nullable(UInt64)\n         |  `lifetime_bytes`              -- Nullable(UInt64)\n         |FROM `system`.`tables`\n         |WHERE `database`=\'&quot;, &quot;\' AND `name`=\'&quot;, &quot;\'\n         |&quot;).s(database, table)).stripMargin, nodeClient.syncQueryAndCheckOutputJSONEachRow$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          151
+        </td>
+        <td>
+          1897
+        </td>
+        <td>
+          5973
+          -
+          5973
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;SELECT\n         |  `database`,                   -- String\n         |  `name`,                       -- String\n         |  `uuid`,                       -- UUID\n         |  `engine`,                     -- String\n         |  `is_temporary`,               -- UInt8\n         |  `data_paths`,                 -- Array(String)\n         |  `metadata_path`,              -- String\n         |  `metadata_modification_time`, -- DateTime\n         |  `dependencies_database`,      -- Array(String)\n         |  `dependencies_table`,         -- Array(String)\n         |  `create_table_query`,         -- String\n         |  `engine_full`,                -- String\n         |  `partition_key`,              -- String\n         |  `sorting_key`,                -- String\n         |  `primary_key`,                -- String\n         |  `sampling_key`,               -- String\n         |  `storage_policy`,             -- String\n         |  `total_rows`,                 -- Nullable(UInt64)\n         |  `total_bytes`,                -- Nullable(UInt64)\n         |  `lifetime_rows`,              -- Nullable(UInt64)\n         |  `lifetime_bytes`              -- Nullable(UInt64)\n         |FROM `system`.`tables`\n         |WHERE `database`=\'&quot;, &quot;\' AND `name`=\'&quot;, &quot;\'\n         |&quot;).s(database, table)
+        </td>
+      </tr><tr>
+        <td>
+          175
+        </td>
+        <td>
+          1135
+        </td>
+        <td>
+          7242
+          -
+          7242
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripMargin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(scala.StringContext.apply(&quot;SELECT\n         |  `database`,                   -- String\n         |  `name`,                       -- String\n         |  `uuid`,                       -- UUID\n         |  `engine`,                     -- String\n         |  `is_temporary`,               -- UInt8\n         |  `data_paths`,                 -- Array(String)\n         |  `metadata_path`,              -- String\n         |  `metadata_modification_time`, -- DateTime\n         |  `dependencies_database`,      -- Array(String)\n         |  `dependencies_table`,         -- Array(String)\n         |  `create_table_query`,         -- String\n         |  `engine_full`,                -- String\n         |  `partition_key`,              -- String\n         |  `sorting_key`,                -- String\n         |  `primary_key`,                -- String\n         |  `sampling_key`,               -- String\n         |  `storage_policy`,             -- String\n         |  `total_rows`,                 -- Nullable(UInt64)\n         |  `total_bytes`,                -- Nullable(UInt64)\n         |  `lifetime_rows`,              -- Nullable(UInt64)\n         |  `lifetime_bytes`              -- Nullable(UInt64)\n         |FROM `system`.`tables`\n         |WHERE `database`=\'&quot;, &quot;\' AND `name`=\'&quot;, &quot;\'\n         |&quot;).s(database, table)).stripMargin
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          1707
+        </td>
+        <td>
+          7264
+          -
+          7264
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          2048
+        </td>
+        <td>
+          7280
+          -
+          7280
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.format.SimpleOutput.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableOutput.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          1335
+        </td>
+        <td>
+          7264
+          -
+          7264
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          1219
+        </td>
+        <td>
+          7316
+          -
+          7316
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          actionIfNoSuchTable.apply(database, table)
+        </td>
+      </tr><tr>
+        <td>
+          178
+        </td>
+        <td>
+          348
+        </td>
+        <td>
+          7316
+          -
+          7316
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          actionIfNoSuchTable.apply(database, table)
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          498
+        </td>
+        <td>
+          7379
+          -
+          7379
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IterableLike.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableOutput.records.head
+        </td>
+      </tr><tr>
+        <td>
+          181
+        </td>
+        <td>
+          1183
+        </td>
+        <td>
+          7397
+          -
+          7397
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.TableSpec.apply(tableRow.get(&quot;database&quot;).asText(), tableRow.get(&quot;name&quot;).asText(), tableRow.get(&quot;uuid&quot;).asText(), tableRow.get(&quot;engine&quot;).asText(), tableRow.get(&quot;is_temporary&quot;).asBoolean(), scala.collection.JavaConverters.asScalaIteratorConverter[com.fasterxml.jackson.databind.JsonNode](tableRow.get(&quot;data_paths&quot;).elements()).asScala.map[String](((x$4: com.fasterxml.jackson.databind.JsonNode) =&gt; x$4.asText())).toList, tableRow.get(&quot;metadata_path&quot;).asText(), java.time.LocalDateTime.parse(tableRow.get(&quot;metadata_modification_time&quot;).asText(), com.clickhouse.spark.Utils.dateTimeFmt.withZone(tz)), scala.collection.JavaConverters.asScalaIteratorConverter[com.fasterxml.jackson.databind.JsonNode](tableRow.get(&quot;dependencies_database&quot;).elements()).asScala.map[String](((x$5: com.fasterxml.jackson.databind.JsonNode) =&gt; x$5.asText())).toList, scala.collection.JavaConverters.asScalaIteratorConverter[com.fasterxml.jackson.databind.JsonNode](tableRow.get(&quot;dependencies_table&quot;).elements()).asScala.map[String](((x$6: com.fasterxml.jackson.databind.JsonNode) =&gt; x$6.asText())).toList, tableRow.get(&quot;create_table_query&quot;).asText(), tableRow.get(&quot;engine_full&quot;).asText(), tableRow.get(&quot;partition_key&quot;).asText(), tableRow.get(&quot;sorting_key&quot;).asText(), tableRow.get(&quot;primary_key&quot;).asText(), tableRow.get(&quot;sampling_key&quot;).asText(), tableRow.get(&quot;storage_policy&quot;).asText(), tableRow.get(&quot;total_rows&quot;) match {
+  case ((_: com.fasterxml.jackson.databind.node.NullNode)| null) =&gt; scala.None
+  case (node @ (_: com.fasterxml.jackson.databind.JsonNode)) =&gt; scala.Some.apply[Long](node.asLong())
+}, tableRow.get(&quot;total_bytes&quot;) match {
+  case ((_: com.fasterxml.jackson.databind.node.NullNode)| null) =&gt; scala.None
+  case (node @ (_: com.fasterxml.jackson.databind.JsonNode)) =&gt; scala.Some.apply[Long](node.asLong())
+}, tableRow.get(&quot;lifetime_rows&quot;) match {
+  case ((_: com.fasterxml.jackson.databind.node.NullNode)| null) =&gt; scala.None
+  case (node @ (_: com.fasterxml.jackson.databind.JsonNode)) =&gt; scala.Some.apply[Long](node.asLong())
+}, tableRow.get(&quot;lifetime_bytes&quot;) match {
+  case ((_: com.fasterxml.jackson.databind.node.NullNode)| null) =&gt; scala.None
+  case (node @ (_: com.fasterxml.jackson.databind.JsonNode)) =&gt; scala.Some.apply[Long](node.asLong())
+})
+        </td>
+      </tr><tr>
+        <td>
+          182
+        </td>
+        <td>
+          1903
+        </td>
+        <td>
+          7441
+          -
+          7441
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;database&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          1058
+        </td>
+        <td>
+          7483
+          -
+          7483
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;name&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          649
+        </td>
+        <td>
+          7525
+          -
+          7525
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;uuid&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          185
+        </td>
+        <td>
+          2020
+        </td>
+        <td>
+          7571
+          -
+          7571
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;engine&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          1225
+        </td>
+        <td>
+          7629
+          -
+          7629
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asBoolean
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;is_temporary&quot;).asBoolean()
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          1336
+        </td>
+        <td>
+          7719
+          -
+          7719
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.asScalaIteratorConverter[com.fasterxml.jackson.databind.JsonNode](tableRow.get(&quot;data_paths&quot;).elements()).asScala.map[String](((x$4: com.fasterxml.jackson.databind.JsonNode) =&gt; x$4.asText())).toList
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          352
+        </td>
+        <td>
+          7694
+          -
+          7694
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.elements
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;data_paths&quot;).elements()
+        </td>
+      </tr><tr>
+        <td>
+          187
+        </td>
+        <td>
+          1760
+        </td>
+        <td>
+          7711
+          -
+          7711
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$4.asText()
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          458
+        </td>
+        <td>
+          7779
+          -
+          7779
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;metadata_path&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          189
+        </td>
+        <td>
+          267
+        </td>
+        <td>
+          7841
+          -
+          7841
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.LocalDateTime.parse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.time.LocalDateTime.parse(tableRow.get(&quot;metadata_modification_time&quot;).asText(), com.clickhouse.spark.Utils.dateTimeFmt.withZone(tz))
+        </td>
+      </tr><tr>
+        <td>
+          190
+        </td>
+        <td>
+          1868
+        </td>
+        <td>
+          7894
+          -
+          7894
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;metadata_modification_time&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          191
+        </td>
+        <td>
+          1061
+        </td>
+        <td>
+          7930
+          -
+          7930
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.format.DateTimeFormatter.withZone
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.dateTimeFmt.withZone(tz)
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          2024
+        </td>
+        <td>
+          8020
+          -
+          8020
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.elements
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;dependencies_database&quot;).elements()
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          1150
+        </td>
+        <td>
+          8037
+          -
+          8037
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$5.asText()
+        </td>
+      </tr><tr>
+        <td>
+          193
+        </td>
+        <td>
+          314
+        </td>
+        <td>
+          8045
+          -
+          8045
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.asScalaIteratorConverter[com.fasterxml.jackson.databind.JsonNode](tableRow.get(&quot;dependencies_database&quot;).elements()).asScala.map[String](((x$5: com.fasterxml.jackson.databind.JsonNode) =&gt; x$5.asText())).toList
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          463
+        </td>
+        <td>
+          8148
+          -
+          8148
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toList
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.asScalaIteratorConverter[com.fasterxml.jackson.databind.JsonNode](tableRow.get(&quot;dependencies_table&quot;).elements()).asScala.map[String](((x$6: com.fasterxml.jackson.databind.JsonNode) =&gt; x$6.asText())).toList
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          1381
+        </td>
+        <td>
+          8140
+          -
+          8140
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$6.asText()
+        </td>
+      </tr><tr>
+        <td>
+          194
+        </td>
+        <td>
+          1835
+        </td>
+        <td>
+          8123
+          -
+          8123
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.elements
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;dependencies_table&quot;).elements()
+        </td>
+      </tr><tr>
+        <td>
+          195
+        </td>
+        <td>
+          1873
+        </td>
+        <td>
+          8218
+          -
+          8218
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;create_table_query&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          196
+        </td>
+        <td>
+          1032
+        </td>
+        <td>
+          8274
+          -
+          8274
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;engine_full&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          197
+        </td>
+        <td>
+          275
+        </td>
+        <td>
+          8334
+          -
+          8334
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;partition_key&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          1988
+        </td>
+        <td>
+          8390
+          -
+          8390
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;sorting_key&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          199
+        </td>
+        <td>
+          1138
+        </td>
+        <td>
+          8446
+          -
+          8446
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;primary_key&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          200
+        </td>
+        <td>
+          322
+        </td>
+        <td>
+          8504
+          -
+          8504
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;sampling_key&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          201
+        </td>
+        <td>
+          1795
+        </td>
+        <td>
+          8566
+          -
+          8566
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;storage_policy&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          985
+        </td>
+        <td>
+          8605
+          -
+          8605
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.node.ObjectNode.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;total_rows&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          1850
+        </td>
+        <td>
+          8663
+          -
+          8663
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          203
+        </td>
+        <td>
+          495
+        </td>
+        <td>
+          8663
+          -
+          8663
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          229
+        </td>
+        <td>
+          8703
+          -
+          8703
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](node.asLong())
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          1099
+        </td>
+        <td>
+          8709
+          -
+          8709
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          node.asLong()
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          2094
+        </td>
+        <td>
+          8703
+          -
+          8703
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](node.asLong())
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          1221
+        </td>
+        <td>
+          8758
+          -
+          8758
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.node.ObjectNode.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;total_bytes&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          288
+        </td>
+        <td>
+          8817
+          -
+          8817
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1801
+        </td>
+        <td>
+          8817
+          -
+          8817
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          454
+        </td>
+        <td>
+          8857
+          -
+          8857
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](node.asLong())
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          1946
+        </td>
+        <td>
+          8857
+          -
+          8857
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](node.asLong())
+        </td>
+      </tr><tr>
+        <td>
+          208
+        </td>
+        <td>
+          852
+        </td>
+        <td>
+          8863
+          -
+          8863
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          node.asLong()
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          1082
+        </td>
+        <td>
+          8914
+          -
+          8914
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.node.ObjectNode.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;lifetime_rows&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          238
+        </td>
+        <td>
+          8975
+          -
+          8975
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          2023
+        </td>
+        <td>
+          8975
+          -
+          8975
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          1178
+        </td>
+        <td>
+          9021
+          -
+          9021
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          node.asLong()
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          1775
+        </td>
+        <td>
+          9015
+          -
+          9015
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](node.asLong())
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          312
+        </td>
+        <td>
+          9015
+          -
+          9015
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](node.asLong())
+        </td>
+      </tr><tr>
+        <td>
+          214
+        </td>
+        <td>
+          956
+        </td>
+        <td>
+          9073
+          -
+          9073
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.node.ObjectNode.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tableRow.get(&quot;lifetime_bytes&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          1910
+        </td>
+        <td>
+          9135
+          -
+          9135
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          459
+        </td>
+        <td>
+          9135
+          -
+          9135
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1028
+        </td>
+        <td>
+          9181
+          -
+          9181
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          node.asLong()
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          247
+        </td>
+        <td>
+          9175
+          -
+          9175
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](node.asLong())
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1600
+        </td>
+        <td>
+          9175
+          -
+          9175
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[Long](node.asLong())
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          884
+        </td>
+        <td>
+          9478
+          -
+          9478
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryAndCheckOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.syncQueryAndCheckOutputJSONEachRow(scala.Predef.augmentString(scala.StringContext.apply(&quot;SELECT\n         |  `database`,                -- String\n         |  `table`,                   -- String\n         |  `name`,                    -- String\n         |  `type`,                    -- String\n         |  `position`,                -- UInt64\n         |  `default_kind`,            -- String\n         |  `default_expression`,      -- String\n         |  `data_compressed_bytes`,   -- UInt64\n         |  `data_uncompressed_bytes`, -- UInt64\n         |  `marks_bytes`,             -- UInt64\n         |  `comment`,                 -- String\n         |  `is_in_partition_key`,     -- UInt8\n         |  `is_in_sorting_key`,       -- UInt8\n         |  `is_in_primary_key`,       -- UInt8\n         |  `is_in_sampling_key`,      -- UInt8\n         |  `compression_codec`        -- String\n         |FROM `system`.`columns`\n         |WHERE `database`=\'&quot;, &quot;\' AND `table`=\'&quot;, &quot;\'\n         |ORDER BY `position` ASC\n         |&quot;).s(database, table)).stripMargin, nodeClient.syncQueryAndCheckOutputJSONEachRow$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          425
+        </td>
+        <td>
+          9486
+          -
+          9486
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;SELECT\n         |  `database`,                -- String\n         |  `table`,                   -- String\n         |  `name`,                    -- String\n         |  `type`,                    -- String\n         |  `position`,                -- UInt64\n         |  `default_kind`,            -- String\n         |  `default_expression`,      -- String\n         |  `data_compressed_bytes`,   -- UInt64\n         |  `data_uncompressed_bytes`, -- UInt64\n         |  `marks_bytes`,             -- UInt64\n         |  `comment`,                 -- String\n         |  `is_in_partition_key`,     -- UInt8\n         |  `is_in_sorting_key`,       -- UInt8\n         |  `is_in_primary_key`,       -- UInt8\n         |  `is_in_sampling_key`,      -- UInt8\n         |  `compression_codec`        -- String\n         |FROM `system`.`columns`\n         |WHERE `database`=\'&quot;, &quot;\' AND `table`=\'&quot;, &quot;\'\n         |ORDER BY `position` ASC\n         |&quot;).s(database, table)
+        </td>
+      </tr><tr>
+        <td>
+          247
+        </td>
+        <td>
+          1741
+        </td>
+        <td>
+          10419
+          -
+          10419
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripMargin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(scala.StringContext.apply(&quot;SELECT\n         |  `database`,                -- String\n         |  `table`,                   -- String\n         |  `name`,                    -- String\n         |  `type`,                    -- String\n         |  `position`,                -- UInt64\n         |  `default_kind`,            -- String\n         |  `default_expression`,      -- String\n         |  `data_compressed_bytes`,   -- UInt64\n         |  `data_uncompressed_bytes`, -- UInt64\n         |  `marks_bytes`,             -- UInt64\n         |  `comment`,                 -- String\n         |  `is_in_partition_key`,     -- UInt8\n         |  `is_in_sorting_key`,       -- UInt8\n         |  `is_in_primary_key`,       -- UInt8\n         |  `is_in_sampling_key`,      -- UInt8\n         |  `compression_codec`        -- String\n         |FROM `system`.`columns`\n         |WHERE `database`=\'&quot;, &quot;\' AND `table`=\'&quot;, &quot;\'\n         |ORDER BY `position` ASC\n         |&quot;).s(database, table)).stripMargin
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          10441
+          -
+          10441
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          1605
+        </td>
+        <td>
+          10441
+          -
+          10441
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          249
+        </td>
+        <td>
+          440
+        </td>
+        <td>
+          10458
+          -
+          10458
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.format.SimpleOutput.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          columnOutput.isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          1847
+        </td>
+        <td>
+          10494
+          -
+          10494
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          actionIfNoSuchTable.apply(database, table)
+        </td>
+      </tr><tr>
+        <td>
+          250
+        </td>
+        <td>
+          1035
+        </td>
+        <td>
+          10494
+          -
+          10494
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Function2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          actionIfNoSuchTable.apply(database, table)
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          442
+        </td>
+        <td>
+          10580
+          -
+          10580
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          columnOutput.records.map[(String, String), Seq[(String, String)]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; {
+  val fieldName: String = row.get(&quot;name&quot;).asText();
+  val ckType: String = row.get(&quot;type&quot;).asText();
+  scala.Tuple2.apply[String, String](fieldName, ckType)
+}))(collection.this.Seq.canBuildFrom[(String, String)])
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          1976
+        </td>
+        <td>
+          10554
+          -
+          10554
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.fromClickHouseSchema
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.SchemaUtils.fromClickHouseSchema(columnOutput.records.map[(String, String), Seq[(String, String)]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; {
+  val fieldName: String = row.get(&quot;name&quot;).asText();
+  val ckType: String = row.get(&quot;type&quot;).asText();
+  scala.Tuple2.apply[String, String](fieldName, ckType)
+}))(collection.this.Seq.canBuildFrom[(String, String)]))
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          945
+        </td>
+        <td>
+          10580
+          -
+          10580
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[(String, String)]
+        </td>
+      </tr><tr>
+        <td>
+          253
+        </td>
+        <td>
+          1154
+        </td>
+        <td>
+          10627
+          -
+          10627
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;name&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          254
+        </td>
+        <td>
+          285
+        </td>
+        <td>
+          10669
+          -
+          10669
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;type&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          255
+        </td>
+        <td>
+          1744
+        </td>
+        <td>
+          10682
+          -
+          10682
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[String, String](fieldName, ckType)
+        </td>
+      </tr><tr>
+        <td>
+          263
+        </td>
+        <td>
+          1674
+        </td>
+        <td>
+          10907
+          -
+          10907
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryAndCheckOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.syncQueryAndCheckOutputJSONEachRow(scala.Predef.augmentString(scala.StringContext.apply(&quot;SELECT\n         |  partition,                           -- String\n         |  partition_id,                        -- String\n         |  sum(rows)          AS row_count,     -- UInt64\n         |  sum(bytes_on_disk) AS size_in_bytes  -- UInt64\n         |FROM `system`.`parts`\n         |WHERE `database`=\'&quot;, &quot;\' AND `table`=\'&quot;, &quot;\' AND `active`=1\n         |GROUP BY `partition`, `partition_id`\n         |ORDER BY `partition` ASC, partition_id ASC\n         |&quot;).s(database, table)).stripMargin, nodeClient.syncQueryAndCheckOutputJSONEachRow$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          996
+        </td>
+        <td>
+          10915
+          -
+          10915
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;SELECT\n         |  partition,                           -- String\n         |  partition_id,                        -- String\n         |  sum(rows)          AS row_count,     -- UInt64\n         |  sum(bytes_on_disk) AS size_in_bytes  -- UInt64\n         |FROM `system`.`parts`\n         |WHERE `database`=\'&quot;, &quot;\' AND `table`=\'&quot;, &quot;\' AND `active`=1\n         |GROUP BY `partition`, `partition_id`\n         |ORDER BY `partition` ASC, partition_id ASC\n         |&quot;).s(database, table)
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          234
+        </td>
+        <td>
+          11383
+          -
+          11383
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripMargin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(scala.StringContext.apply(&quot;SELECT\n         |  partition,                           -- String\n         |  partition_id,                        -- String\n         |  sum(rows)          AS row_count,     -- UInt64\n         |  sum(bytes_on_disk) AS size_in_bytes  -- UInt64\n         |FROM `system`.`parts`\n         |WHERE `database`=\'&quot;, &quot;\' AND `table`=\'&quot;, &quot;\' AND `active`=1\n         |GROUP BY `partition`, `partition_id`\n         |ORDER BY `partition` ASC, partition_id ASC\n         |&quot;).s(database, table)).stripMargin
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          289
+        </td>
+        <td>
+          11503
+          -
+          11505
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          partOutput.records.head.get(&quot;partition&quot;).asText().==(&quot;tuple()&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          1156
+        </td>
+        <td>
+          11450
+          -
+          11450
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          1712
+        </td>
+        <td>
+          11447
+          -
+          11505
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          partOutput.rows.==(1).&amp;&amp;(partOutput.records.head.get(&quot;partition&quot;).asText().==(&quot;tuple()&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          1679
+        </td>
+        <td>
+          11405
+          -
+          11405
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          952
+        </td>
+        <td>
+          11428
+          -
+          11505
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          partOutput.isEmpty.||(partOutput.rows.==(1).&amp;&amp;(partOutput.records.head.get(&quot;partition&quot;).asText().==(&quot;tuple()&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          1181
+        </td>
+        <td>
+          11405
+          -
+          11405
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          202
+        </td>
+        <td>
+          11525
+          -
+          11525
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseHelper.queryPartitionSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          return scala.Predef.wrapRefArray[com.clickhouse.spark.spec.NoPartitionSpec.type](scala.Array.apply[com.clickhouse.spark.spec.NoPartitionSpec.type](com.clickhouse.spark.spec.NoPartitionSpec)((ClassTag.apply[com.clickhouse.spark.spec.NoPartitionSpec.type](classOf[com.clickhouse.spark.spec.NoPartitionSpec$]): scala.reflect.ClassTag[com.clickhouse.spark.spec.NoPartitionSpec.type])))
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          11538
+          -
+          11538
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.NoPartitionSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.NoPartitionSpec
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          1978
+        </td>
+        <td>
+          11537
+          -
+          11537
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[com.clickhouse.spark.spec.NoPartitionSpec.type](com.clickhouse.spark.spec.NoPartitionSpec)((ClassTag.apply[com.clickhouse.spark.spec.NoPartitionSpec.type](classOf[com.clickhouse.spark.spec.NoPartitionSpec$]): scala.reflect.ClassTag[com.clickhouse.spark.spec.NoPartitionSpec.type]))
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          1000
+        </td>
+        <td>
+          11537
+          -
+          11537
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.LowPriorityImplicits.wrapRefArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.wrapRefArray[com.clickhouse.spark.spec.NoPartitionSpec.type](scala.Array.apply[com.clickhouse.spark.spec.NoPartitionSpec.type](com.clickhouse.spark.spec.NoPartitionSpec)((ClassTag.apply[com.clickhouse.spark.spec.NoPartitionSpec.type](classOf[com.clickhouse.spark.spec.NoPartitionSpec$]): scala.reflect.ClassTag[com.clickhouse.spark.spec.NoPartitionSpec.type])))
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          1111
+        </td>
+        <td>
+          11588
+          -
+          11588
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[com.clickhouse.spark.spec.PartitionSpec]
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          204
+        </td>
+        <td>
+          11588
+          -
+          11588
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          partOutput.records.map[com.clickhouse.spark.spec.PartitionSpec, Seq[com.clickhouse.spark.spec.PartitionSpec]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; com.clickhouse.spark.spec.PartitionSpec.apply(row.get(&quot;partition&quot;).asText(), row.get(&quot;partition_id&quot;).asText(), row.get(&quot;row_count&quot;).asLong(), row.get(&quot;size_in_bytes&quot;).asLong())))(collection.this.Seq.canBuildFrom[com.clickhouse.spark.spec.PartitionSpec])
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          1912
+        </td>
+        <td>
+          11616
+          -
+          11616
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.PartitionSpec.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.PartitionSpec.apply(row.get(&quot;partition&quot;).asText(), row.get(&quot;partition_id&quot;).asText(), row.get(&quot;row_count&quot;).asLong(), row.get(&quot;size_in_bytes&quot;).asLong())
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          409
+        </td>
+        <td>
+          11665
+          -
+          11665
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;partition&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          1777
+        </td>
+        <td>
+          11720
+          -
+          11720
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;partition_id&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          282
+        </td>
+        <td>
+          912
+        </td>
+        <td>
+          11769
+          -
+          11769
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;row_count&quot;).asLong()
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          127
+        </td>
+        <td>
+          11826
+          -
+          11826
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asLong
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;size_in_bytes&quot;).asLong()
+        </td>
+      </tr><tr>
+        <td>
+          293
+        </td>
+        <td>
+          1643
+        </td>
+        <td>
+          12190
+          -
+          12190
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.format.NamesAndTypes.namesAndTypes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.syncQueryAndCheckOutputJSONCompactEachRowWithNamesAndTypes(sql, nodeClient.syncQueryAndCheckOutputJSONCompactEachRowWithNamesAndTypes$default$2).namesAndTypes
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          779
+        </td>
+        <td>
+          12255
+          -
+          12255
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.MapLike.toSeq
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          namesAndTypes.toSeq
+        </td>
+      </tr><tr>
+        <td>
+          294
+        </td>
+        <td>
+          360
+        </td>
+        <td>
+          12240
+          -
+          12240
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.SchemaUtils.fromClickHouseSchema
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.SchemaUtils.fromClickHouseSchema(namesAndTypes.toSeq)
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          786
+        </td>
+        <td>
+          12487
+          -
+          12487
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.syncQueryOutputJSONEachRow(scala.StringContext.apply(&quot;ALTER TABLE `&quot;, &quot;`.`&quot;, &quot;` &quot;, &quot; DROP PARTITION &quot;, &quot;&quot;).s(database, table, cluster.map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;), partitionExpr), nodeClient.syncQueryOutputJSONEachRow$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          992
+        </td>
+        <td>
+          12611
+          -
+          12611
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          920
+        </td>
+        <td>
+          12519
+          -
+          12519
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;`.`&quot;
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          12528
+          -
+          12528
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;` &quot;
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          1879
+        </td>
+        <td>
+          12581
+          -
+          12581
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; DROP PARTITION &quot;
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          1765
+        </td>
+        <td>
+          12497
+          -
+          12497
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ALTER TABLE `&quot;
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          1648
+        </td>
+        <td>
+          12495
+          -
+          12495
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;ALTER TABLE `&quot;, &quot;`.`&quot;, &quot;` &quot;, &quot; DROP PARTITION &quot;, &quot;&quot;).s(database, table, cluster.map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;), partitionExpr)
+        </td>
+      </tr><tr>
+        <td>
+          306
+        </td>
+        <td>
+          188
+        </td>
+        <td>
+          12576
+          -
+          12576
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          cluster.map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          308
+        </td>
+        <td>
+          1709
+        </td>
+        <td>
+          12650
+          -
+          12650
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          308
+        </td>
+        <td>
+          326
+        </td>
+        <td>
+          12650
+          -
+          12650
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          309
+        </td>
+        <td>
+          1807
+        </td>
+        <td>
+          12688
+          -
+          12688
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ClickHouseHelper.this.log.error(scala.StringContext.apply(&quot;[&quot;, &quot;]: &quot;, &quot;&quot;).s(ex.code, ex.getMessage()));
+  false
+}
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          891
+        </td>
+        <td>
+          12711
+          -
+          12711
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;[&quot;
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          146
+        </td>
+        <td>
+          12730
+          -
+          12730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          743
+        </td>
+        <td>
+          12708
+          -
+          12708
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.error
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseHelper.this.log.error(scala.StringContext.apply(&quot;[&quot;, &quot;]: &quot;, &quot;&quot;).s(ex.code, ex.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          18
+        </td>
+        <td>
+          12722
+          -
+          12722
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          1582
+        </td>
+        <td>
+          12709
+          -
+          12709
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;[&quot;, &quot;]: &quot;, &quot;&quot;).s(ex.code, ex.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          1881
+        </td>
+        <td>
+          12741
+          -
+          12741
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          310
+        </td>
+        <td>
+          1103
+        </td>
+        <td>
+          12717
+          -
+          12717
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.exception.CHException.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.code
+        </td>
+      </tr><tr>
+        <td>
+          311
+        </td>
+        <td>
+          407
+        </td>
+        <td>
+          12752
+          -
+          12752
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          322
+        </td>
+        <td>
+          915
+        </td>
+        <td>
+          12975
+          -
+          12975
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.syncQueryOutputJSONEachRow(scala.StringContext.apply(&quot;ALTER TABLE `&quot;, &quot;`.`&quot;, &quot;` &quot;, &quot; DELETE WHERE &quot;, &quot;&quot;).s(database, table, cluster.map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;), deleteExpr), scala.Predef.Map.apply[String, String](scala.Predef.ArrowAssoc[String](&quot;mutations_sync&quot;).-&gt;[String](&quot;2&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          323
+        </td>
+        <td>
+          149
+        </td>
+        <td>
+          13094
+          -
+          13094
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          323
+        </td>
+        <td>
+          1109
+        </td>
+        <td>
+          13069
+          -
+          13069
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; DELETE WHERE &quot;
+        </td>
+      </tr><tr>
+        <td>
+          323
+        </td>
+        <td>
+          1641
+        </td>
+        <td>
+          13064
+          -
+          13064
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          cluster.map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          323
+        </td>
+        <td>
+          753
+        </td>
+        <td>
+          12983
+          -
+          12983
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;ALTER TABLE `&quot;, &quot;`.`&quot;, &quot;` &quot;, &quot; DELETE WHERE &quot;, &quot;&quot;).s(database, table, cluster.map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;), deleteExpr)
+        </td>
+      </tr><tr>
+        <td>
+          323
+        </td>
+        <td>
+          854
+        </td>
+        <td>
+          12985
+          -
+          12985
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ALTER TABLE `&quot;
+        </td>
+      </tr><tr>
+        <td>
+          323
+        </td>
+        <td>
+          24
+        </td>
+        <td>
+          13007
+          -
+          13007
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;`.`&quot;
+        </td>
+      </tr><tr>
+        <td>
+          323
+        </td>
+        <td>
+          1477
+        </td>
+        <td>
+          13016
+          -
+          13016
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;` &quot;
+        </td>
+      </tr><tr>
+        <td>
+          325
+        </td>
+        <td>
+          394
+        </td>
+        <td>
+          13227
+          -
+          13229
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;mutations_sync&quot;).-&gt;[String](&quot;2&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          325
+        </td>
+        <td>
+          1812
+        </td>
+        <td>
+          13209
+          -
+          13209
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Map.apply[String, String](scala.Predef.ArrowAssoc[String](&quot;mutations_sync&quot;).-&gt;[String](&quot;2&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          327
+        </td>
+        <td>
+          97
+        </td>
+        <td>
+          13272
+          -
+          13272
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          327
+        </td>
+        <td>
+          1486
+        </td>
+        <td>
+          13272
+          -
+          13272
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          1464
+        </td>
+        <td>
+          13310
+          -
+          13310
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ClickHouseHelper.this.log.error(scala.StringContext.apply(&quot;[&quot;, &quot;]: &quot;, &quot;&quot;).s(ex.code, ex.getMessage()));
+  false
+}
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          1088
+        </td>
+        <td>
+          13333
+          -
+          13333
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;[&quot;
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          253
+        </td>
+        <td>
+          13344
+          -
+          13344
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          1644
+        </td>
+        <td>
+          13363
+          -
+          13363
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          1817
+        </td>
+        <td>
+          13331
+          -
+          13331
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;[&quot;, &quot;]: &quot;, &quot;&quot;).s(ex.code, ex.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          824
+        </td>
+        <td>
+          13339
+          -
+          13339
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.exception.CHException.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.code
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          889
+        </td>
+        <td>
+          13330
+          -
+          13330
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.error
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseHelper.this.log.error(scala.StringContext.apply(&quot;[&quot;, &quot;]: &quot;, &quot;&quot;).s(ex.code, ex.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          395
+        </td>
+        <td>
+          13352
+          -
+          13352
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          330
+        </td>
+        <td>
+          102
+        </td>
+        <td>
+          13374
+          -
+          13374
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          339
+        </td>
+        <td>
+          892
+        </td>
+        <td>
+          13576
+          -
+          13576
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.syncQueryOutputJSONEachRow(scala.StringContext.apply(&quot;TRUNCATE TABLE `&quot;, &quot;`.`&quot;, &quot;` &quot;, &quot;&quot;).s(database, table, cluster.map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;)), nodeClient.syncQueryOutputJSONEachRow$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          340
+        </td>
+        <td>
+          2218
+        </td>
+        <td>
+          13666
+          -
+          13666
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          cluster.map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          340
+        </td>
+        <td>
+          190
+        </td>
+        <td>
+          13609
+          -
+          13609
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;`.`&quot;
+        </td>
+      </tr><tr>
+        <td>
+          340
+        </td>
+        <td>
+          1090
+        </td>
+        <td>
+          13584
+          -
+          13584
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;TRUNCATE TABLE `&quot;
+        </td>
+      </tr><tr>
+        <td>
+          340
+        </td>
+        <td>
+          1786
+        </td>
+        <td>
+          13582
+          -
+          13582
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;TRUNCATE TABLE `&quot;, &quot;`.`&quot;, &quot;` &quot;, &quot;&quot;).s(database, table, cluster.map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          340
+        </td>
+        <td>
+          826
+        </td>
+        <td>
+          13671
+          -
+          13671
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          340
+        </td>
+        <td>
+          1612
+        </td>
+        <td>
+          13618
+          -
+          13618
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;` &quot;
+        </td>
+      </tr><tr>
+        <td>
+          342
+        </td>
+        <td>
+          1474
+        </td>
+        <td>
+          13706
+          -
+          13706
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          342
+        </td>
+        <td>
+          66
+        </td>
+        <td>
+          13706
+          -
+          13706
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          343
+        </td>
+        <td>
+          1484
+        </td>
+        <td>
+          13742
+          -
+          13742
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ClickHouseHelper.this.log.error(scala.StringContext.apply(&quot;[&quot;, &quot;]: &quot;, &quot;&quot;).s(ex.code, ex.getMessage()));
+  false
+}
+        </td>
+      </tr><tr>
+        <td>
+          344
+        </td>
+        <td>
+          1614
+        </td>
+        <td>
+          13793
+          -
+          13793
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          344
+        </td>
+        <td>
+          1811
+        </td>
+        <td>
+          13761
+          -
+          13761
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;[&quot;, &quot;]: &quot;, &quot;&quot;).s(ex.code, ex.getMessage())
+        </td>
+      </tr><tr>
+        <td>
+          344
+        </td>
+        <td>
+          715
+        </td>
+        <td>
+          13769
+          -
+          13769
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.exception.CHException.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.code
+        </td>
+      </tr><tr>
+        <td>
+          344
+        </td>
+        <td>
+          1044
+        </td>
+        <td>
+          13763
+          -
+          13763
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;[&quot;
+        </td>
+      </tr><tr>
+        <td>
+          344
+        </td>
+        <td>
+          2183
+        </td>
+        <td>
+          13782
+          -
+          13782
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Throwable.getMessage
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ex.getMessage()
+        </td>
+      </tr><tr>
+        <td>
+          344
+        </td>
+        <td>
+          876
+        </td>
+        <td>
+          13760
+          -
+          13760
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.error
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseHelper.this.log.error(scala.StringContext.apply(&quot;[&quot;, &quot;]: &quot;, &quot;&quot;).s(ex.code, ex.getMessage()))
+        </td>
+      </tr><tr>
+        <td>
+          344
+        </td>
+        <td>
+          179
+        </td>
+        <td>
+          13774
+          -
+          13774
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;]: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          345
+        </td>
+        <td>
+          70
+        </td>
+        <td>
+          13802
+          -
+          13802
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

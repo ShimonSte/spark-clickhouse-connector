@@ -1,0 +1,6510 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/ClickHouseCatalog.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark
+</span>16 <span style=''>
+</span>17 <span style=''>import com.clickhouse.client.ClickHouseProtocol
+</span>18 <span style=''>import org.apache.spark.sql.catalyst.analysis._
+</span>19 <span style=''>import org.apache.spark.sql.clickhouse.{ExprUtils, SchemaUtils}
+</span>20 <span style=''>import org.apache.spark.sql.connector.catalog._
+</span>21 <span style=''>import org.apache.spark.sql.connector.catalog.functions.UnboundFunction
+</span>22 <span style=''>import org.apache.spark.sql.connector.expressions.Transform
+</span>23 <span style=''>import org.apache.spark.sql.types.StructType
+</span>24 <span style=''>import org.apache.spark.sql.util.CaseInsensitiveStringMap
+</span>25 <span style=''>import com.clickhouse.spark.Constants._
+</span>26 <span style=''>import com.clickhouse.spark.client.NodeClient
+</span>27 <span style=''>import com.clickhouse.spark.exception.CHClientException
+</span>28 <span style=''>import com.clickhouse.spark.exception.ClickHouseErrCode._
+</span>29 <span style=''>import com.clickhouse.spark.func.{ClickHouseXxHash64Shard, FunctionRegistry, _}
+</span>30 <span style=''>import com.clickhouse.spark.spec._
+</span>31 <span style=''>
+</span>32 <span style=''>import java.time.ZoneId
+</span>33 <span style=''>import java.util
+</span>34 <span style=''>import scala.collection.JavaConverters._
+</span>35 <span style=''>
+</span>36 <span style=''>class ClickHouseCatalog extends TableCatalog
+</span>37 <span style=''>    with SupportsNamespaces
+</span>38 <span style=''>    with FunctionCatalog
+</span>39 <span style=''>    with ClickHouseHelper
+</span>40 <span style=''>    with SQLHelper
+</span>41 <span style=''>    with Logging {
+</span>42 <span style=''>
+</span>43 <span style=''>  private var catalogName: String = _
+</span>44 <span style=''>
+</span>45 <span style=''>  // ///////////////////////////////////////////////////
+</span>46 <span style=''>  // ////////////////// SINGLE NODE ////////////////////
+</span>47 <span style=''>  // ///////////////////////////////////////////////////
+</span>48 <span style=''>  private var nodeSpec: NodeSpec = _
+</span>49 <span style=''>
+</span>50 <span style=''>  implicit private var nodeClient: NodeClient = _
+</span>51 <span style=''>
+</span>52 <span style=''>  // case Left  =&gt; server timezone
+</span>53 <span style=''>  // case Right =&gt; client timezone or user specific timezone
+</span>54 <span style=''>  private var tz: Either[ZoneId, ZoneId] = _
+</span>55 <span style=''>
+</span>56 <span style=''>  private var currentDb: String = _
+</span>57 <span style=''>
+</span>58 <span style=''>  // ///////////////////////////////////////////////////
+</span>59 <span style=''>  // /////////////////// CLUSTERS //////////////////////
+</span>60 <span style=''>  // ///////////////////////////////////////////////////
+</span>61 <span style=''>  private var clusterSpecs: Seq[ClusterSpec] = Nil
+</span>62 <span style=''>
+</span>63 <span style=''>  private var functionRegistry: FunctionRegistry = _
+</span>64 <span style=''>
+</span>65 <span style=''>  override def initialize(name: String, options: CaseInsensitiveStringMap): Unit = {
+</span>66 <span style=''>    this.catalogName = name
+</span>67 <span style=''>    this.nodeSpec = buildNodeSpec(options)
+</span>68 <span style=''>    this.currentDb = nodeSpec.database
+</span>69 <span style=''>    this.nodeClient = NodeClient(nodeSpec)
+</span>70 <span style=''>
+</span>71 <span style=''>    this.nodeClient.syncQueryAndCheckOutputJSONEachRow(&quot;SELECT 1&quot;)
+</span>72 <span style=''>
+</span>73 <span style=''>    this.tz = options.get(CATALOG_PROP_TZ) match {
+</span>74 <span style=''>      case tz if tz </span><span style='background: #F0ADAD'>== null || tz.isEmpty || tz.toLowerCase == &quot;server&quot;</span><span style=''> =&gt;
+</span>75 <span style=''>        val timezoneOutput = this.nodeClient.syncQueryAndCheckOutputJSONEachRow(&quot;SELECT timezone() AS tz&quot;)
+</span>76 <span style=''>        assert(timezoneOutput.rows </span><span style='background: #F0ADAD'>== 1</span><span style=''>)
+</span>77 <span style=''>        val serverTz = ZoneId.of(timezoneOutput.records.head.get(&quot;tz&quot;).asText)
+</span>78 <span style=''>        log.info(s&quot;Detect ClickHouse server timezone: $serverTz&quot;)
+</span>79 <span style=''>        Left(serverTz)
+</span>80 <span style=''>      case tz if tz.toLowerCase </span><span style='background: #F0ADAD'>== &quot;client&quot;</span><span style=''> =&gt; Right(ZoneId.systemDefault)
+</span>81 <span style=''>      case tz =&gt; Right(ZoneId.of(tz))
+</span>82 <span style=''>    }
+</span>83 <span style=''>
+</span>84 <span style=''>    this.clusterSpecs = queryClusterSpecs(nodeSpec)
+</span>85 <span style=''>
+</span>86 <span style=''>    val dynamicFunctionRegistry = new DynamicFunctionRegistry
+</span>87 <span style=''>    val xxHash64ShardFunc = new ClickHouseXxHash64Shard(clusterSpecs)
+</span>88 <span style=''>    dynamicFunctionRegistry.register(&quot;ck_xx_hash64_shard&quot;, xxHash64ShardFunc) // for compatible
+</span>89 <span style=''>    dynamicFunctionRegistry.register(&quot;clickhouse_shard_xxHash64&quot;, xxHash64ShardFunc)
+</span>90 <span style=''>    this.functionRegistry = new CompositeFunctionRegistry(Array(StaticFunctionRegistry, dynamicFunctionRegistry))
+</span>91 <span style=''>
+</span>92 <span style=''>    log.info(s&quot;Detect ${clusterSpecs.size} ClickHouse clusters: ${clusterSpecs.map(_.name).mkString(&quot;,&quot;)}&quot;)
+</span>93 <span style=''>    log.info(s&quot;ClickHouse clusters' detail: $clusterSpecs&quot;)
+</span>94 <span style=''>    log.info(s&quot;Registered functions: ${this.functionRegistry.list.mkString(&quot;,&quot;)}&quot;)
+</span>95 <span style=''>  }
+</span>96 <span style=''>
+</span>97 <span style=''>  override def name(): String = catalogName
+</span>98 <span style=''>
+</span>99 <span style=''>  @throws[NoSuchNamespaceException]
+</span>100 <span style=''>  override def listTables(namespace: Array[String]): Array[Identifier] = namespace match {
+</span>101 <span style=''>    case Array(database) =&gt;
+</span>102 <span style=''>      nodeClient.syncQueryOutputJSONEachRow(s&quot;SHOW TABLES IN ${quoted(database)}&quot;) match {
+</span>103 <span style=''>        case Left(exception) if exception.code </span><span style='background: #F0ADAD'>== UNKNOWN_DATABASE.code</span><span style=''> =&gt;
+</span>104 <span style=''>          throw new NoSuchNamespaceException(namespace.mkString(&quot;.&quot;))
+</span>105 <span style=''>        case Left(rethrow) =&gt;
+</span>106 <span style=''>          throw rethrow
+</span>107 <span style=''>        case Right(output) =&gt;
+</span>108 <span style=''>          output.records
+</span>109 <span style=''>            .map(row =&gt; row.get(&quot;name&quot;).asText)
+</span>110 <span style=''>            .map(table =&gt; Identifier.of(namespace, table))
+</span>111 <span style=''>            .toArray
+</span>112 <span style=''>      }
+</span>113 <span style=''>    case _ =&gt; throw new NoSuchNamespaceException(namespace.mkString(&quot;.&quot;))
+</span>114 <span style=''>  }
+</span>115 <span style=''>
+</span>116 <span style=''>  @throws[NoSuchTableException]
+</span>117 <span style=''>  override def loadTable(ident: Identifier): ClickHouseTable = {
+</span>118 <span style=''>    val (database, table) = unwrap(ident) match {
+</span>119 <span style=''>      case None =&gt; throw new NoSuchTableException(ident)
+</span>120 <span style=''>      case Some((db, tbl)) =&gt;
+</span>121 <span style=''>        nodeClient.syncQueryOutputJSONEachRow(s&quot;SELECT * FROM `$db`.`$tbl` WHERE 1=0&quot;) match {
+</span>122 <span style=''>          case Left(exception) if exception.code == UNKNOWN_TABLE.code =&gt;
+</span>123 <span style=''>            throw new NoSuchTableException(ident)
+</span>124 <span style=''>          // not sure if this check is necessary
+</span>125 <span style=''>          case Left(exception) if exception.code == UNKNOWN_DATABASE.code =&gt;
+</span>126 <span style=''>            throw new NoSuchTableException(s&quot;Database $db does not exist&quot;)
+</span>127 <span style=''>          case Left(rethrow) =&gt;
+</span>128 <span style=''>            throw rethrow
+</span>129 <span style=''>          case Right(_) =&gt; (db, tbl)
+</span>130 <span style=''>        }
+</span>131 <span style=''>    }
+</span>132 <span style=''>    implicit val _tz: ZoneId = tz.merge
+</span>133 <span style=''>    val tableSpec = queryTableSpec(database, table)
+</span>134 <span style=''>    val tableEngineSpec = TableEngineUtils.resolveTableEngine(tableSpec)
+</span>135 <span style=''>    val tableClusterSpec = tableEngineSpec match {
+</span>136 <span style=''>      case distributeSpec: DistributedEngineSpec =&gt;
+</span>137 <span style=''>        Some(TableEngineUtils.resolveTableCluster(distributeSpec, clusterSpecs))
+</span>138 <span style=''>      case _ =&gt; None
+</span>139 <span style=''>    }
+</span>140 <span style=''>    ClickHouseTable(
+</span>141 <span style=''>      nodeSpec,
+</span>142 <span style=''>      tableClusterSpec,
+</span>143 <span style=''>      _tz,
+</span>144 <span style=''>      tableSpec,
+</span>145 <span style=''>      tableEngineSpec,
+</span>146 <span style=''>      functionRegistry
+</span>147 <span style=''>    )
+</span>148 <span style=''>  }
+</span>149 <span style=''>
+</span>150 <span style=''>  /**
+</span>151 <span style=''>   * &lt;h2&gt;MergeTree Engine&lt;/h2&gt;
+</span>152 <span style=''>   * {{{
+</span>153 <span style=''>   * CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+</span>154 <span style=''>   * (
+</span>155 <span style=''>   *     name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1] [TTL expr1],
+</span>156 <span style=''>   *     name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2] [TTL expr2],
+</span>157 <span style=''>   *     ...
+</span>158 <span style=''>   *     INDEX index_name1 expr1 TYPE type1(...) GRANULARITY value1,
+</span>159 <span style=''>   *     INDEX index_name2 expr2 TYPE type2(...) GRANULARITY value2
+</span>160 <span style=''>   * ) ENGINE = MergeTree()
+</span>161 <span style=''>   * ORDER BY expr
+</span>162 <span style=''>   * [PARTITION BY expr]
+</span>163 <span style=''>   * [PRIMARY KEY expr]
+</span>164 <span style=''>   * [SAMPLE BY expr]
+</span>165 <span style=''>   * [TTL expr
+</span>166 <span style=''>   *     [DELETE|TO DISK 'xxx'|TO VOLUME 'xxx' [, ...] ]
+</span>167 <span style=''>   *     [WHERE conditions]
+</span>168 <span style=''>   *     [GROUP BY key_expr [SET v1 = agg_func(v1) [, v2 = agg_func(v2) ...]] ]]
+</span>169 <span style=''>   * [SETTINGS name=value, ...]
+</span>170 <span style=''>   * }}}
+</span>171 <span style=''>   * &lt;p&gt;
+</span>172 <span style=''>   *
+</span>173 <span style=''>   * &lt;h2&gt;ReplacingMergeTree Engine&lt;/h2&gt;
+</span>174 <span style=''>   * {{{
+</span>175 <span style=''>   * CREATE TABLE [IF NOT EXISTS] [db.]table_name [ON CLUSTER cluster]
+</span>176 <span style=''>   * (
+</span>177 <span style=''>   *     name1 [type1] [DEFAULT|MATERIALIZED|ALIAS expr1],
+</span>178 <span style=''>   *     name2 [type2] [DEFAULT|MATERIALIZED|ALIAS expr2],
+</span>179 <span style=''>   *     ...
+</span>180 <span style=''>   * ) ENGINE = ReplacingMergeTree([ver])
+</span>181 <span style=''>   * [PARTITION BY expr]
+</span>182 <span style=''>   * [ORDER BY expr]
+</span>183 <span style=''>   * [PRIMARY KEY expr]
+</span>184 <span style=''>   * [SAMPLE BY expr]
+</span>185 <span style=''>   * [SETTINGS name=value, ...]
+</span>186 <span style=''>   * }}}
+</span>187 <span style=''>   *
+</span>188 <span style=''>   * `ver` — column with version. Type `UInt*`, `Date` or `DateTime`.
+</span>189 <span style=''>   */
+</span>190 <span style=''>  @throws[TableAlreadyExistsException]
+</span>191 <span style=''>  @throws[NoSuchNamespaceException]
+</span>192 <span style=''>  override def createTable(
+</span>193 <span style=''>    ident: Identifier,
+</span>194 <span style=''>    schema: StructType,
+</span>195 <span style=''>    partitions: Array[Transform],
+</span>196 <span style=''>    properties: util.Map[String, String]
+</span>197 <span style=''>  ): ClickHouseTable = {
+</span>198 <span style=''>    val (db, tbl) = unwrap(ident) match {
+</span>199 <span style=''>      case Some((d, t)) =&gt; (d, t)
+</span>200 <span style=''>      case None =&gt; throw CHClientException(s&quot;Invalid table identifier: $ident&quot;)
+</span>201 <span style=''>    }
+</span>202 <span style=''>    val props = properties.asScala
+</span>203 <span style=''>
+</span>204 <span style=''>    val engineExpr = props.getOrElse(&quot;engine&quot;, &quot;MergeTree()&quot;)
+</span>205 <span style=''>
+</span>206 <span style=''>    val isCreatingDistributed = engineExpr </span><span style='background: #F0ADAD'>equalsIgnoreCase &quot;Distributed&quot;</span><span style=''>
+</span>207 <span style=''>    val keyPrefix = if (isCreatingDistributed) &quot;local.&quot; else &quot;&quot;
+</span>208 <span style=''>
+</span>209 <span style=''>    val partitionsClause = partitions match {
+</span>210 <span style=''>      case transforms if transforms.nonEmpty =&gt;
+</span>211 <span style=''>        transforms.map(ExprUtils.toClickHouse(_, functionRegistry).sql).mkString(&quot;PARTITION BY (&quot;, &quot;, &quot;, &quot;)&quot;)
+</span>212 <span style=''>      case _ =&gt; &quot;&quot;
+</span>213 <span style=''>    }
+</span>214 <span style=''>
+</span>215 <span style=''>    val orderClause = props.get(s&quot;${keyPrefix}order_by&quot;).map(o =&gt; s&quot;ORDER BY ($o)&quot;).getOrElse(&quot;&quot;)
+</span>216 <span style=''>    val primaryKeyClause = props.get(s&quot;${keyPrefix}primary_key&quot;).map(p =&gt; s&quot;PRIMARY KEY ($p)&quot;).getOrElse(&quot;&quot;)
+</span>217 <span style=''>    val sampleClause = props.get(s&quot;${keyPrefix}sample_by&quot;).map(p =&gt; s&quot;SAMPLE BY ($p)&quot;).getOrElse(&quot;&quot;)
+</span>218 <span style=''>
+</span>219 <span style=''>    val fieldsClause = SchemaUtils
+</span>220 <span style=''>      .toClickHouseSchema(schema)
+</span>221 <span style=''>      .map { case (fieldName, ckType, comment) =&gt; s&quot;${quoted(fieldName)} $ckType$comment&quot; }
+</span>222 <span style=''>      .mkString(&quot;,\n &quot;)
+</span>223 <span style=''>
+</span>224 <span style=''>    val clusterOpt = props.get(&quot;cluster&quot;)
+</span>225 <span style=''>
+</span>226 <span style=''>    def tblSettingsClause(prefix: String): String = props.filterKeys(_.startsWith(prefix)) match {
+</span>227 <span style=''>      case settings if settings.nonEmpty =&gt;
+</span>228 <span style=''>        settings.map { case (k, v) =&gt;
+</span>229 <span style=''>          s&quot;${k.substring(prefix.length)}=$v&quot;
+</span>230 <span style=''>        }.mkString(&quot;SETTINGS &quot;, &quot;, &quot;, &quot;&quot;)
+</span>231 <span style=''>      case _ =&gt; &quot;&quot;
+</span>232 <span style=''>    }
+</span>233 <span style=''>
+</span>234 <span style=''>    def createTable(
+</span>235 <span style=''>      clusterOpt: Option[String],
+</span>236 <span style=''>      engineExpr: String,
+</span>237 <span style=''>      database: String,
+</span>238 <span style=''>      table: String,
+</span>239 <span style=''>      settingsClause: String
+</span>240 <span style=''>    ): Unit = {
+</span>241 <span style=''>      val clusterClause = clusterOpt.map(c =&gt; s&quot;ON CLUSTER $c&quot;).getOrElse(&quot;&quot;)
+</span>242 <span style=''>      nodeClient.syncQueryAndCheckOutputJSONEachRow(
+</span>243 <span style=''>        s&quot;&quot;&quot;CREATE TABLE `$database`.`$table` $clusterClause (
+</span>244 <span style=''>           |$fieldsClause
+</span>245 <span style=''>           |) ENGINE = $engineExpr
+</span>246 <span style=''>           |$partitionsClause
+</span>247 <span style=''>           |$orderClause
+</span>248 <span style=''>           |$primaryKeyClause
+</span>249 <span style=''>           |$sampleClause
+</span>250 <span style=''>           |$settingsClause
+</span>251 <span style=''>           |&quot;&quot;&quot;.stripMargin
+</span>252 <span style=''>          .replaceAll(&quot;&quot;&quot;\n\s+\n&quot;&quot;&quot;, &quot;\n&quot;) // remove empty lines
+</span>253 <span style=''>      )
+</span>254 <span style=''>    }
+</span>255 <span style=''>
+</span>256 <span style=''>    def createDistributedTable(
+</span>257 <span style=''>      cluster: String,
+</span>258 <span style=''>      shardExpr: String,
+</span>259 <span style=''>      localDatabase: String,
+</span>260 <span style=''>      localTable: String,
+</span>261 <span style=''>      distributedDatabase: String,
+</span>262 <span style=''>      distributedTable: String,
+</span>263 <span style=''>      settingsClause: String
+</span>264 <span style=''>    ): Unit = nodeClient.syncQueryAndCheckOutputJSONEachRow(
+</span>265 <span style=''>      s&quot;&quot;&quot;CREATE TABLE `$distributedDatabase`.`$distributedTable` ON CLUSTER $cluster
+</span>266 <span style=''>         |AS `$localDatabase`.`$localTable`
+</span>267 <span style=''>         |ENGINE = Distributed($cluster, '$localDatabase', '$localTable', ($shardExpr))
+</span>268 <span style=''>         |$settingsClause
+</span>269 <span style=''>         |&quot;&quot;&quot;.stripMargin
+</span>270 <span style=''>    )
+</span>271 <span style=''>
+</span>272 <span style=''>    if (isCreatingDistributed) {
+</span>273 <span style=''>      val cluster = clusterOpt.getOrElse(&quot;default&quot;)
+</span>274 <span style=''>      val shardExpr = props.getOrElse(&quot;shard_by&quot;, &quot;rand()&quot;)
+</span>275 <span style=''>      val settingsClause = tblSettingsClause(&quot;settings.&quot;)
+</span>276 <span style=''>      val localEngineExpr = props.getOrElse(s&quot;${keyPrefix}engine&quot;, s&quot;MergeTree()&quot;)
+</span>277 <span style=''>      val localDatabase = props.getOrElse(s&quot;${keyPrefix}database&quot;, db)
+</span>278 <span style=''>      val localTable = props.getOrElse(s&quot;${keyPrefix}table&quot;, s&quot;${tbl}_local&quot;)
+</span>279 <span style=''>      val localSettingsClause = tblSettingsClause(s&quot;${keyPrefix}settings.&quot;)
+</span>280 <span style=''>      createTable(Some(cluster), localEngineExpr, localDatabase, localTable, localSettingsClause)
+</span>281 <span style=''>      createDistributedTable(cluster, shardExpr, localDatabase, localTable, db, tbl, settingsClause)
+</span>282 <span style=''>    } else {
+</span>283 <span style=''>      val settingsClause = tblSettingsClause(s&quot;${keyPrefix}settings.&quot;)
+</span>284 <span style=''>      createTable(clusterOpt, engineExpr, db, tbl, settingsClause)
+</span>285 <span style=''>    }
+</span>286 <span style=''>
+</span>287 <span style=''>    loadTable(ident)
+</span>288 <span style=''>  }
+</span>289 <span style=''>
+</span>290 <span style=''>  @throws[NoSuchTableException]
+</span>291 <span style=''>  override def alterTable(ident: Identifier, changes: TableChange*): ClickHouseTable =
+</span>292 <span style=''>    throw new UnsupportedOperationException
+</span>293 <span style=''>
+</span>294 <span style=''>  override def dropTable(ident: Identifier): Boolean = {
+</span>295 <span style=''>    val tableOpt =
+</span>296 <span style=''>      try Some(loadTable(ident))
+</span>297 <span style=''>      catch {
+</span>298 <span style=''>        case _: NoSuchTableException =&gt; None
+</span>299 <span style=''>      }
+</span>300 <span style=''>    tableOpt match {
+</span>301 <span style=''>      case None =&gt; false
+</span>302 <span style=''>      case Some(ClickHouseTable(_, cluster, _, tableSpec, _, _)) =&gt;
+</span>303 <span style=''>        val (db, tbl) = (tableSpec.database, tableSpec.name)
+</span>304 <span style=''>        val isAtomic = loadNamespaceMetadata(Array(db)).get(&quot;engine&quot;).equalsIgnoreCase(&quot;atomic&quot;)
+</span>305 <span style=''>        val syncClause = if (isAtomic) &quot;SYNC&quot; else &quot;&quot;
+</span>306 <span style=''>        // limitation: only support Distribute table, can not handle cases such as drop local table on cluster nodes
+</span>307 <span style=''>        val clusterClause = cluster.map(c =&gt; s&quot;ON CLUSTER ${c.name}&quot;).getOrElse(&quot;&quot;)
+</span>308 <span style=''>        nodeClient.syncQueryOutputJSONEachRow(s&quot;DROP TABLE `$db`.`$tbl` $clusterClause $syncClause&quot;).isRight
+</span>309 <span style=''>    }
+</span>310 <span style=''>  }
+</span>311 <span style=''>
+</span>312 <span style=''>  @throws[NoSuchTableException]
+</span>313 <span style=''>  @throws[TableAlreadyExistsException]
+</span>314 <span style=''>  override def renameTable(oldIdent: Identifier, newIdent: Identifier): Unit =
+</span>315 <span style=''>    (unwrap(oldIdent), unwrap(newIdent)) match {
+</span>316 <span style=''>      case (Some((oldDb, oldTbl)), Some((newDb, newTbl))) =&gt;
+</span>317 <span style=''>        nodeClient.syncQueryOutputJSONEachRow(s&quot;RENAME TABLE `$oldDb`.`$oldTbl` to `$newDb`.`$newTbl`&quot;) match {
+</span>318 <span style=''>          case Left(exception) =&gt; throw new NoSuchTableException(exception.getMessage, Some(exception))
+</span>319 <span style=''>          case Right(_) =&gt;
+</span>320 <span style=''>        }
+</span>321 <span style=''>      case _ =&gt; throw CHClientException(&quot;Invalid table identifier&quot;)
+</span>322 <span style=''>    }
+</span>323 <span style=''>
+</span>324 <span style=''>  override def defaultNamespace(): Array[String] = Array(currentDb)
+</span>325 <span style=''>
+</span>326 <span style=''>  @throws[NoSuchNamespaceException]
+</span>327 <span style=''>  override def listNamespaces(): Array[Array[String]] = {
+</span>328 <span style=''>    val output = nodeClient.syncQueryAndCheckOutputJSONEachRow(&quot;SHOW DATABASES&quot;)
+</span>329 <span style=''>    output.records.map(row =&gt; Array(row.get(&quot;name&quot;).asText)).toArray
+</span>330 <span style=''>  }
+</span>331 <span style=''>
+</span>332 <span style=''>  @throws[NoSuchNamespaceException]
+</span>333 <span style=''>  override def listNamespaces(namespace: Array[String]): Array[Array[String]] = namespace match {
+</span>334 <span style=''>    case Array() =&gt; listNamespaces()
+</span>335 <span style=''>    case Array(_) =&gt;
+</span>336 <span style=''>      loadNamespaceMetadata(namespace)
+</span>337 <span style=''>      Array()
+</span>338 <span style=''>    case _ =&gt; throw new NoSuchNamespaceException(namespace.map(quoted).mkString(&quot;.&quot;))
+</span>339 <span style=''>  }
+</span>340 <span style=''>
+</span>341 <span style=''>  @throws[NoSuchNamespaceException]
+</span>342 <span style=''>  override def loadNamespaceMetadata(namespace: Array[String]): util.Map[String, String] = namespace match {
+</span>343 <span style=''>    case Array(database) =&gt; queryDatabaseSpec(database).toJavaMap
+</span>344 <span style=''>    case _ =&gt; throw new NoSuchNamespaceException(namespace.map(quoted).mkString(&quot;.&quot;))
+</span>345 <span style=''>  }
+</span>346 <span style=''>
+</span>347 <span style=''>  @throws[NamespaceAlreadyExistsException]
+</span>348 <span style=''>  override def createNamespace(namespace: Array[String], metadata: util.Map[String, String]): Unit = namespace match {
+</span>349 <span style=''>    case Array(database) =&gt;
+</span>350 <span style=''>      val onClusterClause = metadata.asScala.get(&quot;cluster&quot;).map(c =&gt; s&quot;ON CLUSTER $c&quot;).getOrElse(&quot;&quot;)
+</span>351 <span style=''>      nodeClient.syncQueryOutputJSONEachRow(s&quot;CREATE DATABASE ${quoted(database)} $onClusterClause&quot;)
+</span>352 <span style=''>  }
+</span>353 <span style=''>
+</span>354 <span style=''>  @throws[NoSuchNamespaceException]
+</span>355 <span style=''>  override def alterNamespace(namespace: Array[String], changes: NamespaceChange*): Unit =
+</span>356 <span style=''>    throw new UnsupportedOperationException(&quot;ALTER NAMESPACE OPERATION is unsupported yet&quot;)
+</span>357 <span style=''>
+</span>358 <span style=''>  @throws[NoSuchNamespaceException]
+</span>359 <span style=''>  override def dropNamespace(namespace: Array[String], cascade: Boolean): Boolean = namespace match {
+</span>360 <span style=''>    case Array(database) =&gt;
+</span>361 <span style=''>      loadNamespaceMetadata(namespace) // test existing
+</span>362 <span style=''>      if (!cascade </span><span style='background: #F0ADAD'>&amp;&amp; listNamespaces(namespace).nonEmpty</span><span style=''>) {
+</span>363 <span style=''>        throw new NonEmptyNamespaceException(namespace)
+</span>364 <span style=''>      }
+</span>365 <span style=''>      nodeClient.syncQueryOutputJSONEachRow(s&quot;DROP DATABASE ${quoted(database)}&quot;).isRight
+</span>366 <span style=''>    case _ =&gt; false
+</span>367 <span style=''>  }
+</span>368 <span style=''>
+</span>369 <span style=''>  @throws[NoSuchNamespaceException]
+</span>370 <span style=''>  override def listFunctions(namespace: Array[String]): Array[Identifier] =
+</span>371 <span style=''>    functionRegistry.list.map(name =&gt; Identifier.of(Array.empty, name))
+</span>372 <span style=''>
+</span>373 <span style=''>  @throws[NoSuchFunctionException]
+</span>374 <span style=''>  override def loadFunction(ident: Identifier): UnboundFunction =
+</span>375 <span style=''>    functionRegistry.load(ident.name).getOrElse(throw new NoSuchFunctionException(ident))
+</span>376 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1445
+        </td>
+        <td>
+          2295
+          -
+          2295
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.Nil
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.immutable.Nil
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          547
+        </td>
+        <td>
+          2460
+          -
+          2460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.catalogName_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this.catalogName_=(name)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          2026
+        </td>
+        <td>
+          2500
+          -
+          2500
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseHelper.buildNodeSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.buildNodeSpec(options)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1157
+        </td>
+        <td>
+          2485
+          -
+          2485
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeSpec_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this.nodeSpec_=(ClickHouseCatalog.this.buildNodeSpec(options))
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          2189
+        </td>
+        <td>
+          2529
+          -
+          2529
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.currentDb_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this.currentDb_=(ClickHouseCatalog.this.nodeSpec.database)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          619
+        </td>
+        <td>
+          2540
+          -
+          2540
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.NodeSpec.database
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeSpec.database
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1252
+        </td>
+        <td>
+          2582
+          -
+          2582
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeSpec
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          351
+        </td>
+        <td>
+          2581
+          -
+          2581
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.client.NodeClient.apply(ClickHouseCatalog.this.nodeSpec)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1992
+        </td>
+        <td>
+          2569
+          -
+          2569
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this.nodeClient_=(com.clickhouse.spark.client.NodeClient.apply(ClickHouseCatalog.this.nodeSpec))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          2030
+        </td>
+        <td>
+          2647
+          -
+          2647
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryAndCheckOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.syncQueryAndCheckOutputJSONEachRow(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1389
+        </td>
+        <td>
+          2602
+          -
+          2602
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          473
+        </td>
+        <td>
+          2648
+          -
+          2648
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;SELECT 1&quot;
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1160
+        </td>
+        <td>
+          2686
+          -
+          2686
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.util.CaseInsensitiveStringMap.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          options.get(&quot;timezone&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1961
+        </td>
+        <td>
+          2673
+          -
+          2673
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.tz_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this.tz_=(options.get(&quot;timezone&quot;) match {
+  case (tz @ _) if tz.==(null).||(tz.isEmpty()).||(tz.toLowerCase().==(&quot;server&quot;)) =&gt; {
+    val timezoneOutput: com.clickhouse.spark.format.SimpleOutput[com.fasterxml.jackson.databind.node.ObjectNode] = {
+      &lt;artifact&gt; val qual$2: com.clickhouse.spark.client.NodeClient = this.nodeClient;
+      &lt;artifact&gt; val x$3: String = &quot;SELECT timezone() AS tz&quot;;
+      &lt;artifact&gt; val x$4: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = qual$2.syncQueryAndCheckOutputJSONEachRow$default$2;
+      qual$2.syncQueryAndCheckOutputJSONEachRow(x$3, x$4)
+    };
+    scala.Predef.assert(timezoneOutput.rows.==(1));
+    val serverTz: java.time.ZoneId = java.time.ZoneId.of(timezoneOutput.records.head.get(&quot;tz&quot;).asText());
+    ClickHouseCatalog.this.log.info(scala.StringContext.apply(&quot;Detect ClickHouse server timezone: &quot;, &quot;&quot;).s(serverTz));
+    scala.`package`.Left.apply[java.time.ZoneId, Nothing](serverTz)
+  }
+  case (tz @ _) if tz.toLowerCase().==(&quot;client&quot;) =&gt; scala.`package`.Right.apply[Nothing, java.time.ZoneId](java.time.ZoneId.systemDefault())
+  case (tz @ _) =&gt; scala.`package`.Right.apply[Nothing, java.time.ZoneId](java.time.ZoneId.of(tz))
+})
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1240
+        </td>
+        <td>
+          2772
+          -
+          2783
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tz.toLowerCase().==(&quot;server&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          731
+        </td>
+        <td>
+          2735
+          -
+          2735
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1502
+        </td>
+        <td>
+          2784
+          -
+          2784
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val timezoneOutput: com.clickhouse.spark.format.SimpleOutput[com.fasterxml.jackson.databind.node.ObjectNode] = {
+    &lt;artifact&gt; val qual$2: com.clickhouse.spark.client.NodeClient = this.nodeClient;
+    &lt;artifact&gt; val x$3: String = &quot;SELECT timezone() AS tz&quot;;
+    &lt;artifact&gt; val x$4: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = qual$2.syncQueryAndCheckOutputJSONEachRow$default$2;
+    qual$2.syncQueryAndCheckOutputJSONEachRow(x$3, x$4)
+  };
+  scala.Predef.assert(timezoneOutput.rows.==(1));
+  val serverTz: java.time.ZoneId = java.time.ZoneId.of(timezoneOutput.records.head.get(&quot;tz&quot;).asText());
+  ClickHouseCatalog.this.log.info(scala.StringContext.apply(&quot;Detect ClickHouse server timezone: &quot;, &quot;&quot;).s(serverTz));
+  scala.`package`.Left.apply[java.time.ZoneId, Nothing](serverTz)
+}
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          356
+        </td>
+        <td>
+          2732
+          -
+          2783
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tz.==(null).||(tz.isEmpty()).||(tz.toLowerCase().==(&quot;server&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          2153
+        </td>
+        <td>
+          2746
+          -
+          2746
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tz.isEmpty()
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          2000
+        </td>
+        <td>
+          2821
+          -
+          2821
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          542
+        </td>
+        <td>
+          2866
+          -
+          2866
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryAndCheckOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          qual$2.syncQueryAndCheckOutputJSONEachRow(x$3, x$4)
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1495
+        </td>
+        <td>
+          2867
+          -
+          2867
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;SELECT timezone() AS tz&quot;
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          1201
+        </td>
+        <td>
+          2908
+          -
+          2908
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.assert
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.assert(timezoneOutput.rows.==(1))
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          2005
+        </td>
+        <td>
+          2929
+          -
+          2933
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          timezoneOutput.rows.==(1)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          157
+        </td>
+        <td>
+          3006
+          -
+          3006
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          timezoneOutput.records.head.get(&quot;tz&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          2183
+        </td>
+        <td>
+          2967
+          -
+          2967
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.ZoneId.of
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.time.ZoneId.of(timezoneOutput.records.head.get(&quot;tz&quot;).asText())
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          364
+        </td>
+        <td>
+          3030
+          -
+          3030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.log.info(scala.StringContext.apply(&quot;Detect ClickHouse server timezone: &quot;, &quot;&quot;).s(serverTz))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1326
+        </td>
+        <td>
+          3031
+          -
+          3031
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Detect ClickHouse server timezone: &quot;, &quot;&quot;).s(serverTz)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1954
+        </td>
+        <td>
+          3092
+          -
+          3092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Left.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Left.apply[java.time.ZoneId, Nothing](serverTz)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          1207
+        </td>
+        <td>
+          3155
+          -
+          3155
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, java.time.ZoneId](java.time.ZoneId.systemDefault())
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          501
+        </td>
+        <td>
+          3135
+          -
+          3146
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tz.toLowerCase().==(&quot;client&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          2106
+        </td>
+        <td>
+          3163
+          -
+          3163
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.ZoneId.systemDefault
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.time.ZoneId.systemDefault()
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          266
+        </td>
+        <td>
+          3155
+          -
+          3155
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, java.time.ZoneId](java.time.ZoneId.systemDefault())
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          346
+        </td>
+        <td>
+          3200
+          -
+          3200
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, java.time.ZoneId](java.time.ZoneId.of(tz))
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1331
+        </td>
+        <td>
+          3200
+          -
+          3200
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Right.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.Right.apply[Nothing, java.time.ZoneId](java.time.ZoneId.of(tz))
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          2186
+        </td>
+        <td>
+          3210
+          -
+          3210
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.ZoneId.of
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.time.ZoneId.of(tz)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          505
+        </td>
+        <td>
+          3264
+          -
+          3264
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          2111
+        </td>
+        <td>
+          3264
+          -
+          3264
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseHelper.queryClusterSpecs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.queryClusterSpecs(ClickHouseCatalog.this.nodeSpec)(ClickHouseCatalog.this.nodeClient)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1123
+        </td>
+        <td>
+          3245
+          -
+          3245
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.clusterSpecs_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this.clusterSpecs_=(ClickHouseCatalog.this.queryClusterSpecs(ClickHouseCatalog.this.nodeSpec)(ClickHouseCatalog.this.nodeClient))
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          1431
+        </td>
+        <td>
+          3265
+          -
+          3265
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeSpec
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          273
+        </td>
+        <td>
+          3310
+          -
+          3310
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.DynamicFunctionRegistry.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.func.DynamicFunctionRegistry()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          2175
+        </td>
+        <td>
+          3394
+          -
+          3394
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.clusterSpecs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.clusterSpecs
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1286
+        </td>
+        <td>
+          3366
+          -
+          3366
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.ClickHouseXxHash64Shard.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.func.ClickHouseXxHash64Shard(ClickHouseCatalog.this.clusterSpecs)
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          355
+        </td>
+        <td>
+          3444
+          -
+          3444
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.DynamicFunctionRegistry.register
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dynamicFunctionRegistry.register(&quot;ck_xx_hash64_shard&quot;, xxHash64ShardFunc)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1887
+        </td>
+        <td>
+          3540
+          -
+          3540
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.DynamicFunctionRegistry.register
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dynamicFunctionRegistry.register(&quot;clickhouse_shard_xxHash64&quot;, xxHash64ShardFunc)
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          2003
+        </td>
+        <td>
+          3617
+          -
+          3617
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.CompositeFunctionRegistry.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.func.CompositeFunctionRegistry(scala.Array.apply[com.clickhouse.spark.func.FunctionRegistry](com.clickhouse.spark.func.StaticFunctionRegistry, dynamicFunctionRegistry)((ClassTag.apply[com.clickhouse.spark.func.FunctionRegistry](classOf[com.clickhouse.spark.func.FunctionRegistry]): scala.reflect.ClassTag[com.clickhouse.spark.func.FunctionRegistry])))
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          962
+        </td>
+        <td>
+          3653
+          -
+          3653
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.func.StaticFunctionRegistry
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.func.StaticFunctionRegistry
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          510
+        </td>
+        <td>
+          3652
+          -
+          3652
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[com.clickhouse.spark.func.FunctionRegistry](com.clickhouse.spark.func.StaticFunctionRegistry, dynamicFunctionRegistry)((ClassTag.apply[com.clickhouse.spark.func.FunctionRegistry](classOf[com.clickhouse.spark.func.FunctionRegistry]): scala.reflect.ClassTag[com.clickhouse.spark.func.FunctionRegistry]))
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          1130
+        </td>
+        <td>
+          3615
+          -
+          3615
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.functionRegistry_=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          this.functionRegistry_=(new com.clickhouse.spark.func.CompositeFunctionRegistry(scala.Array.apply[com.clickhouse.spark.func.FunctionRegistry](com.clickhouse.spark.func.StaticFunctionRegistry, dynamicFunctionRegistry)((ClassTag.apply[com.clickhouse.spark.func.FunctionRegistry](classOf[com.clickhouse.spark.func.FunctionRegistry]): scala.reflect.ClassTag[com.clickhouse.spark.func.FunctionRegistry]))))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          487
+        </td>
+        <td>
+          3716
+          -
+          3716
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.log.info(scala.StringContext.apply(&quot;Detect &quot;, &quot; ClickHouse clusters: &quot;, &quot;&quot;).s(ClickHouseCatalog.this.clusterSpecs.size, ClickHouseCatalog.this.clusterSpecs.map[String, Seq[String]](((x$1: com.clickhouse.spark.spec.ClusterSpec) =&gt; x$1.name))(collection.this.Seq.canBuildFrom[String]).mkString(&quot;,&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          319
+        </td>
+        <td>
+          3741
+          -
+          3741
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.SeqLike.size
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.clusterSpecs.size
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          2176
+        </td>
+        <td>
+          3746
+          -
+          3746
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; ClickHouse clusters: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          255
+        </td>
+        <td>
+          3719
+          -
+          3719
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Detect &quot;
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1029
+        </td>
+        <td>
+          3717
+          -
+          3717
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Detect &quot;, &quot; ClickHouse clusters: &quot;, &quot;&quot;).s(ClickHouseCatalog.this.clusterSpecs.size, ClickHouseCatalog.this.clusterSpecs.map[String, Seq[String]](((x$1: com.clickhouse.spark.spec.ClusterSpec) =&gt; x$1.name))(collection.this.Seq.canBuildFrom[String]).mkString(&quot;,&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1890
+        </td>
+        <td>
+          3803
+          -
+          3803
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.clusterSpecs.map[String, Seq[String]](((x$1: com.clickhouse.spark.spec.ClusterSpec) =&gt; x$1.name))(collection.this.Seq.canBuildFrom[String]).mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1289
+        </td>
+        <td>
+          3809
+          -
+          3809
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          2006
+        </td>
+        <td>
+          3827
+          -
+          3827
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ClickHouse clusters\' detail: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          262
+        </td>
+        <td>
+          3857
+          -
+          3857
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.clusterSpecs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.clusterSpecs
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1688
+        </td>
+        <td>
+          3825
+          -
+          3825
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;ClickHouse clusters\' detail: &quot;, &quot;&quot;).s(ClickHouseCatalog.this.clusterSpecs)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1379
+        </td>
+        <td>
+          3824
+          -
+          3824
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.log.info(scala.StringContext.apply(&quot;ClickHouse clusters\' detail: &quot;, &quot;&quot;).s(ClickHouseCatalog.this.clusterSpecs))
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1086
+        </td>
+        <td>
+          3869
+          -
+          3869
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          322
+        </td>
+        <td>
+          3887
+          -
+          3887
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;Registered functions: &quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1853
+        </td>
+        <td>
+          3952
+          -
+          3952
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1036
+        </td>
+        <td>
+          3946
+          -
+          3946
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](this.functionRegistry.list).mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          599
+        </td>
+        <td>
+          3885
+          -
+          3885
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;Registered functions: &quot;, &quot;&quot;).s(scala.Predef.refArrayOps[String](this.functionRegistry.list).mkString(&quot;,&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          2142
+        </td>
+        <td>
+          3884
+          -
+          3884
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.info
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.log.info(scala.StringContext.apply(&quot;Registered functions: &quot;, &quot;&quot;).s(scala.Predef.refArrayOps[String](this.functionRegistry.list).mkString(&quot;,&quot;)))
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1089
+        </td>
+        <td>
+          3992
+          -
+          3992
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.catalogName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.catalogName
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          236
+        </td>
+        <td>
+          4243
+          -
+          4243
+        </td>
+        <td>
+          Match
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  &lt;artifact&gt; val qual$1: com.clickhouse.spark.client.NodeClient = ClickHouseCatalog.this.nodeClient;
+  &lt;artifact&gt; val x$1: String = scala.StringContext.apply(&quot;SHOW TABLES IN &quot;, &quot;&quot;).s(ClickHouseCatalog.this.quoted(database));
+  &lt;artifact&gt; val x$2: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.syncQueryOutputJSONEachRow$default$2;
+  qual$1.syncQueryOutputJSONEachRow(x$1, x$2)
+} match {
+  case (value: com.clickhouse.spark.exception.CHException)scala.util.Left[com.clickhouse.spark.exception.CHException,com.clickhouse.spark.format.SimpleOutput[com.fasterxml.jackson.databind.node.ObjectNode]]((exception @ _)) if exception.code.==(UNKNOWN_DATABASE.code()) =&gt; throw new org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException(scala.Predef.refArrayOps[String](namespace).mkString(&quot;.&quot;), analysis.this.NoSuchNamespaceException.&lt;init&gt;$default$2)
+  case (value: com.clickhouse.spark.exception.CHException)scala.util.Left[com.clickhouse.spark.exception.CHException,com.clickhouse.spark.format.SimpleOutput[com.fasterxml.jackson.databind.node.ObjectNode]]((rethrow @ _)) =&gt; throw rethrow
+  case (value: com.clickhouse.spark.format.SimpleOutput[com.fasterxml.jackson.databind.node.ObjectNode])scala.util.Right[com.clickhouse.spark.exception.CHException,com.clickhouse.spark.format.SimpleOutput[com.fasterxml.jackson.databind.node.ObjectNode]]((output @ _)) =&gt; output.records.map[String, Seq[String]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; row.get(&quot;name&quot;).asText()))(collection.this.Seq.canBuildFrom[String]).map[org.apache.spark.sql.connector.catalog.Identifier, Seq[org.apache.spark.sql.connector.catalog.Identifier]](((table: String) =&gt; org.apache.spark.sql.connector.catalog.Identifier.of(namespace, table)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.connector.catalog.Identifier]).toArray[org.apache.spark.sql.connector.catalog.Identifier]((ClassTag.apply[org.apache.spark.sql.connector.catalog.Identifier](classOf[org.apache.spark.sql.connector.catalog.Identifier]): scala.reflect.ClassTag[org.apache.spark.sql.connector.catalog.Identifier]))
+}
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          271
+        </td>
+        <td>
+          4166
+          -
+          4166
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1814
+        </td>
+        <td>
+          4206
+          -
+          4206
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;SHOW TABLES IN &quot;
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1045
+        </td>
+        <td>
+          4203
+          -
+          4203
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.syncQueryOutputJSONEachRow(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1284
+        </td>
+        <td>
+          4240
+          -
+          4240
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          1930
+        </td>
+        <td>
+          4204
+          -
+          4204
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;SHOW TABLES IN &quot;, &quot;&quot;).s(ClickHouseCatalog.this.quoted(database))
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          455
+        </td>
+        <td>
+          4229
+          -
+          4229
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.quoted(database)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          2071
+        </td>
+        <td>
+          4298
+          -
+          4322
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          exception.code.==(UNKNOWN_DATABASE.code())
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          485
+        </td>
+        <td>
+          4318
+          -
+          4318
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.exception.ClickHouseErrCode.code
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          UNKNOWN_DATABASE.code()
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          1214
+        </td>
+        <td>
+          4336
+          -
+          4336
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException(scala.Predef.refArrayOps[String](namespace).mkString(&quot;.&quot;), analysis.this.NoSuchNamespaceException.&lt;init&gt;$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          230
+        </td>
+        <td>
+          4336
+          -
+          4336
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException(scala.Predef.refArrayOps[String](namespace).mkString(&quot;.&quot;), analysis.this.NoSuchNamespaceException.&lt;init&gt;$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1254
+        </td>
+        <td>
+          4436
+          -
+          4436
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw rethrow
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          1818
+        </td>
+        <td>
+          4436
+          -
+          4436
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw rethrow
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          1934
+        </td>
+        <td>
+          4521
+          -
+          4521
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          109
+        </td>
+        <td>
+          399
+        </td>
+        <td>
+          4545
+          -
+          4545
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;name&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          1000
+        </td>
+        <td>
+          4592
+          -
+          4592
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.catalog.Identifier.of
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.catalog.Identifier.of(namespace, table)
+        </td>
+      </tr><tr>
+        <td>
+          110
+        </td>
+        <td>
+          61
+        </td>
+        <td>
+          4569
+          -
+          4569
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[org.apache.spark.sql.connector.catalog.Identifier]
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          2035
+        </td>
+        <td>
+          4625
+          -
+          4625
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          output.records.map[String, Seq[String]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; row.get(&quot;name&quot;).asText()))(collection.this.Seq.canBuildFrom[String]).map[org.apache.spark.sql.connector.catalog.Identifier, Seq[org.apache.spark.sql.connector.catalog.Identifier]](((table: String) =&gt; org.apache.spark.sql.connector.catalog.Identifier.of(namespace, table)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.connector.catalog.Identifier]).toArray[org.apache.spark.sql.connector.catalog.Identifier]((ClassTag.apply[org.apache.spark.sql.connector.catalog.Identifier](classOf[org.apache.spark.sql.connector.catalog.Identifier]): scala.reflect.ClassTag[org.apache.spark.sql.connector.catalog.Identifier]))
+        </td>
+      </tr><tr>
+        <td>
+          111
+        </td>
+        <td>
+          1083
+        </td>
+        <td>
+          4625
+          -
+          4625
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          output.records.map[String, Seq[String]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; row.get(&quot;name&quot;).asText()))(collection.this.Seq.canBuildFrom[String]).map[org.apache.spark.sql.connector.catalog.Identifier, Seq[org.apache.spark.sql.connector.catalog.Identifier]](((table: String) =&gt; org.apache.spark.sql.connector.catalog.Identifier.of(namespace, table)))(collection.this.Seq.canBuildFrom[org.apache.spark.sql.connector.catalog.Identifier]).toArray[org.apache.spark.sql.connector.catalog.Identifier]((ClassTag.apply[org.apache.spark.sql.connector.catalog.Identifier](classOf[org.apache.spark.sql.connector.catalog.Identifier]): scala.reflect.ClassTag[org.apache.spark.sql.connector.catalog.Identifier]))
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1258
+        </td>
+        <td>
+          4655
+          -
+          4655
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException(scala.Predef.refArrayOps[String](namespace).mkString(&quot;.&quot;), analysis.this.NoSuchNamespaceException.&lt;init&gt;$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          113
+        </td>
+        <td>
+          1706
+        </td>
+        <td>
+          4655
+          -
+          4655
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException(scala.Predef.refArrayOps[String](namespace).mkString(&quot;.&quot;), analysis.this.NoSuchNamespaceException.&lt;init&gt;$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          1851
+        </td>
+        <td>
+          4836
+          -
+          4836
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$2._2
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          404
+        </td>
+        <td>
+          4826
+          -
+          4826
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$2._1
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          1004
+        </td>
+        <td>
+          5516
+          -
+          5516
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.tz
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.tz
+        </td>
+      </tr><tr>
+        <td>
+          132
+        </td>
+        <td>
+          21
+        </td>
+        <td>
+          5519
+          -
+          5519
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.util.Either.MergeableEither.merge
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          util.this.Either.MergeableEither[java.time.ZoneId](ClickHouseCatalog.this.tz).merge
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          1087
+        </td>
+        <td>
+          5559
+          -
+          5559
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseHelper.queryTableSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.queryTableSpec(database, table, ClickHouseCatalog.this.queryTableSpec$default$3)(ClickHouseCatalog.this.nodeClient, _tz)
+        </td>
+      </tr><tr>
+        <td>
+          133
+        </td>
+        <td>
+          2038
+        </td>
+        <td>
+          5559
+          -
+          5559
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          134
+        </td>
+        <td>
+          161
+        </td>
+        <td>
+          5638
+          -
+          5638
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableEngineUtils.resolveTableEngine
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.TableEngineUtils.resolveTableEngine(tableSpec)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          454
+        </td>
+        <td>
+          5765
+          -
+          5765
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.clickhouse.spark.spec.ClusterSpec](com.clickhouse.spark.spec.TableEngineUtils.resolveTableCluster(distributeSpec, ClickHouseCatalog.this.clusterSpecs))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1855
+        </td>
+        <td>
+          5765
+          -
+          5765
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.clickhouse.spark.spec.ClusterSpec](com.clickhouse.spark.spec.TableEngineUtils.resolveTableCluster(distributeSpec, ClickHouseCatalog.this.clusterSpecs))
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1242
+        </td>
+        <td>
+          5802
+          -
+          5802
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableEngineUtils.resolveTableCluster
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.spec.TableEngineUtils.resolveTableCluster(distributeSpec, ClickHouseCatalog.this.clusterSpecs)
+        </td>
+      </tr><tr>
+        <td>
+          137
+        </td>
+        <td>
+          1711
+        </td>
+        <td>
+          5819
+          -
+          5819
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.clusterSpecs
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.clusterSpecs
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          991
+        </td>
+        <td>
+          5850
+          -
+          5850
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          138
+        </td>
+        <td>
+          28
+        </td>
+        <td>
+          5850
+          -
+          5850
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          140
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          5880
+          -
+          5880
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseTable.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseTable.apply(ClickHouseCatalog.this.nodeSpec, tableClusterSpec, _tz, tableSpec, tableEngineSpec, ClickHouseCatalog.this.functionRegistry)
+        </td>
+      </tr><tr>
+        <td>
+          141
+        </td>
+        <td>
+          2044
+        </td>
+        <td>
+          5888
+          -
+          5888
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeSpec
+        </td>
+      </tr><tr>
+        <td>
+          146
+        </td>
+        <td>
+          1211
+        </td>
+        <td>
+          5979
+          -
+          5979
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.functionRegistry
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.functionRegistry
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          1769
+        </td>
+        <td>
+          7550
+          -
+          7550
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$3._1
+        </td>
+      </tr><tr>
+        <td>
+          198
+        </td>
+        <td>
+          811
+        </td>
+        <td>
+          7554
+          -
+          7554
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$3._2
+        </td>
+      </tr><tr>
+        <td>
+          202
+        </td>
+        <td>
+          456
+        </td>
+        <td>
+          7730
+          -
+          7730
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.convert.Decorators.AsScala.asScala
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.mapAsScalaMapConverter[String, String](properties).asScala
+        </td>
+      </tr><tr>
+        <td>
+          204
+        </td>
+        <td>
+          1966
+        </td>
+        <td>
+          7775
+          -
+          7775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          props.getOrElse[String](&quot;engine&quot;, &quot;MergeTree()&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          206
+        </td>
+        <td>
+          996
+        </td>
+        <td>
+          7845
+          -
+          7875
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equalsIgnoreCase
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          engineExpr.equalsIgnoreCase(&quot;Distributed&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          104
+        </td>
+        <td>
+          7923
+          -
+          7923
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;local.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          2127
+        </td>
+        <td>
+          7923
+          -
+          7923
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;local.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          282
+        </td>
+        <td>
+          7937
+          -
+          7937
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          207
+        </td>
+        <td>
+          1215
+        </td>
+        <td>
+          7937
+          -
+          7937
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          210
+        </td>
+        <td>
+          1776
+        </td>
+        <td>
+          8023
+          -
+          8023
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.connector.expressions.Transform](transforms).nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          440
+        </td>
+        <td>
+          8115
+          -
+          8115
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[org.apache.spark.sql.connector.expressions.Transform](transforms).map[String, Array[String]](((x$4: org.apache.spark.sql.connector.expressions.Transform) =&gt; org.apache.spark.sql.clickhouse.ExprUtils.toClickHouse(x$4, ClickHouseCatalog.this.functionRegistry).sql))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).mkString(&quot;PARTITION BY (&quot;, &quot;, &quot;, &quot;)&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          211
+        </td>
+        <td>
+          909
+        </td>
+        <td>
+          8115
+          -
+          8115
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[org.apache.spark.sql.connector.expressions.Transform](transforms).map[String, Array[String]](((x$4: org.apache.spark.sql.connector.expressions.Transform) =&gt; org.apache.spark.sql.clickhouse.ExprUtils.toClickHouse(x$4, ClickHouseCatalog.this.functionRegistry).sql))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).mkString(&quot;PARTITION BY (&quot;, &quot;, &quot;, &quot;)&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          1970
+        </td>
+        <td>
+          8161
+          -
+          8161
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          212
+        </td>
+        <td>
+          966
+        </td>
+        <td>
+          8161
+          -
+          8161
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          215
+        </td>
+        <td>
+          109
+        </td>
+        <td>
+          8264
+          -
+          8264
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          props.get(scala.StringContext.apply(&quot;&quot;, &quot;order_by&quot;).s(keyPrefix)).map[String](((o: String) =&gt; scala.StringContext.apply(&quot;ORDER BY (&quot;, &quot;)&quot;).s(o))).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          216
+        </td>
+        <td>
+          1633
+        </td>
+        <td>
+          8373
+          -
+          8373
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          props.get(scala.StringContext.apply(&quot;&quot;, &quot;primary_key&quot;).s(keyPrefix)).map[String](((p: String) =&gt; scala.StringContext.apply(&quot;PRIMARY KEY (&quot;, &quot;)&quot;).s(p))).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          217
+        </td>
+        <td>
+          1192
+        </td>
+        <td>
+          8474
+          -
+          8474
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          props.get(scala.StringContext.apply(&quot;&quot;, &quot;sample_by&quot;).s(keyPrefix)).map[String](((p: String) =&gt; scala.StringContext.apply(&quot;SAMPLE BY (&quot;, &quot;)&quot;).s(p))).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          222
+        </td>
+        <td>
+          216
+        </td>
+        <td>
+          8656
+          -
+          8656
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.SchemaUtils.toClickHouseSchema(schema).map[String, Seq[String]](((x0$1: (String, String, String)) =&gt; x0$1 match {
+  case (_1: String, _2: String, _3: String)(String, String, String)((fieldName @ _), (ckType @ _), (comment @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; &quot;, &quot;&quot;, &quot;&quot;).s(ClickHouseCatalog.this.quoted(fieldName), ckType, comment)
+}))(collection.this.Seq.canBuildFrom[String]).mkString(&quot;,\n &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          224
+        </td>
+        <td>
+          1783
+        </td>
+        <td>
+          8696
+          -
+          8696
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          props.get(&quot;cluster&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          801
+        </td>
+        <td>
+          8790
+          -
+          8790
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.startsWith
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$5.startsWith(prefix)
+        </td>
+      </tr><tr>
+        <td>
+          226
+        </td>
+        <td>
+          367
+        </td>
+        <td>
+          8777
+          -
+          8777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.filterKeys
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          props.filterKeys(((x$5: String) =&gt; x$5.startsWith(prefix)))
+        </td>
+      </tr><tr>
+        <td>
+          227
+        </td>
+        <td>
+          1938
+        </td>
+        <td>
+          8840
+          -
+          8840
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          settings.nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          114
+        </td>
+        <td>
+          8954
+          -
+          8954
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          settings.map[String, Iterable[String]](((x0$1: (String, String)) =&gt; x0$1 match {
+  case (_1: String, _2: String)(String, String)((k @ _), (v @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot;=&quot;, &quot;&quot;).s(k.substring(prefix.length()), v)
+}))(collection.this.Iterable.canBuildFrom[String]).mkString(&quot;SETTINGS &quot;, &quot;, &quot;, &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          230
+        </td>
+        <td>
+          969
+        </td>
+        <td>
+          8954
+          -
+          8954
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          settings.map[String, Iterable[String]](((x0$1: (String, String)) =&gt; x0$1 match {
+  case (_1: String, _2: String)(String, String)((k @ _), (v @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot;=&quot;, &quot;&quot;).s(k.substring(prefix.length()), v)
+}))(collection.this.Iterable.canBuildFrom[String]).mkString(&quot;SETTINGS &quot;, &quot;, &quot;, &quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1587
+        </td>
+        <td>
+          8994
+          -
+          8994
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          231
+        </td>
+        <td>
+          1138
+        </td>
+        <td>
+          8994
+          -
+          8994
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          241
+        </td>
+        <td>
+          204
+        </td>
+        <td>
+          9248
+          -
+          9248
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          clusterOpt.map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          1743
+        </td>
+        <td>
+          9259
+          -
+          9259
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          1964
+        </td>
+        <td>
+          9304
+          -
+          9304
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          242
+        </td>
+        <td>
+          326
+        </td>
+        <td>
+          9304
+          -
+          9304
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryAndCheckOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.syncQueryAndCheckOutputJSONEachRow(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          252
+        </td>
+        <td>
+          807
+        </td>
+        <td>
+          9618
+          -
+          9618
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.replaceAll
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(scala.StringContext.apply(&quot;CREATE TABLE `&quot;, &quot;`.`&quot;, &quot;` &quot;, &quot; (\n           |&quot;, &quot;\n           |) ENGINE = &quot;, &quot;\n           |&quot;, &quot;\n           |&quot;, &quot;\n           |&quot;, &quot;\n           |&quot;, &quot;\n           |&quot;, &quot;\n           |&quot;).s(database, table, clusterClause, fieldsClause, engineExpr, partitionsClause, orderClause, primaryKeyClause, sampleClause, settingsClause)).stripMargin.replaceAll(&quot;\\n\\s+\\n&quot;, &quot;\n&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          1094
+        </td>
+        <td>
+          9967
+          -
+          9967
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryAndCheckOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.syncQueryAndCheckOutputJSONEachRow(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          972
+        </td>
+        <td>
+          9922
+          -
+          9922
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          264
+        </td>
+        <td>
+          278
+        </td>
+        <td>
+          9967
+          -
+          9967
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          265
+        </td>
+        <td>
+          4
+        </td>
+        <td>
+          9975
+          -
+          9975
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;CREATE TABLE `&quot;, &quot;`.`&quot;, &quot;` ON CLUSTER &quot;, &quot;\n         |AS `&quot;, &quot;`.`&quot;, &quot;`\n         |ENGINE = Distributed(&quot;, &quot;, \'&quot;, &quot;\', \'&quot;, &quot;\', (&quot;, &quot;))\n         |&quot;, &quot;\n         |&quot;).s(distributedDatabase, distributedTable, cluster, localDatabase, localTable, cluster, localDatabase, localTable, shardExpr, settingsClause)
+        </td>
+      </tr><tr>
+        <td>
+          269
+        </td>
+        <td>
+          1599
+        </td>
+        <td>
+          10227
+          -
+          10227
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.stripMargin
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(scala.StringContext.apply(&quot;CREATE TABLE `&quot;, &quot;`.`&quot;, &quot;` ON CLUSTER &quot;, &quot;\n         |AS `&quot;, &quot;`.`&quot;, &quot;`\n         |ENGINE = Distributed(&quot;, &quot;, \'&quot;, &quot;\', \'&quot;, &quot;\', (&quot;, &quot;))\n         |&quot;, &quot;\n         |&quot;).s(distributedDatabase, distributedTable, cluster, localDatabase, localTable, cluster, localDatabase, localTable, shardExpr, settingsClause)).stripMargin
+        </td>
+      </tr><tr>
+        <td>
+          272
+        </td>
+        <td>
+          1193
+        </td>
+        <td>
+          10277
+          -
+          10277
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val cluster: String = clusterOpt.getOrElse[String](&quot;default&quot;);
+  val shardExpr: String = props.getOrElse[String](&quot;shard_by&quot;, &quot;rand()&quot;);
+  val settingsClause: String = tblSettingsClause(&quot;settings.&quot;);
+  val localEngineExpr: String = props.getOrElse[String](scala.StringContext.apply(&quot;&quot;, &quot;engine&quot;).s(keyPrefix), scala.StringContext.apply(&quot;MergeTree()&quot;).s());
+  val localDatabase: String = props.getOrElse[String](scala.StringContext.apply(&quot;&quot;, &quot;database&quot;).s(keyPrefix), db);
+  val localTable: String = props.getOrElse[String](scala.StringContext.apply(&quot;&quot;, &quot;table&quot;).s(keyPrefix), scala.StringContext.apply(&quot;&quot;, &quot;_local&quot;).s(tbl));
+  val localSettingsClause: String = tblSettingsClause(scala.StringContext.apply(&quot;&quot;, &quot;settings.&quot;).s(keyPrefix));
+  createTable(scala.Some.apply[String](cluster), localEngineExpr, localDatabase, localTable, localSettingsClause);
+  createDistributedTable(cluster, shardExpr, localDatabase, localTable, db, tbl, settingsClause)
+}
+        </td>
+      </tr><tr>
+        <td>
+          273
+        </td>
+        <td>
+          1746
+        </td>
+        <td>
+          10319
+          -
+          10319
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          clusterOpt.getOrElse[String](&quot;default&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          274
+        </td>
+        <td>
+          776
+        </td>
+        <td>
+          10368
+          -
+          10368
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          props.getOrElse[String](&quot;shard_by&quot;, &quot;rand()&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          275
+        </td>
+        <td>
+          2360
+        </td>
+        <td>
+          10435
+          -
+          10435
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.tblSettingsClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tblSettingsClause(&quot;settings.&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          1933
+        </td>
+        <td>
+          10493
+          -
+          10493
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;engine&quot;).s(keyPrefix)
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          1048
+        </td>
+        <td>
+          10516
+          -
+          10516
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;MergeTree()&quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          276
+        </td>
+        <td>
+          9
+        </td>
+        <td>
+          10492
+          -
+          10492
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          props.getOrElse[String](scala.StringContext.apply(&quot;&quot;, &quot;engine&quot;).s(keyPrefix), scala.StringContext.apply(&quot;MergeTree()&quot;).s())
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          1550
+        </td>
+        <td>
+          10574
+          -
+          10574
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;database&quot;).s(keyPrefix)
+        </td>
+      </tr><tr>
+        <td>
+          277
+        </td>
+        <td>
+          1190
+        </td>
+        <td>
+          10573
+          -
+          10573
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          props.getOrElse[String](scala.StringContext.apply(&quot;&quot;, &quot;database&quot;).s(keyPrefix), db)
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          779
+        </td>
+        <td>
+          10641
+          -
+          10641
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          props.getOrElse[String](scala.StringContext.apply(&quot;&quot;, &quot;table&quot;).s(keyPrefix), scala.StringContext.apply(&quot;&quot;, &quot;_local&quot;).s(tbl))
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          1736
+        </td>
+        <td>
+          10664
+          -
+          10664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;_local&quot;).s(tbl)
+        </td>
+      </tr><tr>
+        <td>
+          278
+        </td>
+        <td>
+          284
+        </td>
+        <td>
+          10642
+          -
+          10642
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;table&quot;).s(keyPrefix)
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          2313
+        </td>
+        <td>
+          10731
+          -
+          10731
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;settings.&quot;).s(keyPrefix)
+        </td>
+      </tr><tr>
+        <td>
+          279
+        </td>
+        <td>
+          1936
+        </td>
+        <td>
+          10730
+          -
+          10730
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.tblSettingsClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tblSettingsClause(scala.StringContext.apply(&quot;&quot;, &quot;settings.&quot;).s(keyPrefix))
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          1052
+        </td>
+        <td>
+          10779
+          -
+          10779
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](cluster)
+        </td>
+      </tr><tr>
+        <td>
+          280
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          10774
+          -
+          10774
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.createTable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          createTable(scala.Some.apply[String](cluster), localEngineExpr, localDatabase, localTable, localSettingsClause)
+        </td>
+      </tr><tr>
+        <td>
+          281
+        </td>
+        <td>
+          1557
+        </td>
+        <td>
+          10883
+          -
+          10883
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.createDistributedTable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          createDistributedTable(cluster, shardExpr, localDatabase, localTable, db, tbl, settingsClause)
+        </td>
+      </tr><tr>
+        <td>
+          282
+        </td>
+        <td>
+          2410
+        </td>
+        <td>
+          10967
+          -
+          10967
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val settingsClause: String = tblSettingsClause(scala.StringContext.apply(&quot;&quot;, &quot;settings.&quot;).s(keyPrefix));
+  createTable(clusterOpt, engineExpr, db, tbl, settingsClause)
+}
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          240
+        </td>
+        <td>
+          11014
+          -
+          11014
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;settings.&quot;).s(keyPrefix)
+        </td>
+      </tr><tr>
+        <td>
+          283
+        </td>
+        <td>
+          1741
+        </td>
+        <td>
+          11013
+          -
+          11013
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.tblSettingsClause
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          tblSettingsClause(scala.StringContext.apply(&quot;&quot;, &quot;settings.&quot;).s(keyPrefix))
+        </td>
+      </tr><tr>
+        <td>
+          284
+        </td>
+        <td>
+          854
+        </td>
+        <td>
+          11057
+          -
+          11057
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.createTable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          createTable(clusterOpt, engineExpr, db, tbl, settingsClause)
+        </td>
+      </tr><tr>
+        <td>
+          287
+        </td>
+        <td>
+          1940
+        </td>
+        <td>
+          11127
+          -
+          11127
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.loadTable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.loadTable(ident)
+        </td>
+      </tr><tr>
+        <td>
+          292
+        </td>
+        <td>
+          951
+        </td>
+        <td>
+          11263
+          -
+          11263
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException()
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          720
+        </td>
+        <td>
+          11394
+          -
+          11394
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.clickhouse.spark.ClickHouseTable](ClickHouseCatalog.this.loadTable(ident))
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          11404
+          -
+          11404
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.loadTable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.loadTable(ident)
+        </td>
+      </tr><tr>
+        <td>
+          296
+        </td>
+        <td>
+          1639
+        </td>
+        <td>
+          11394
+          -
+          11394
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[com.clickhouse.spark.ClickHouseTable](ClickHouseCatalog.this.loadTable(ident))
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          1716
+        </td>
+        <td>
+          11467
+          -
+          11467
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          298
+        </td>
+        <td>
+          243
+        </td>
+        <td>
+          11467
+          -
+          11467
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          857
+        </td>
+        <td>
+          11520
+          -
+          11520
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          301
+        </td>
+        <td>
+          2357
+        </td>
+        <td>
+          11520
+          -
+          11520
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          302
+        </td>
+        <td>
+          1555
+        </td>
+        <td>
+          11591
+          -
+          11591
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$6: (String, String) = (scala.Tuple2.apply[String, String](tableSpec.database, tableSpec.name): (String, String) @unchecked) match {
+    case (_1: String, _2: String)(String, String)((db @ _), (tbl @ _)) =&gt; scala.Tuple2.apply[String, String](db, tbl)
+  };
+  val db: String = x$6._1;
+  val tbl: String = x$6._2;
+  val isAtomic: Boolean = ClickHouseCatalog.this.loadNamespaceMetadata(scala.Array.apply[String](db)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))).get(&quot;engine&quot;).equalsIgnoreCase(&quot;atomic&quot;);
+  val syncClause: String = if (isAtomic)
+    &quot;SYNC&quot;
+  else
+    &quot;&quot;;
+  val clusterClause: String = cluster.map[String](((c: com.clickhouse.spark.spec.ClusterSpec) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c.name))).getOrElse[String](&quot;&quot;);
+  {
+  &lt;artifact&gt; val qual$1: com.clickhouse.spark.client.NodeClient = ClickHouseCatalog.this.nodeClient;
+  &lt;artifact&gt; val x$1: String = scala.StringContext.apply(&quot;DROP TABLE `&quot;, &quot;`.`&quot;, &quot;` &quot;, &quot; &quot;, &quot;&quot;).s(db, tbl, clusterClause, syncClause);
+  &lt;artifact&gt; val x$2: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.syncQueryOutputJSONEachRow$default$2;
+  qual$1.syncQueryOutputJSONEachRow(x$1, x$2)
+}.isRight
+}
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          955
+        </td>
+        <td>
+          11611
+          -
+          11611
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$6._2
+        </td>
+      </tr><tr>
+        <td>
+          303
+        </td>
+        <td>
+          1921
+        </td>
+        <td>
+          11607
+          -
+          11607
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$6._1
+        </td>
+      </tr><tr>
+        <td>
+          304
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          11741
+          -
+          11741
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.equalsIgnoreCase
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.loadNamespaceMetadata(scala.Array.apply[String](db)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))).get(&quot;engine&quot;).equalsIgnoreCase(&quot;atomic&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          220
+        </td>
+        <td>
+          11803
+          -
+          11803
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          1718
+        </td>
+        <td>
+          11803
+          -
+          11803
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          680
+        </td>
+        <td>
+          11791
+          -
+          11791
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;SYNC&quot;
+        </td>
+      </tr><tr>
+        <td>
+          305
+        </td>
+        <td>
+          1547
+        </td>
+        <td>
+          11791
+          -
+          11791
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;SYNC&quot;
+        </td>
+      </tr><tr>
+        <td>
+          307
+        </td>
+        <td>
+          863
+        </td>
+        <td>
+          12002
+          -
+          12002
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          cluster.map[String](((c: com.clickhouse.spark.spec.ClusterSpec) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c.name))).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          308
+        </td>
+        <td>
+          2310
+        </td>
+        <td>
+          12015
+          -
+          12015
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          308
+        </td>
+        <td>
+          940
+        </td>
+        <td>
+          12052
+          -
+          12052
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.syncQueryOutputJSONEachRow(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          308
+        </td>
+        <td>
+          37
+        </td>
+        <td>
+          12108
+          -
+          12108
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.util.Either.isRight
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  &lt;artifact&gt; val qual$1: com.clickhouse.spark.client.NodeClient = ClickHouseCatalog.this.nodeClient;
+  &lt;artifact&gt; val x$1: String = scala.StringContext.apply(&quot;DROP TABLE `&quot;, &quot;`.`&quot;, &quot;` &quot;, &quot; &quot;, &quot;&quot;).s(db, tbl, clusterClause, syncClause);
+  &lt;artifact&gt; val x$2: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.syncQueryOutputJSONEachRow$default$2;
+  qual$1.syncQueryOutputJSONEachRow(x$1, x$2)
+}.isRight
+        </td>
+      </tr><tr>
+        <td>
+          308
+        </td>
+        <td>
+          1433
+        </td>
+        <td>
+          12053
+          -
+          12053
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;DROP TABLE `&quot;, &quot;`.`&quot;, &quot;` &quot;, &quot; &quot;, &quot;&quot;).s(db, tbl, clusterClause, syncClause)
+        </td>
+      </tr><tr>
+        <td>
+          317
+        </td>
+        <td>
+          1701
+        </td>
+        <td>
+          12432
+          -
+          12432
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.syncQueryOutputJSONEachRow(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          317
+        </td>
+        <td>
+          642
+        </td>
+        <td>
+          12395
+          -
+          12395
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          317
+        </td>
+        <td>
+          238
+        </td>
+        <td>
+          12433
+          -
+          12433
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;RENAME TABLE `&quot;, &quot;`.`&quot;, &quot;` to `&quot;, &quot;`.`&quot;, &quot;`&quot;).s(oldDb, oldTbl, newDb, newTbl)
+        </td>
+      </tr><tr>
+        <td>
+          318
+        </td>
+        <td>
+          2318
+        </td>
+        <td>
+          12533
+          -
+          12533
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchTableException(exception.getMessage(), scala.Some.apply[com.clickhouse.spark.exception.CHException](exception))
+        </td>
+      </tr><tr>
+        <td>
+          318
+        </td>
+        <td>
+          915
+        </td>
+        <td>
+          12533
+          -
+          12533
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchTableException(exception.getMessage(), scala.Some.apply[com.clickhouse.spark.exception.CHException](exception))
+        </td>
+      </tr><tr>
+        <td>
+          319
+        </td>
+        <td>
+          1007
+        </td>
+        <td>
+          12627
+          -
+          12627
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          319
+        </td>
+        <td>
+          1409
+        </td>
+        <td>
+          12627
+          -
+          12627
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          321
+        </td>
+        <td>
+          40
+        </td>
+        <td>
+          12656
+          -
+          12656
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(&quot;Invalid table identifier&quot;, com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          324
+        </td>
+        <td>
+          648
+        </td>
+        <td>
+          12771
+          -
+          12771
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[String](ClickHouseCatalog.this.currentDb)((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          324
+        </td>
+        <td>
+          1681
+        </td>
+        <td>
+          12772
+          -
+          12772
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.currentDb
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.currentDb
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          217
+        </td>
+        <td>
+          12895
+          -
+          12895
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          916
+        </td>
+        <td>
+          12940
+          -
+          12940
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryAndCheckOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.syncQueryAndCheckOutputJSONEachRow(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          328
+        </td>
+        <td>
+          1789
+        </td>
+        <td>
+          12941
+          -
+          12941
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;SHOW DATABASES&quot;
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          1476
+        </td>
+        <td>
+          12994
+          -
+          12994
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[String](row.get(&quot;name&quot;).asText())((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          2430
+        </td>
+        <td>
+          13011
+          -
+          13011
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.JsonNode.asText
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          row.get(&quot;name&quot;).asText()
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          973
+        </td>
+        <td>
+          12981
+          -
+          12981
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[Array[String]]
+        </td>
+      </tr><tr>
+        <td>
+          329
+        </td>
+        <td>
+          30
+        </td>
+        <td>
+          13020
+          -
+          13020
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          output.records.map[Array[String], Seq[Array[String]]](((row: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; scala.Array.apply[String](row.get(&quot;name&quot;).asText())((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))(collection.this.Seq.canBuildFrom[Array[String]]).toArray[Array[String]]((ClassTag.apply[Array[String]](scala.runtime.ScalaRunTime.arrayClass(classOf[java.lang.String])): scala.reflect.ClassTag[Array[String]]))
+        </td>
+      </tr><tr>
+        <td>
+          334
+        </td>
+        <td>
+          1683
+        </td>
+        <td>
+          13201
+          -
+          13201
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.listNamespaces
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.listNamespaces()
+        </td>
+      </tr><tr>
+        <td>
+          334
+        </td>
+        <td>
+          757
+        </td>
+        <td>
+          13201
+          -
+          13201
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.listNamespaces
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.listNamespaces()
+        </td>
+      </tr><tr>
+        <td>
+          335
+        </td>
+        <td>
+          818
+        </td>
+        <td>
+          13222
+          -
+          13222
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ClickHouseCatalog.this.loadNamespaceMetadata(namespace);
+  scala.Array.apply[Array[String]]()((ClassTag.apply[Array[String]](scala.runtime.ScalaRunTime.arrayClass(classOf[java.lang.String])): scala.reflect.ClassTag[Array[String]]))
+}
+        </td>
+      </tr><tr>
+        <td>
+          336
+        </td>
+        <td>
+          2238
+        </td>
+        <td>
+          13252
+          -
+          13252
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.loadNamespaceMetadata
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.loadNamespaceMetadata(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          337
+        </td>
+        <td>
+          1794
+        </td>
+        <td>
+          13275
+          -
+          13275
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[Array[String]]()((ClassTag.apply[Array[String]](scala.runtime.ScalaRunTime.arrayClass(classOf[java.lang.String])): scala.reflect.ClassTag[Array[String]]))
+        </td>
+      </tr><tr>
+        <td>
+          338
+        </td>
+        <td>
+          2435
+        </td>
+        <td>
+          13292
+          -
+          13292
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException(scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[String](namespace).map[String, Array[String]]({
+  ((token: String) =&gt; ClickHouseCatalog.this.quoted(token))
+})(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).mkString(&quot;.&quot;), analysis.this.NoSuchNamespaceException.&lt;init&gt;$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          338
+        </td>
+        <td>
+          1451
+        </td>
+        <td>
+          13292
+          -
+          13292
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException(scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[String](namespace).map[String, Array[String]]({
+  ((token: String) =&gt; ClickHouseCatalog.this.quoted(token))
+})(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).mkString(&quot;.&quot;), analysis.this.NoSuchNamespaceException.&lt;init&gt;$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          343
+        </td>
+        <td>
+          35
+        </td>
+        <td>
+          13570
+          -
+          13570
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DatabaseSpec.toJavaMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.queryDatabaseSpec(database, ClickHouseCatalog.this.queryDatabaseSpec$default$2)(ClickHouseCatalog.this.nodeClient).toJavaMap
+        </td>
+      </tr><tr>
+        <td>
+          343
+        </td>
+        <td>
+          1605
+        </td>
+        <td>
+          13570
+          -
+          13570
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DatabaseSpec.toJavaMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.queryDatabaseSpec(database, ClickHouseCatalog.this.queryDatabaseSpec$default$2)(ClickHouseCatalog.this.nodeClient).toJavaMap
+        </td>
+      </tr><tr>
+        <td>
+          343
+        </td>
+        <td>
+          976
+        </td>
+        <td>
+          13559
+          -
+          13559
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          344
+        </td>
+        <td>
+          708
+        </td>
+        <td>
+          13594
+          -
+          13594
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException(scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[String](namespace).map[String, Array[String]]({
+  ((token: String) =&gt; ClickHouseCatalog.this.quoted(token))
+})(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).mkString(&quot;.&quot;), analysis.this.NoSuchNamespaceException.&lt;init&gt;$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          344
+        </td>
+        <td>
+          2244
+        </td>
+        <td>
+          13594
+          -
+          13594
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchNamespaceException(scala.Predef.refArrayOps[String](scala.Predef.refArrayOps[String](namespace).map[String, Array[String]]({
+  ((token: String) =&gt; ClickHouseCatalog.this.quoted(token))
+})(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))).mkString(&quot;.&quot;), analysis.this.NoSuchNamespaceException.&lt;init&gt;$default$2)
+        </td>
+      </tr><tr>
+        <td>
+          349
+        </td>
+        <td>
+          1703
+        </td>
+        <td>
+          13858
+          -
+          13858
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val onClusterClause: String = scala.collection.JavaConverters.mapAsScalaMapConverter[String, String](metadata).asScala.get(&quot;cluster&quot;).map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;);
+  {
+    {
+      &lt;artifact&gt; val qual$1: com.clickhouse.spark.client.NodeClient = ClickHouseCatalog.this.nodeClient;
+      &lt;artifact&gt; val x$1: String = scala.StringContext.apply(&quot;CREATE DATABASE &quot;, &quot; &quot;, &quot;&quot;).s(ClickHouseCatalog.this.quoted(database), onClusterClause);
+      &lt;artifact&gt; val x$2: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.syncQueryOutputJSONEachRow$default$2;
+      qual$1.syncQueryOutputJSONEachRow(x$1, x$2)
+    };
+    ()
+  }
+}
+        </td>
+      </tr><tr>
+        <td>
+          350
+        </td>
+        <td>
+          1700
+        </td>
+        <td>
+          13957
+          -
+          13957
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.JavaConverters.mapAsScalaMapConverter[String, String](metadata).asScala.get(&quot;cluster&quot;).map[String](((c: String) =&gt; scala.StringContext.apply(&quot;ON CLUSTER &quot;, &quot;&quot;).s(c))).getOrElse[String](&quot;&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          351
+        </td>
+        <td>
+          2365
+        </td>
+        <td>
+          14008
+          -
+          14008
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;CREATE DATABASE &quot;
+        </td>
+      </tr><tr>
+        <td>
+          351
+        </td>
+        <td>
+          980
+        </td>
+        <td>
+          14060
+          -
+          14060
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          351
+        </td>
+        <td>
+          1608
+        </td>
+        <td>
+          14006
+          -
+          14006
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;CREATE DATABASE &quot;, &quot; &quot;, &quot;&quot;).s(ClickHouseCatalog.this.quoted(database), onClusterClause)
+        </td>
+      </tr><tr>
+        <td>
+          351
+        </td>
+        <td>
+          2203
+        </td>
+        <td>
+          14005
+          -
+          14005
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          351
+        </td>
+        <td>
+          1455
+        </td>
+        <td>
+          14043
+          -
+          14043
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; &quot;
+        </td>
+      </tr><tr>
+        <td>
+          351
+        </td>
+        <td>
+          820
+        </td>
+        <td>
+          13968
+          -
+          13968
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          351
+        </td>
+        <td>
+          12
+        </td>
+        <td>
+          14032
+          -
+          14032
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.quoted(database)
+        </td>
+      </tr><tr>
+        <td>
+          351
+        </td>
+        <td>
+          748
+        </td>
+        <td>
+          14005
+          -
+          14005
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.syncQueryOutputJSONEachRow(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          356
+        </td>
+        <td>
+          784
+        </td>
+        <td>
+          14199
+          -
+          14199
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(&quot;ALTER NAMESPACE OPERATION is unsupported yet&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          360
+        </td>
+        <td>
+          2287
+        </td>
+        <td>
+          14451
+          -
+          14451
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  ClickHouseCatalog.this.loadNamespaceMetadata(namespace);
+  if (cascade.unary_!.&amp;&amp;(scala.Predef.refArrayOps[Array[String]](ClickHouseCatalog.this.listNamespaces(namespace)).nonEmpty))
+    throw new org.apache.spark.sql.catalyst.analysis.NonEmptyNamespaceException(namespace)
+  else
+    ();
+  {
+  &lt;artifact&gt; val qual$1: com.clickhouse.spark.client.NodeClient = ClickHouseCatalog.this.nodeClient;
+  &lt;artifact&gt; val x$1: String = scala.StringContext.apply(&quot;DROP DATABASE &quot;, &quot;&quot;).s(ClickHouseCatalog.this.quoted(database));
+  &lt;artifact&gt; val x$2: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.syncQueryOutputJSONEachRow$default$2;
+  qual$1.syncQueryOutputJSONEachRow(x$1, x$2)
+}.isRight
+}
+        </td>
+      </tr><tr>
+        <td>
+          361
+        </td>
+        <td>
+          2427
+        </td>
+        <td>
+          14481
+          -
+          14481
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.loadNamespaceMetadata
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.loadNamespaceMetadata(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          362
+        </td>
+        <td>
+          2165
+        </td>
+        <td>
+          14516
+          -
+          14516
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          362
+        </td>
+        <td>
+          532
+        </td>
+        <td>
+          14558
+          -
+          14558
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableOnce.nonEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[Array[String]](ClickHouseCatalog.this.listNamespaces(namespace)).nonEmpty
+        </td>
+      </tr><tr>
+        <td>
+          362
+        </td>
+        <td>
+          1841
+        </td>
+        <td>
+          14516
+          -
+          14516
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          362
+        </td>
+        <td>
+          14
+        </td>
+        <td>
+          14529
+          -
+          14566
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          cascade.unary_!.&amp;&amp;(scala.Predef.refArrayOps[Array[String]](ClickHouseCatalog.this.listNamespaces(namespace)).nonEmpty)
+        </td>
+      </tr><tr>
+        <td>
+          362
+        </td>
+        <td>
+          1412
+        </td>
+        <td>
+          14546
+          -
+          14546
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.listNamespaces
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.listNamespaces(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          363
+        </td>
+        <td>
+          1563
+        </td>
+        <td>
+          14578
+          -
+          14578
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NonEmptyNamespaceException(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          363
+        </td>
+        <td>
+          755
+        </td>
+        <td>
+          14578
+          -
+          14578
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NonEmptyNamespaceException(namespace)
+        </td>
+      </tr><tr>
+        <td>
+          365
+        </td>
+        <td>
+          759
+        </td>
+        <td>
+          14716
+          -
+          14716
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.util.Either.isRight
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  &lt;artifact&gt; val qual$1: com.clickhouse.spark.client.NodeClient = ClickHouseCatalog.this.nodeClient;
+  &lt;artifact&gt; val x$1: String = scala.StringContext.apply(&quot;DROP DATABASE &quot;, &quot;&quot;).s(ClickHouseCatalog.this.quoted(database));
+  &lt;artifact&gt; val x$2: Map[String,String] @scala.reflect.internal.annotations.uncheckedBounds = qual$1.syncQueryOutputJSONEachRow$default$2;
+  qual$1.syncQueryOutputJSONEachRow(x$1, x$2)
+}.isRight
+        </td>
+      </tr><tr>
+        <td>
+          365
+        </td>
+        <td>
+          570
+        </td>
+        <td>
+          14702
+          -
+          14702
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.quoted(database)
+        </td>
+      </tr><tr>
+        <td>
+          365
+        </td>
+        <td>
+          788
+        </td>
+        <td>
+          14640
+          -
+          14640
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseCatalog.nodeClient
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.nodeClient
+        </td>
+      </tr><tr>
+        <td>
+          365
+        </td>
+        <td>
+          154
+        </td>
+        <td>
+          14678
+          -
+          14678
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;DROP DATABASE &quot;, &quot;&quot;).s(ClickHouseCatalog.this.quoted(database))
+        </td>
+      </tr><tr>
+        <td>
+          365
+        </td>
+        <td>
+          1523
+        </td>
+        <td>
+          14713
+          -
+          14713
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          365
+        </td>
+        <td>
+          2432
+        </td>
+        <td>
+          14680
+          -
+          14680
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;DROP DATABASE &quot;
+        </td>
+      </tr><tr>
+        <td>
+          365
+        </td>
+        <td>
+          1672
+        </td>
+        <td>
+          14677
+          -
+          14677
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.syncQueryOutputJSONEachRow
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          qual$1.syncQueryOutputJSONEachRow(x$1, x$2)
+        </td>
+      </tr><tr>
+        <td>
+          366
+        </td>
+        <td>
+          1354
+        </td>
+        <td>
+          14738
+          -
+          14738
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          366
+        </td>
+        <td>
+          919
+        </td>
+        <td>
+          14738
+          -
+          14738
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          1528
+        </td>
+        <td>
+          14919
+          -
+          14919
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.empty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          523
+        </td>
+        <td>
+          14912
+          -
+          14912
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.catalog.Identifier.of
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.catalog.Identifier.of(scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])), name)
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          2415
+        </td>
+        <td>
+          14882
+          -
+          14882
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.func.FunctionRegistry.list
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.functionRegistry.list
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          82
+        </td>
+        <td>
+          14890
+          -
+          14890
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.connector.catalog.Identifier]((ClassTag.apply[org.apache.spark.sql.connector.catalog.Identifier](classOf[org.apache.spark.sql.connector.catalog.Identifier]): scala.reflect.ClassTag[org.apache.spark.sql.connector.catalog.Identifier]))
+        </td>
+      </tr><tr>
+        <td>
+          371
+        </td>
+        <td>
+          1673
+        </td>
+        <td>
+          14890
+          -
+          14890
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](ClickHouseCatalog.this.functionRegistry.list).map[org.apache.spark.sql.connector.catalog.Identifier, Array[org.apache.spark.sql.connector.catalog.Identifier]](((name: String) =&gt; org.apache.spark.sql.connector.catalog.Identifier.of(scala.Array.empty[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])), name)))(scala.this.Array.canBuildFrom[org.apache.spark.sql.connector.catalog.Identifier]((ClassTag.apply[org.apache.spark.sql.connector.catalog.Identifier](classOf[org.apache.spark.sql.connector.catalog.Identifier]): scala.reflect.ClassTag[org.apache.spark.sql.connector.catalog.Identifier])))
+        </td>
+      </tr><tr>
+        <td>
+          375
+        </td>
+        <td>
+          728
+        </td>
+        <td>
+          15067
+          -
+          15067
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.catalog.Identifier.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ident.name()
+        </td>
+      </tr><tr>
+        <td>
+          375
+        </td>
+        <td>
+          1305
+        </td>
+        <td>
+          15082
+          -
+          15082
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCatalog.this.functionRegistry.load(ident.name()).getOrElse[org.apache.spark.sql.connector.catalog.functions.UnboundFunction](throw new org.apache.spark.sql.catalyst.analysis.NoSuchFunctionException(ident))
+        </td>
+      </tr><tr>
+        <td>
+          375
+        </td>
+        <td>
+          2202
+        </td>
+        <td>
+          15083
+          -
+          15083
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new org.apache.spark.sql.catalyst.analysis.NoSuchFunctionException(ident)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

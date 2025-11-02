@@ -1,0 +1,2619 @@
+<html>
+      <head>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+      <title id="title">Scoverage Code Coverage</title>
+      <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+      <style>
+        .meter {
+        height: 14px;
+        position: relative;
+        background: #BB2020;
+}
+
+.meter span {
+	display: block;
+	height: 100%;
+	background-color: rgb(43,194,83);
+	background-image: -webkit-gradient(
+	  linear,
+	  left bottom,
+	  left top,
+	  color-stop(0, rgb(43,194,83)),
+	  color-stop(1, rgb(84,240,84))
+	 );
+	background-image: -webkit-linear-gradient(
+	  center bottom,
+	  rgb(43,194,83) 37%,
+	  rgb(84,240,84) 69%
+	 );
+	background-image: -moz-linear-gradient(
+	  center bottom,
+	  rgb(43,194,83) 37%,
+	  rgb(84,240,84) 69%
+	 );
+	background-image: -ms-linear-gradient(
+	  center bottom,
+	  rgb(43,194,83) 37%,
+	  rgb(84,240,84) 69%
+	 );
+	background-image: -o-linear-gradient(
+	  center bottom,
+	  rgb(43,194,83) 37%,
+	  rgb(84,240,84) 69%
+	 );
+	-webkit-box-shadow:
+	  inset 0 2px 9px  rgba(255,255,255,0.3),
+	  inset 0 -2px 6px rgba(0,0,0,0.4);
+	-moz-box-shadow:
+	  inset 0 2px 9px  rgba(255,255,255,0.3),
+	  inset 0 -2px 6px rgba(0,0,0,0.4);
+	position: relative;
+	overflow: hidden;
+}
+      </style>
+    </head><body style="font-family: monospace;">
+      <div class="alert alert-info">
+        <b>
+          SCoverage
+        </b>
+        generated at
+        Sun Nov 02 14:01:58 IST 2025
+      </div>
+      <div class="overview">
+        <div class="stats">
+          <table class="table">
+      <tr>
+        <td>
+          Lines of code:
+        </td>
+        <td>
+          3568
+        </td>
+        <td>
+          Files:
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          Classes:
+        </td>
+        <td>
+          53
+        </td>
+        <td>
+          Methods:
+        </td>
+        <td>
+          271
+        </td>
+      </tr>
+      <tr>
+        <td>
+          Lines per file:
+        </td>
+        <td>
+          115.10
+        </td>
+        <td>
+          Packages:
+        </td>
+        <td>
+          7
+        </td>
+        <td>
+          Classes per package:
+        </td>
+        <td>
+          7.57
+        </td>
+        <td>
+          Methods per class:
+        </td>
+        <td>
+          5.11
+        </td>
+      </tr>
+      <tr>
+        <td>
+          Total statements:
+        </td>
+        <td>
+          2442
+        </td>
+        <td>
+          Invoked statements:
+        </td>
+        <td>
+          252
+        </td>
+        <td>
+          Total branches:
+        </td>
+        <td>
+          380
+        </td>
+        <td>
+          Invoked branches:
+        </td>
+        <td>
+          28
+        </td>
+      </tr>
+      <tr>
+        <td>
+          Ignored statements:
+        </td>
+        <td>
+          0
+        </td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>
+          Statement coverage:
+        </td>
+        <td>
+          10.32
+          %
+        </td>
+        <td colspan="2">
+          <div class="meter">
+            <span style="width: 10%"></span>
+          </div>
+        </td>
+        <td>
+          Branch coverage:
+        </td>
+        <td>
+          7.37
+          %
+        </td>
+        <td colspan="2">
+          <div class="meter">
+            <span style="width: 7%"></span>
+          </div>
+        </td>
+      </tr>
+    </table>
+        </div>
+        <div>
+          <table class="tablesorter table table-striped" style="font-size:13px">
+      <thead>
+        <tr>
+          <th>
+            Class
+          </th>
+          <th>
+            Source file
+          </th>
+          <th>
+            Lines
+          </th>
+          <th>
+            Methods
+          </th>
+          <th>
+            Statements
+          </th>
+          <th>
+            Invoked
+          </th>
+          <th>
+            Coverage
+          </th>
+          <th>
+          </th>
+          <th>
+            Branches
+          </th>
+          <th>
+            Invoked
+          </th>
+          <th>
+            Coverage
+          </th>
+          <th>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+      <td>
+        <a href="com/clickhouse/spark/Metrics.scala.html">
+          BlocksReadMetric
+        </a>
+      </td>
+      <td>
+        Metrics.scala
+      </td>
+      <td>
+        42
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/Metrics.scala.html">
+          BytesReadMetric
+        </a>
+      </td>
+      <td>
+        Metrics.scala
+      </td>
+      <td>
+        47
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/Metrics.scala.html">
+          BytesWrittenMetric
+        </a>
+      </td>
+      <td>
+        Metrics.scala
+      </td>
+      <td>
+        57
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/ClickHouseCatalog.scala.html">
+          ClickHouseCatalog
+        </a>
+      </td>
+      <td>
+        ClickHouseCatalog.scala
+      </td>
+      <td>
+        375
+      </td>
+      <td>
+        19
+      </td>
+      <td>
+        249
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        36
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/ClickHouseCommandRunner.scala.html">
+          ClickHouseCommandRunner
+        </a>
+      </td>
+      <td>
+        ClickHouseCommandRunner.scala
+      </td>
+      <td>
+        25
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        6
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/ClickHouseHelper.scala.html">
+          ClickHouseHelper
+        </a>
+      </td>
+      <td>
+        ClickHouseHelper.scala
+      </td>
+      <td>
+        346
+      </td>
+      <td>
+        11
+      </td>
+      <td>
+        230
+      </td>
+      <td>
+        27
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 12%"></span>
+        </div>
+      </td>
+      <td>
+        11.74
+        %
+      </td>
+      <td>
+        31
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 10%"></span>
+        </div>
+      </td>
+      <td>
+        9.68
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/ClickHouseTable.scala.html">
+          ClickHouseTable
+        </a>
+      </td>
+      <td>
+        ClickHouseTable.scala
+      </td>
+      <td>
+        297
+      </td>
+      <td>
+        23
+      </td>
+      <td>
+        184
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        25
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/Constants.scala.html">
+          Constants
+        </a>
+      </td>
+      <td>
+        Constants.scala
+      </td>
+      <td>
+        35
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        19
+      </td>
+      <td>
+        10
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 53%"></span>
+        </div>
+      </td>
+      <td>
+        52.63
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 100%"></span>
+        </div>
+      </td>
+      <td>
+        100.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/Metrics.scala.html">
+          DurationSumMetric
+        </a>
+      </td>
+      <td>
+        Metrics.scala
+      </td>
+      <td>
+        27
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/Metrics.scala.html">
+          Metrics
+        </a>
+      </td>
+      <td>
+        Metrics.scala
+      </td>
+      <td>
+        37
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        6
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/Metrics.scala.html">
+          RecordsWrittenMetric
+        </a>
+      </td>
+      <td>
+        Metrics.scala
+      </td>
+      <td>
+        52
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/SQLHelper.scala.html">
+          SQLHelper
+        </a>
+      </td>
+      <td>
+        SQLHelper.scala
+      </td>
+      <td>
+        103
+      </td>
+      <td>
+        6
+      </td>
+      <td>
+        223
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        50
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/Metrics.scala.html">
+          SerializeTimeMetric
+        </a>
+      </td>
+      <td>
+        Metrics.scala
+      </td>
+      <td>
+        62
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/Metrics.scala.html">
+          SizeSumMetric
+        </a>
+      </td>
+      <td>
+        Metrics.scala
+      </td>
+      <td>
+        23
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/Metrics.scala.html">
+          WriteTimeMetric
+        </a>
+      </td>
+      <td>
+        Metrics.scala
+      </td>
+      <td>
+        67
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/func/CityHash64.scala.html">
+          CityHash64
+        </a>
+      </td>
+      <td>
+        CityHash64.scala
+      </td>
+      <td>
+        26
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        4
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 50%"></span>
+        </div>
+      </td>
+      <td>
+        50.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 100%"></span>
+        </div>
+      </td>
+      <td>
+        100.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/func/XxHash64.scala.html">
+          ClickHouseXxHash64
+        </a>
+      </td>
+      <td>
+        XxHash64.scala
+      </td>
+      <td>
+        53
+      </td>
+      <td>
+        10
+      </td>
+      <td>
+        23
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 9%"></span>
+        </div>
+      </td>
+      <td>
+        8.70
+        %
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/func/XxHash64.scala.html">
+          ClickHouseXxHash64Shard
+        </a>
+      </td>
+      <td>
+        XxHash64.scala
+      </td>
+      <td>
+        95
+      </td>
+      <td>
+        8
+      </td>
+      <td>
+        24
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/func/FunctionRegistry.scala.html">
+          CompositeFunctionRegistry
+        </a>
+      </td>
+      <td>
+        FunctionRegistry.scala
+      </td>
+      <td>
+        44
+      </td>
+      <td>
+        4
+      </td>
+      <td>
+        23
+      </td>
+      <td>
+        18
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 78%"></span>
+        </div>
+      </td>
+      <td>
+        78.26
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 100%"></span>
+        </div>
+      </td>
+      <td>
+        100.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/func/FunctionRegistry.scala.html">
+          DynamicFunctionRegistry
+        </a>
+      </td>
+      <td>
+        FunctionRegistry.scala
+      </td>
+      <td>
+        94
+      </td>
+      <td>
+        6
+      </td>
+      <td>
+        25
+      </td>
+      <td>
+        24
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 96%"></span>
+        </div>
+      </td>
+      <td>
+        96.00
+        %
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 100%"></span>
+        </div>
+      </td>
+      <td>
+        100.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/func/MultiStringArgsHash.scala.html">
+          MultiStringArgsHash
+        </a>
+      </td>
+      <td>
+        MultiStringArgsHash.scala
+      </td>
+      <td>
+        59
+      </td>
+      <td>
+        8
+      </td>
+      <td>
+        36
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        4
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/func/MurmurHash2.scala.html">
+          MurmurHash2_32
+        </a>
+      </td>
+      <td>
+        MurmurHash2.scala
+      </td>
+      <td>
+        37
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        5
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 40%"></span>
+        </div>
+      </td>
+      <td>
+        40.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 100%"></span>
+        </div>
+      </td>
+      <td>
+        100.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/func/MurmurHash2.scala.html">
+          MurmurHash2_64
+        </a>
+      </td>
+      <td>
+        MurmurHash2.scala
+      </td>
+      <td>
+        27
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        4
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 50%"></span>
+        </div>
+      </td>
+      <td>
+        50.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 100%"></span>
+        </div>
+      </td>
+      <td>
+        100.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/func/MurmurHash3.scala.html">
+          MurmurHash3_32
+        </a>
+      </td>
+      <td>
+        MurmurHash3.scala
+      </td>
+      <td>
+        37
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        5
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 40%"></span>
+        </div>
+      </td>
+      <td>
+        40.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 100%"></span>
+        </div>
+      </td>
+      <td>
+        100.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/func/MurmurHash3.scala.html">
+          MurmurHash3_64
+        </a>
+      </td>
+      <td>
+        MurmurHash3.scala
+      </td>
+      <td>
+        27
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        4
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 50%"></span>
+        </div>
+      </td>
+      <td>
+        50.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 100%"></span>
+        </div>
+      </td>
+      <td>
+        100.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/func/FunctionRegistry.scala.html">
+          StaticFunctionRegistry
+        </a>
+      </td>
+      <td>
+        FunctionRegistry.scala
+      </td>
+      <td>
+        70
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        28
+      </td>
+      <td>
+        27
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 96%"></span>
+        </div>
+      </td>
+      <td>
+        96.43
+        %
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 100%"></span>
+        </div>
+      </td>
+      <td>
+        100.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/read/ClickHouseRead.scala.html">
+          ClickHouseBatchScan
+        </a>
+      </td>
+      <td>
+        ClickHouseRead.scala
+      </td>
+      <td>
+        220
+      </td>
+      <td>
+        8
+      </td>
+      <td>
+        35
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        5
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/read/InputPartitions.scala.html">
+          ClickHouseInputPartition
+        </a>
+      </td>
+      <td>
+        InputPartitions.scala
+      </td>
+      <td>
+        54
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        24
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        5
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/read/ClickHouseMetadataColumn.scala.html">
+          ClickHouseMetadataColumn
+        </a>
+      </td>
+      <td>
+        ClickHouseMetadataColumn.scala
+      </td>
+      <td>
+        46
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        42
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/read/InputPartitions.scala.html">
+          ClickHousePartitioning
+        </a>
+      </td>
+      <td>
+        InputPartitions.scala
+      </td>
+      <td>
+        23
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/read/ClickHouseReader.scala.html">
+          ClickHouseReader
+        </a>
+      </td>
+      <td>
+        ClickHouseReader.scala
+      </td>
+      <td>
+        95
+      </td>
+      <td>
+        8
+      </td>
+      <td>
+        29
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/read/ClickHouseRead.scala.html">
+          ClickHouseScanBuilder
+        </a>
+      </td>
+      <td>
+        ClickHouseRead.scala
+      </td>
+      <td>
+        124
+      </td>
+      <td>
+        7
+      </td>
+      <td>
+        99
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        7
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/read/ScanJobDescription.scala.html">
+          ScanJobDescription
+        </a>
+      </td>
+      <td>
+        ScanJobDescription.scala
+      </td>
+      <td>
+        48
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        12
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        4
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/read/format/ClickHouseBinaryReader.scala.html">
+          ClickHouseBinaryReader
+        </a>
+      </td>
+      <td>
+        ClickHouseBinaryReader.scala
+      </td>
+      <td>
+        149
+      </td>
+      <td>
+        4
+      </td>
+      <td>
+        152
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        50
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/read/format/ClickHouseJsonReader.scala.html">
+          ClickHouseJsonReader
+        </a>
+      </td>
+      <td>
+        ClickHouseJsonReader.scala
+      </td>
+      <td>
+        99
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        141
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        26
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/write/ClickHouseWrite.scala.html">
+          ClickHouseBatchWrite
+        </a>
+      </td>
+      <td>
+        ClickHouseWrite.scala
+      </td>
+      <td>
+        74
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        11
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        3
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/write/ClickHouseWrite.scala.html">
+          ClickHouseWrite
+        </a>
+      </td>
+      <td>
+        ClickHouseWrite.scala
+      </td>
+      <td>
+        55
+      </td>
+      <td>
+        7
+      </td>
+      <td>
+        20
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/write/ClickHouseWrite.scala.html">
+          ClickHouseWriteBuilder
+        </a>
+      </td>
+      <td>
+        ClickHouseWrite.scala
+      </td>
+      <td>
+        29
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/write/ClickHouseWriter.scala.html">
+          ClickHouseWriter
+        </a>
+      </td>
+      <td>
+        ClickHouseWriter.scala
+      </td>
+      <td>
+        295
+      </td>
+      <td>
+        24
+      </td>
+      <td>
+        206
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        21
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/write/WriteJobDescription.scala.html">
+          WriteJobDescription
+        </a>
+      </td>
+      <td>
+        WriteJobDescription.scala
+      </td>
+      <td>
+        82
+      </td>
+      <td>
+        6
+      </td>
+      <td>
+        46
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        14
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/write/format/ClickHouseArrowStreamWriter.scala.html">
+          ClickHouseArrowStreamWriter
+        </a>
+      </td>
+      <td>
+        ClickHouseArrowStreamWriter.scala
+      </td>
+      <td>
+        55
+      </td>
+      <td>
+        6
+      </td>
+      <td>
+        26
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="com/clickhouse/spark/write/format/ClickHouseJsonEachRowWriter.scala.html">
+          ClickHouseJsonEachRowWriter
+        </a>
+      </td>
+      <td>
+        ClickHouseJsonEachRowWriter.scala
+      </td>
+      <td>
+        38
+      </td>
+      <td>
+        5
+      </td>
+      <td>
+        12
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="org/apache/spark/sql/clickhouse/ClickHouseSQLConf.scala.html">
+          ClickHouseSQLConf
+        </a>
+      </td>
+      <td>
+        ClickHouseSQLConf.scala
+      </td>
+      <td>
+        219
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        44
+      </td>
+      <td>
+        43
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 98%"></span>
+        </div>
+      </td>
+      <td>
+        97.73
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 100%"></span>
+        </div>
+      </td>
+      <td>
+        100.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="org/apache/spark/sql/clickhouse/ExprUtils.scala.html">
+          ExprUtils
+        </a>
+      </td>
+      <td>
+        ExprUtils.scala
+      </td>
+      <td>
+        212
+      </td>
+      <td>
+        13
+      </td>
+      <td>
+        158
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        39
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="org/apache/spark/sql/clickhouse/ExprUtils.scala.html">
+          ExprUtils.CustomResolveTimeZone
+        </a>
+      </td>
+      <td>
+        ExprUtils.scala
+      </td>
+      <td>
+        117
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        14
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="org/apache/spark/sql/clickhouse/ExprUtils.scala.html">
+          ExprUtils.DummyLeafNode
+        </a>
+      </td>
+      <td>
+        ExprUtils.scala
+      </td>
+      <td>
+        105
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="org/apache/spark/sql/clickhouse/ExprUtils.scala.html">
+          ExprUtils.TypeCoercionExecutor
+        </a>
+      </td>
+      <td>
+        ExprUtils.scala
+      </td>
+      <td>
+        123
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="org/apache/spark/sql/clickhouse/JsonWriter.scala.html">
+          JsonWriter
+        </a>
+      </td>
+      <td>
+        JsonWriter.scala
+      </td>
+      <td>
+        40
+      </td>
+      <td>
+        4
+      </td>
+      <td>
+        16
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="org/apache/spark/sql/clickhouse/SparkOptions.scala.html">
+          ReadOptions
+        </a>
+      </td>
+      <td>
+        SparkOptions.scala
+      </td>
+      <td>
+        53
+      </td>
+      <td>
+        7
+      </td>
+      <td>
+        21
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="org/apache/spark/sql/clickhouse/SchemaUtils.scala.html">
+          SchemaUtils
+        </a>
+      </td>
+      <td>
+        SchemaUtils.scala
+      </td>
+      <td>
+        122
+      </td>
+      <td>
+        6
+      </td>
+      <td>
+        164
+      </td>
+      <td>
+        91
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 55%"></span>
+        </div>
+      </td>
+      <td>
+        55.49
+        %
+      </td>
+      <td>
+        48
+      </td>
+      <td>
+        21
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 44%"></span>
+        </div>
+      </td>
+      <td>
+        43.75
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="org/apache/spark/sql/clickhouse/SparkOptions.scala.html">
+          SparkOptions
+        </a>
+      </td>
+      <td>
+        SparkOptions.scala
+      </td>
+      <td>
+        30
+      </td>
+      <td>
+        1
+      </td>
+      <td>
+        4
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="org/apache/spark/sql/clickhouse/SparkUtils.scala.html">
+          SparkUtils
+        </a>
+      </td>
+      <td>
+        SparkUtils.scala
+      </td>
+      <td>
+        31
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        2
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr><tr>
+      <td>
+        <a href="org/apache/spark/sql/clickhouse/SparkOptions.scala.html">
+          WriteOptions
+        </a>
+      </td>
+      <td>
+        SparkOptions.scala
+      </td>
+      <td>
+        93
+      </td>
+      <td>
+        14
+      </td>
+      <td>
+        43
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        0
+      </td>
+      <td>
+        <div class="meter">
+          <span style="width: 0%"></span>
+        </div>
+      </td>
+      <td>
+        0.00
+        %
+      </td>
+    </tr>
+      </tbody>
+    </table>
+        </div>
+      </div>
+    </body>
+    </html>

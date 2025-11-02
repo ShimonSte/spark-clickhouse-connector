@@ -1,0 +1,213 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/ClickHouseCommandRunner.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark
+</span>16 <span style=''>
+</span>17 <span style=''>import org.apache.spark.sql.connector.ExternalCommandRunner
+</span>18 <span style=''>import org.apache.spark.sql.util.CaseInsensitiveStringMap
+</span>19 <span style=''>import com.clickhouse.spark.client.NodeClient
+</span>20 <span style=''>
+</span>21 <span style=''>class ClickHouseCommandRunner extends ExternalCommandRunner with ClickHouseHelper {
+</span>22 <span style=''>
+</span>23 <span style=''>  override def executeCommand(sql: String, options: CaseInsensitiveStringMap): Array[String] =
+</span>24 <span style=''>    Utils.tryWithResource(NodeClient(buildNodeSpec(options))) { nodeClient =&gt;
+</span>25 <span style=''>      nodeClient.syncQueryAndCheckOutputJSONEachRow(sql).records.map(_.toString).toArray
+</span>26 <span style=''>    }
+</span>27 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          478
+        </td>
+        <td>
+          989
+          -
+          989
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.ClickHouseHelper.buildNodeSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseCommandRunner.this.buildNodeSpec(options)
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          1203
+        </td>
+        <td>
+          1001
+          -
+          1001
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.tryWithResource
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.tryWithResource[com.clickhouse.spark.client.NodeClient, Array[String]](com.clickhouse.spark.client.NodeClient.apply(ClickHouseCommandRunner.this.buildNodeSpec(options)))(((nodeClient: com.clickhouse.spark.client.NodeClient) =&gt; nodeClient.syncQueryAndCheckOutputJSONEachRow(sql, nodeClient.syncQueryAndCheckOutputJSONEachRow$default$2).records.map[String, Seq[String]](((x$1: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; x$1.toString()))(collection.this.Seq.canBuildFrom[String]).toArray[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))))
+        </td>
+      </tr><tr>
+        <td>
+          24
+        </td>
+        <td>
+          78
+        </td>
+        <td>
+          975
+          -
+          975
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.client.NodeClient.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.client.NodeClient.apply(ClickHouseCommandRunner.this.buildNodeSpec(options))
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          2038
+        </td>
+        <td>
+          1098
+          -
+          1098
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          nodeClient.syncQueryAndCheckOutputJSONEachRow(sql, nodeClient.syncQueryAndCheckOutputJSONEachRow$default$2).records.map[String, Seq[String]](((x$1: com.fasterxml.jackson.databind.node.ObjectNode) =&gt; x$1.toString()))(collection.this.Seq.canBuildFrom[String]).toArray[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          1553
+        </td>
+        <td>
+          1088
+          -
+          1088
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.fasterxml.jackson.databind.node.BaseJsonNode.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.toString()
+        </td>
+      </tr><tr>
+        <td>
+          25
+        </td>
+        <td>
+          673
+        </td>
+        <td>
+          1085
+          -
+          1085
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

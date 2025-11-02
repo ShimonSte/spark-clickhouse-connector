@@ -1,0 +1,911 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/write/ClickHouseWrite.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under th e License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.write
+</span>16 <span style=''>
+</span>17 <span style=''>import org.apache.spark.sql.catalyst.{InternalRow, SQLConfHelper}
+</span>18 <span style=''>import org.apache.spark.sql.clickhouse.ClickHouseSQLConf._
+</span>19 <span style=''>import org.apache.spark.sql.connector.distributions.{Distribution, Distributions}
+</span>20 <span style=''>import org.apache.spark.sql.connector.expressions.SortOrder
+</span>21 <span style=''>import org.apache.spark.sql.connector.metric.CustomMetric
+</span>22 <span style=''>import org.apache.spark.sql.connector.write._
+</span>23 <span style=''>import com.clickhouse.spark._
+</span>24 <span style=''>import com.clickhouse.spark.exception.CHClientException
+</span>25 <span style=''>import com.clickhouse.spark.write.format.{ClickHouseArrowStreamWriter, ClickHouseJsonEachRowWriter}
+</span>26 <span style=''>
+</span>27 <span style=''>class ClickHouseWriteBuilder(writeJob: WriteJobDescription) extends WriteBuilder {
+</span>28 <span style=''>
+</span>29 <span style=''>  override def build(): Write = new ClickHouseWrite(writeJob)
+</span>30 <span style=''>}
+</span>31 <span style=''>
+</span>32 <span style=''>class ClickHouseWrite(
+</span>33 <span style=''>  writeJob: WriteJobDescription
+</span>34 <span style=''>) extends Write
+</span>35 <span style=''>    with RequiresDistributionAndOrdering
+</span>36 <span style=''>    with SQLConfHelper {
+</span>37 <span style=''>
+</span>38 <span style=''>  override def distributionStrictlyRequired: Boolean = writeJob.writeOptions.repartitionStrictly
+</span>39 <span style=''>
+</span>40 <span style=''>  override def description: String =
+</span>41 <span style=''>    s&quot;ClickHouseWrite(database=${writeJob.targetDatabase(false)}, table=${writeJob.targetTable(false)})})&quot;
+</span>42 <span style=''>
+</span>43 <span style=''>  override def requiredDistribution(): Distribution = Distributions.clustered(writeJob.sparkSplits.toArray)
+</span>44 <span style=''>
+</span>45 <span style=''>  override def requiredNumPartitions(): Int = conf.getConf(WRITE_REPARTITION_NUM)
+</span>46 <span style=''>
+</span>47 <span style=''>  override def requiredOrdering(): Array[SortOrder] = writeJob.sparkSortOrders
+</span>48 <span style=''>
+</span>49 <span style=''>  override def toBatch: BatchWrite = new ClickHouseBatchWrite(writeJob)
+</span>50 <span style=''>
+</span>51 <span style=''>  override def supportedCustomMetrics(): Array[CustomMetric] = Array(
+</span>52 <span style=''>    RecordsWrittenMetric(),
+</span>53 <span style=''>    BytesWrittenMetric(),
+</span>54 <span style=''>    SerializeTimeMetric(),
+</span>55 <span style=''>    WriteTimeMetric()
+</span>56 <span style=''>  )
+</span>57 <span style=''>}
+</span>58 <span style=''>
+</span>59 <span style=''>class ClickHouseBatchWrite(
+</span>60 <span style=''>  writeJob: WriteJobDescription
+</span>61 <span style=''>) extends BatchWrite with DataWriterFactory {
+</span>62 <span style=''>
+</span>63 <span style=''>  override def createBatchWriterFactory(info: PhysicalWriteInfo): DataWriterFactory = this
+</span>64 <span style=''>
+</span>65 <span style=''>  override def commit(messages: Array[WriterCommitMessage]): Unit = {}
+</span>66 <span style=''>
+</span>67 <span style=''>  override def abort(messages: Array[WriterCommitMessage]): Unit = {}
+</span>68 <span style=''>
+</span>69 <span style=''>  override def createWriter(partitionId: Int, taskId: Long): DataWriter[InternalRow] = {
+</span>70 <span style=''>    val format = writeJob.writeOptions.format
+</span>71 <span style=''>    format match {
+</span>72 <span style=''>      case &quot;json&quot; =&gt; new ClickHouseJsonEachRowWriter(writeJob)
+</span>73 <span style=''>      case &quot;arrow&quot; =&gt; new ClickHouseArrowStreamWriter(writeJob)
+</span>74 <span style=''>      case unsupported =&gt; throw CHClientException(s&quot;Unsupported write format: $unsupported&quot;)
+</span>75 <span style=''>    }
+</span>76 <span style=''>  }
+</span>77 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          971
+        </td>
+        <td>
+          1295
+          -
+          1295
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWriteBuilder.writeJob
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWriteBuilder.this.writeJob
+        </td>
+      </tr><tr>
+        <td>
+          29
+        </td>
+        <td>
+          527
+        </td>
+        <td>
+          1275
+          -
+          1275
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWrite.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new ClickHouseWrite(ClickHouseWriteBuilder.this.writeJob)
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          2045
+        </td>
+        <td>
+          1523
+          -
+          1523
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.WriteOptions.repartitionStrictly
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWrite.this.writeJob.writeOptions.repartitionStrictly
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1142
+        </td>
+        <td>
+          1587
+          -
+          1587
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;ClickHouseWrite(database=&quot;
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          1645
+          -
+          1645
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;, table=&quot;
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          376
+        </td>
+        <td>
+          1675
+          -
+          1675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.targetTable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWrite.this.writeJob.targetTable(false)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1793
+        </td>
+        <td>
+          1683
+          -
+          1683
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;)})&quot;
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1310
+        </td>
+        <td>
+          1637
+          -
+          1637
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.targetDatabase
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWrite.this.writeJob.targetDatabase(false)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1902
+        </td>
+        <td>
+          1585
+          -
+          1585
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;ClickHouseWrite(database=&quot;, &quot;, table=&quot;, &quot;)})&quot;).s(ClickHouseWrite.this.writeJob.targetDatabase(false), ClickHouseWrite.this.writeJob.targetTable(false))
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          533
+        </td>
+        <td>
+          1788
+          -
+          1788
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.mutable.ArrayOps.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.connector.expressions.Transform](ClickHouseWrite.this.writeJob.sparkSplits).toArray[org.apache.spark.sql.connector.expressions.Expression]((ClassTag.apply[org.apache.spark.sql.connector.expressions.Expression](classOf[org.apache.spark.sql.connector.expressions.Expression]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.Expression]))
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          2013
+        </td>
+        <td>
+          1766
+          -
+          1766
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.distributions.Distributions.clustered
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.connector.distributions.Distributions.clustered(scala.Predef.refArrayOps[org.apache.spark.sql.connector.expressions.Transform](ClickHouseWrite.this.writeJob.sparkSplits).toArray[org.apache.spark.sql.connector.expressions.Expression]((ClassTag.apply[org.apache.spark.sql.connector.expressions.Expression](classOf[org.apache.spark.sql.connector.expressions.Expression]): scala.reflect.ClassTag[org.apache.spark.sql.connector.expressions.Expression])))
+        </td>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          930
+        </td>
+        <td>
+          1776
+          -
+          1776
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.sparkSplits
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWrite.this.writeJob.sparkSplits
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          173
+        </td>
+        <td>
+          1856
+          -
+          1856
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.internal.SQLConf.getConf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWrite.this.conf.getConf[Int](org.apache.spark.sql.clickhouse.ClickHouseSQLConf.WRITE_REPARTITION_NUM)
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1146
+        </td>
+        <td>
+          1857
+          -
+          1857
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.WRITE_REPARTITION_NUM
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ClickHouseSQLConf.WRITE_REPARTITION_NUM
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1693
+        </td>
+        <td>
+          1944
+          -
+          1944
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.sparkSortOrders
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWrite.this.writeJob.sparkSortOrders
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          334
+        </td>
+        <td>
+          1998
+          -
+          1998
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseBatchWrite.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new ClickHouseBatchWrite(ClickHouseWrite.this.writeJob)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1245
+        </td>
+        <td>
+          2023
+          -
+          2023
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseWrite.writeJob
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseWrite.this.writeJob
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1106
+        </td>
+        <td>
+          2102
+          -
+          2102
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Array.apply[org.apache.spark.sql.connector.metric.CustomMetric](com.clickhouse.spark.RecordsWrittenMetric.apply(), com.clickhouse.spark.BytesWrittenMetric.apply(), com.clickhouse.spark.SerializeTimeMetric.apply(), com.clickhouse.spark.WriteTimeMetric.apply())((ClassTag.apply[org.apache.spark.sql.connector.metric.CustomMetric](classOf[org.apache.spark.sql.connector.metric.CustomMetric]): scala.reflect.ClassTag[org.apache.spark.sql.connector.metric.CustomMetric]))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1972
+        </td>
+        <td>
+          2128
+          -
+          2128
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.RecordsWrittenMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.RecordsWrittenMetric.apply()
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          934
+        </td>
+        <td>
+          2154
+          -
+          2154
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.BytesWrittenMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.BytesWrittenMetric.apply()
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          608
+        </td>
+        <td>
+          2181
+          -
+          2181
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SerializeTimeMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.SerializeTimeMetric.apply()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          2016
+        </td>
+        <td>
+          2204
+          -
+          2204
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.WriteTimeMetric.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.WriteTimeMetric.apply()
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          287
+        </td>
+        <td>
+          2481
+          -
+          2481
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1694
+        </td>
+        <td>
+          2552
+          -
+          2552
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1299
+        </td>
+        <td>
+          2684
+          -
+          2684
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.WriteOptions.format
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchWrite.this.writeJob.writeOptions.format
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1979
+        </td>
+        <td>
+          2731
+          -
+          2731
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.format.ClickHouseJsonEachRowWriter.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.write.format.ClickHouseJsonEachRowWriter(ClickHouseBatchWrite.this.writeJob)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          340
+        </td>
+        <td>
+          2763
+          -
+          2763
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseBatchWrite.writeJob
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchWrite.this.writeJob
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1057
+        </td>
+        <td>
+          2731
+          -
+          2731
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.write.format.ClickHouseJsonEachRowWriter.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.write.format.ClickHouseJsonEachRowWriter(ClickHouseBatchWrite.this.writeJob)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          2827
+          -
+          2827
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.ClickHouseBatchWrite.writeJob
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ClickHouseBatchWrite.this.writeJob
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          2086
+        </td>
+        <td>
+          2795
+          -
+          2795
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.write.format.ClickHouseArrowStreamWriter.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.write.format.ClickHouseArrowStreamWriter(ClickHouseBatchWrite.this.writeJob)
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1114
+        </td>
+        <td>
+          2795
+          -
+          2795
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.write.format.ClickHouseArrowStreamWriter.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new com.clickhouse.spark.write.format.ClickHouseArrowStreamWriter(ClickHouseBatchWrite.this.writeJob)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          1829
+        </td>
+        <td>
+          2863
+          -
+          2863
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported write format: &quot;, &quot;&quot;).s(unsupported), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          294
+        </td>
+        <td>
+          2863
+          -
+          2863
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw com.clickhouse.spark.exception.CHClientException.apply(scala.StringContext.apply(&quot;Unsupported write format: &quot;, &quot;&quot;).s(unsupported), com.clickhouse.spark.exception.CHClientException.apply$default$2, com.clickhouse.spark.exception.CHClientException.apply$default$3)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

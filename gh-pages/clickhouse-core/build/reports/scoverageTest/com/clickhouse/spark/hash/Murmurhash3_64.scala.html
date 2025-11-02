@@ -1,0 +1,262 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/hash/Murmurhash3_64.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.hash
+</span>16 <span style=''>
+</span>17 <span style=''>import org.apache.commons.codec.digest.MurmurHash3
+</span>18 <span style=''>
+</span>19 <span style=''>// https://github.com/ClickHouse/ClickHouse/blob/v23.5.3.24-stable/src/Functions/FunctionsHashing.h#L543
+</span>20 <span style=''>object Murmurhash3_64 extends HashFunc[Long] {
+</span>21 <span style=''>  override def applyHash(input: Array[Byte]): Long = {
+</span>22 <span style=''>    val hashes = MurmurHash3.hash128x64(input, 0, input.length, 0)
+</span>23 <span style=''>    hashes(0) </span><span style='background: #F0ADAD'>^ hashes(1)</span><span style=''>
+</span>24 <span style=''>  }
+</span>25 <span style=''>
+</span>26 <span style=''>  override def combineHashes(h1: Long, h2: Long): Long =
+</span>27 <span style=''>    HashUtils.intHash64Impl(h1) </span><span style='background: #F0ADAD'>^ h2</span><span style=''>
+</span>28 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          713
+        </td>
+        <td>
+          897
+          -
+          897
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.commons.codec.digest.MurmurHash3.hash128x64
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.commons.codec.digest.MurmurHash3.hash128x64(input, 0, input.length, 0)
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          922
+          -
+          922
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          883
+        </td>
+        <td>
+          905
+          -
+          905
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          22
+        </td>
+        <td>
+          425
+        </td>
+        <td>
+          914
+          -
+          914
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Array.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          input.length
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          85
+        </td>
+        <td>
+          947
+          -
+          947
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          hashes.apply(1)
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          778
+        </td>
+        <td>
+          939
+          -
+          950
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.^
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          hashes.apply(0).^(hashes.apply(1))
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          527
+        </td>
+        <td>
+          936
+          -
+          936
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          400
+        </td>
+        <td>
+          1045
+          -
+          1049
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.^
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          HashUtils.intHash64Impl(h1).^(h2)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

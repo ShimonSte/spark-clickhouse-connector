@@ -1,0 +1,605 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/func/FunctionRegistry.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.func
+</span>16 <span style=''>
+</span>17 <span style=''>import org.apache.spark.sql.connector.catalog.functions.UnboundFunction
+</span>18 <span style=''>
+</span>19 <span style=''>import scala.collection.mutable
+</span>20 <span style=''>
+</span>21 <span style=''>trait FunctionRegistry {
+</span>22 <span style=''>
+</span>23 <span style=''>  def list: Array[String]
+</span>24 <span style=''>
+</span>25 <span style=''>  def load(name: String): Option[UnboundFunction]
+</span>26 <span style=''>}
+</span>27 <span style=''>
+</span>28 <span style=''>class CompositeFunctionRegistry(registries: Array[FunctionRegistry]) extends FunctionRegistry {
+</span>29 <span style=''>
+</span>30 <span style=''>  override def list: Array[String] = registries.flatMap(_.list)
+</span>31 <span style=''>
+</span>32 <span style=''>  override def load(name: String): Option[UnboundFunction] = registries.flatMap(_.load(name)).headOption
+</span>33 <span style=''>}
+</span>34 <span style=''>
+</span>35 <span style=''>object StaticFunctionRegistry extends FunctionRegistry {
+</span>36 <span style=''>
+</span>37 <span style=''>  private val functions = Map[String, UnboundFunction](
+</span>38 <span style=''>    &quot;ck_xx_hash64&quot; </span><span style='background: #F0ADAD'>-&gt;</span><span style=''> ClickHouseXxHash64, // for compatible
+</span>39 <span style=''>    &quot;clickhouse_xxHash64&quot; </span><span style='background: #F0ADAD'>-&gt;</span><span style=''> ClickHouseXxHash64
+</span>40 <span style=''>  )
+</span>41 <span style=''>
+</span>42 <span style=''>  override def list: Array[String] = functions.keys.toArray
+</span>43 <span style=''>
+</span>44 <span style=''>  override def load(name: String): Option[UnboundFunction] = functions.get(name)
+</span>45 <span style=''>}
+</span>46 <span style=''>
+</span>47 <span style=''>class DynamicFunctionRegistry extends FunctionRegistry {
+</span>48 <span style=''>
+</span>49 <span style=''>  private val functions = mutable.Map[String, UnboundFunction]()
+</span>50 <span style=''>
+</span>51 <span style=''>  def register(name: String, function: UnboundFunction): DynamicFunctionRegistry = {
+</span>52 <span style=''>    functions </span><span style='background: #F0ADAD'>+=</span><span style=''> (name </span><span style='background: #F0ADAD'>-&gt;</span><span style=''> function)
+</span>53 <span style=''>    this
+</span>54 <span style=''>  }
+</span>55 <span style=''>
+</span>56 <span style=''>  override def list: Array[String] = functions.keys.toArray
+</span>57 <span style=''>
+</span>58 <span style=''>  override def load(name: String): Option[UnboundFunction] = functions.get(name)
+</span>59 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1165
+        </td>
+        <td>
+          963
+          -
+          963
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1075
+        </td>
+        <td>
+          945
+          -
+          945
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.func.CompositeFunctionRegistry.registries
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          CompositeFunctionRegistry.this.registries
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          2044
+        </td>
+        <td>
+          966
+          -
+          966
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Predef.refArrayOps
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](x$1.list)
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          342
+        </td>
+        <td>
+          963
+          -
+          963
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[com.clickhouse.spark.func.FunctionRegistry](CompositeFunctionRegistry.this.registries).flatMap[String, Array[String]](((x$1: com.clickhouse.spark.func.FunctionRegistry) =&gt; scala.Predef.refArrayOps[String](x$1.list)))(scala.this.Array.canBuildFrom[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String])))
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          640
+        </td>
+        <td>
+          966
+          -
+          966
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.func.FunctionRegistry.list
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.list
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1351
+        </td>
+        <td>
+          1059
+          -
+          1059
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.FunctionRegistry.load
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$2.load(name)
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1898
+        </td>
+        <td>
+          1052
+          -
+          1052
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.connector.catalog.functions.UnboundFunction]((ClassTag.apply[org.apache.spark.sql.connector.catalog.functions.UnboundFunction](classOf[org.apache.spark.sql.connector.catalog.functions.UnboundFunction]): scala.reflect.ClassTag[org.apache.spark.sql.connector.catalog.functions.UnboundFunction]))
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          160
+        </td>
+        <td>
+          1067
+          -
+          1067
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.TraversableLike.headOption
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.connector.catalog.functions.UnboundFunction](scala.Predef.refArrayOps[com.clickhouse.spark.func.FunctionRegistry](CompositeFunctionRegistry.this.registries).flatMap[org.apache.spark.sql.connector.catalog.functions.UnboundFunction, Array[org.apache.spark.sql.connector.catalog.functions.UnboundFunction]](((x$2: com.clickhouse.spark.func.FunctionRegistry) =&gt; scala.this.Option.option2Iterable[org.apache.spark.sql.connector.catalog.functions.UnboundFunction](x$2.load(name))))(scala.this.Array.canBuildFrom[org.apache.spark.sql.connector.catalog.functions.UnboundFunction]((ClassTag.apply[org.apache.spark.sql.connector.catalog.functions.UnboundFunction](classOf[org.apache.spark.sql.connector.catalog.functions.UnboundFunction]): scala.reflect.ClassTag[org.apache.spark.sql.connector.catalog.functions.UnboundFunction])))).headOption
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1724
+        </td>
+        <td>
+          1034
+          -
+          1034
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.func.CompositeFunctionRegistry.registries
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          CompositeFunctionRegistry.this.registries
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          1054
+        </td>
+        <td>
+          1052
+          -
+          1052
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[com.clickhouse.spark.func.FunctionRegistry](CompositeFunctionRegistry.this.registries).flatMap[org.apache.spark.sql.connector.catalog.functions.UnboundFunction, Array[org.apache.spark.sql.connector.catalog.functions.UnboundFunction]](((x$2: com.clickhouse.spark.func.FunctionRegistry) =&gt; scala.this.Option.option2Iterable[org.apache.spark.sql.connector.catalog.functions.UnboundFunction](x$2.load(name))))(scala.this.Array.canBuildFrom[org.apache.spark.sql.connector.catalog.functions.UnboundFunction]((ClassTag.apply[org.apache.spark.sql.connector.catalog.functions.UnboundFunction](classOf[org.apache.spark.sql.connector.catalog.functions.UnboundFunction]): scala.reflect.ClassTag[org.apache.spark.sql.connector.catalog.functions.UnboundFunction])))
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          494
+        </td>
+        <td>
+          1059
+          -
+          1059
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[org.apache.spark.sql.connector.catalog.functions.UnboundFunction](x$2.load(name))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          349
+        </td>
+        <td>
+          1193
+          -
+          1193
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.Map.apply[String, org.apache.spark.sql.connector.catalog.functions.UnboundFunction](scala.Predef.ArrowAssoc[String](&quot;ck_xx_hash64&quot;).-&gt;[com.clickhouse.spark.func.ClickHouseXxHash64.type](ClickHouseXxHash64), scala.Predef.ArrowAssoc[String](&quot;clickhouse_xxHash64&quot;).-&gt;[com.clickhouse.spark.func.ClickHouseXxHash64.type](ClickHouseXxHash64))
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          2049
+        </td>
+        <td>
+          1214
+          -
+          1216
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;ck_xx_hash64&quot;).-&gt;[com.clickhouse.spark.func.ClickHouseXxHash64.type](ClickHouseXxHash64)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1146
+        </td>
+        <td>
+          1281
+          -
+          1283
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](&quot;clickhouse_xxHash64&quot;).-&gt;[com.clickhouse.spark.func.ClickHouseXxHash64.type](ClickHouseXxHash64)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1823
+        </td>
+        <td>
+          1360
+          -
+          1360
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          StaticFunctionRegistry.this.functions.keys.toArray[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          1415
+        </td>
+        <td>
+          1443
+          -
+          1443
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          StaticFunctionRegistry.this.functions.get(name)
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          435
+        </td>
+        <td>
+          1573
+          -
+          1573
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.generic.GenMapFactory.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.mutable.Map.apply[String, org.apache.spark.sql.connector.catalog.functions.UnboundFunction]()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1865
+        </td>
+        <td>
+          1685
+          -
+          1687
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.ArrowAssoc.-&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.ArrowAssoc[String](name).-&gt;[org.apache.spark.sql.connector.catalog.functions.UnboundFunction](function)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1119
+        </td>
+        <td>
+          1676
+          -
+          1678
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.MapLike.+=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DynamicFunctionRegistry.this.functions.+=(scala.Predef.ArrowAssoc[String](name).-&gt;[org.apache.spark.sql.connector.catalog.functions.UnboundFunction](function))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          165
+        </td>
+        <td>
+          1764
+          -
+          1764
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.toArray
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DynamicFunctionRegistry.this.functions.keys.toArray[String]((ClassTag.apply[String](classOf[java.lang.String]): scala.reflect.ClassTag[String]))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          2122
+        </td>
+        <td>
+          1847
+          -
+          1847
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          DynamicFunctionRegistry.this.functions.get(name)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

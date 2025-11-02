@@ -1,0 +1,686 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/Metrics.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark
+</span>16 <span style=''>
+</span>17 <span style=''>import org.apache.spark.sql.connector.metric.{CustomMetric, CustomSumMetric, CustomTaskMetric}
+</span>18 <span style=''>import Metrics._
+</span>19 <span style=''>
+</span>20 <span style=''>case class TaskMetric(override val name: String, override val value: Long) extends CustomTaskMetric
+</span>21 <span style=''>
+</span>22 <span style=''>abstract class SizeSumMetric extends CustomMetric {
+</span>23 <span style=''>  override def aggregateTaskMetrics(taskMetrics: Array[Long]): String = Utils.bytesToString(taskMetrics.sum)
+</span>24 <span style=''>}
+</span>25 <span style=''>
+</span>26 <span style=''>abstract class DurationSumMetric extends CustomMetric {
+</span>27 <span style=''>  override def aggregateTaskMetrics(taskMetrics: Array[Long]): String = Utils.msDurationToString(taskMetrics.sum)
+</span>28 <span style=''>}
+</span>29 <span style=''>
+</span>30 <span style=''>object Metrics {
+</span>31 <span style=''>  val BLOCKS_READ = &quot;blocksRead&quot;
+</span>32 <span style=''>  val BYTES_READ = &quot;bytesRead&quot;
+</span>33 <span style=''>
+</span>34 <span style=''>  val RECORDS_WRITTEN = &quot;recordsWritten&quot;
+</span>35 <span style=''>  val BYTES_WRITTEN = &quot;bytesWritten&quot;
+</span>36 <span style=''>  val SERIALIZE_TIME = &quot;serializeTime&quot;
+</span>37 <span style=''>  val WRITE_TIME = &quot;writeTime&quot;
+</span>38 <span style=''>}
+</span>39 <span style=''>
+</span>40 <span style=''>case class BlocksReadMetric() extends CustomSumMetric {
+</span>41 <span style=''>  override def name: String = BLOCKS_READ
+</span>42 <span style=''>  override def description: String = &quot;number of blocks&quot;
+</span>43 <span style=''>}
+</span>44 <span style=''>
+</span>45 <span style=''>case class BytesReadMetric() extends SizeSumMetric {
+</span>46 <span style=''>  override def name: String = BYTES_READ
+</span>47 <span style=''>  override def description: String = &quot;data size&quot;
+</span>48 <span style=''>}
+</span>49 <span style=''>
+</span>50 <span style=''>case class RecordsWrittenMetric() extends CustomSumMetric {
+</span>51 <span style=''>  override def name: String = RECORDS_WRITTEN
+</span>52 <span style=''>  override def description: String = &quot;number of output rows&quot;
+</span>53 <span style=''>}
+</span>54 <span style=''>
+</span>55 <span style=''>case class BytesWrittenMetric() extends SizeSumMetric {
+</span>56 <span style=''>  override def name: String = BYTES_WRITTEN
+</span>57 <span style=''>  override def description: String = &quot;written output&quot;
+</span>58 <span style=''>}
+</span>59 <span style=''>
+</span>60 <span style=''>case class SerializeTimeMetric() extends DurationSumMetric {
+</span>61 <span style=''>  override def name: String = SERIALIZE_TIME
+</span>62 <span style=''>  override def description: String = &quot;total time of serialization&quot;
+</span>63 <span style=''>}
+</span>64 <span style=''>
+</span>65 <span style=''>case class WriteTimeMetric() extends DurationSumMetric {
+</span>66 <span style=''>  override def name: String = WRITE_TIME
+</span>67 <span style=''>  override def description: String = &quot;total time of writing&quot;
+</span>68 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          346
+        </td>
+        <td>
+          964
+          -
+          964
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.sum
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.longArrayOps(taskMetrics).sum[Long](math.this.Numeric.LongIsIntegral)
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          1910
+        </td>
+        <td>
+          951
+          -
+          951
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.bytesToString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.bytesToString(scala.Predef.longArrayOps(taskMetrics).sum[Long](math.this.Numeric.LongIsIntegral))
+        </td>
+      </tr><tr>
+        <td>
+          23
+        </td>
+        <td>
+          1389
+        </td>
+        <td>
+          964
+          -
+          964
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Numeric.LongIsIntegral
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          math.this.Numeric.LongIsIntegral
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          505
+        </td>
+        <td>
+          1137
+          -
+          1137
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableOnce.sum
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.longArrayOps(taskMetrics).sum[Long](math.this.Numeric.LongIsIntegral)
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          1066
+        </td>
+        <td>
+          1137
+          -
+          1137
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.math.Numeric.LongIsIntegral
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          math.this.Numeric.LongIsIntegral
+        </td>
+      </tr><tr>
+        <td>
+          27
+        </td>
+        <td>
+          2151
+        </td>
+        <td>
+          1124
+          -
+          1124
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.msDurationToString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.msDurationToString(scala.Predef.longArrayOps(taskMetrics).sum[Long](math.this.Numeric.LongIsIntegral))
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          1123
+        </td>
+        <td>
+          1182
+          -
+          1182
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;blocksRead&quot;
+        </td>
+      </tr><tr>
+        <td>
+          32
+        </td>
+        <td>
+          305
+        </td>
+        <td>
+          1214
+          -
+          1214
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;bytesRead&quot;
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1837
+        </td>
+        <td>
+          1251
+          -
+          1251
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;recordsWritten&quot;
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1239
+        </td>
+        <td>
+          1290
+          -
+          1290
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;bytesWritten&quot;
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          355
+        </td>
+        <td>
+          1328
+          -
+          1328
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;serializeTime&quot;
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1946
+        </td>
+        <td>
+          1363
+          -
+          1363
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;writeTime&quot;
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1073
+        </td>
+        <td>
+          1464
+          -
+          1464
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.BLOCKS_READ
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Metrics.BLOCKS_READ
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          495
+        </td>
+        <td>
+          1513
+          -
+          1513
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;number of blocks&quot;
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          2003
+        </td>
+        <td>
+          1618
+          -
+          1618
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.BYTES_READ
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Metrics.BYTES_READ
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1127
+        </td>
+        <td>
+          1666
+          -
+          1666
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;data size&quot;
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          255
+        </td>
+        <td>
+          1771
+          -
+          1771
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.RECORDS_WRITTEN
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Metrics.RECORDS_WRITTEN
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1840
+        </td>
+        <td>
+          1824
+          -
+          1824
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;number of output rows&quot;
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1273
+        </td>
+        <td>
+          1937
+          -
+          1937
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.BYTES_WRITTEN
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Metrics.BYTES_WRITTEN
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          319
+        </td>
+        <td>
+          1988
+          -
+          1988
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;written output&quot;
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1952
+        </td>
+        <td>
+          2099
+          -
+          2099
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.SERIALIZE_TIME
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Metrics.SERIALIZE_TIME
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1029
+        </td>
+        <td>
+          2151
+          -
+          2151
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;total time of serialization&quot;
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          498
+        </td>
+        <td>
+          2271
+          -
+          2271
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Metrics.WRITE_TIME
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Metrics.WRITE_TIME
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          2105
+        </td>
+        <td>
+          2319
+          -
+          2319
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;total time of writing&quot;
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

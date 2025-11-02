@@ -1,0 +1,999 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/func/MultiStringArgsHash.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.func
+</span>16 <span style=''>
+</span>17 <span style=''>import org.apache.spark.sql.catalyst.InternalRow
+</span>18 <span style=''>import org.apache.spark.sql.connector.catalog.functions.{BoundFunction, ScalarFunction, UnboundFunction}
+</span>19 <span style=''>import org.apache.spark.sql.types._
+</span>20 <span style=''>import org.apache.spark.unsafe.types.UTF8String
+</span>21 <span style=''>
+</span>22 <span style=''>abstract class MultiStringArgsHash extends UnboundFunction with ClickhouseEquivFunction {
+</span>23 <span style=''>
+</span>24 <span style=''>  def applyHash(input: Array[Any]): Long
+</span>25 <span style=''>
+</span>26 <span style=''>  protected def funcName: String
+</span>27 <span style=''>
+</span>28 <span style=''>  override val ckFuncNames: Array[String]
+</span>29 <span style=''>
+</span>30 <span style=''>  override def description: String = s&quot;$name: (value: string, ...) =&gt; hash_value: long&quot;
+</span>31 <span style=''>
+</span>32 <span style=''>  private def isExceptedType(dt: DataType): Boolean =
+</span>33 <span style=''>    dt.isInstanceOf[StringType]
+</span>34 <span style=''>
+</span>35 <span style=''>  final override def name: String = funcName
+</span>36 <span style=''>
+</span>37 <span style=''>  final override def bind(inputType: StructType): BoundFunction = {
+</span>38 <span style=''>    val inputDataTypes = inputType.fields.map(_.dataType)
+</span>39 <span style=''>    if (inputDataTypes.forall(isExceptedType)) {
+</span>40 <span style=''>      // need to new a ScalarFunction instance for each bind,
+</span>41 <span style=''>      // because we do not know the number of arguments in advance
+</span>42 <span style=''>      new ScalarFunction[Long] {
+</span>43 <span style=''>        override def inputTypes(): Array[DataType] = inputDataTypes
+</span>44 <span style=''>        override def name: String = funcName
+</span>45 <span style=''>        override def canonicalName: String = s&quot;clickhouse.$name&quot;
+</span>46 <span style=''>        override def resultType: DataType = LongType
+</span>47 <span style=''>        override def toString: String = name
+</span>48 <span style=''>        override def produceResult(input: InternalRow): Long = {
+</span>49 <span style=''>          val inputStrings = new Array[Any](input.numFields)
+</span>50 <span style=''>          var i = 0
+</span>51 <span style=''>          do {
+</span>52 <span style=''>            inputStrings(i) = input.getUTF8String(i).getBytes
+</span>53 <span style=''>            i </span><span style='background: #F0ADAD'>+= 1</span><span style=''>
+</span>54 <span style=''>          } while (i </span><span style='background: #F0ADAD'>&lt; input.numFields</span><span style=''>)
+</span>55 <span style=''>          applyHash(inputStrings)
+</span>56 <span style=''>        }
+</span>57 <span style=''>      }
+</span>58 <span style=''>    } else {
+</span>59 <span style=''>      throw new UnsupportedOperationException(s&quot;Expect multiple STRING argument. $description&quot;)
+</span>60 <span style=''>    }
+</span>61 <span style=''>  }
+</span>62 <span style=''>
+</span>63 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          1151
+        </td>
+        <td>
+          1088
+          -
+          1088
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.MultiStringArgsHash.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          MultiStringArgsHash.this.name()
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          2102
+        </td>
+        <td>
+          1092
+          -
+          1092
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;: (value: string, ...) =&gt; hash_value: long&quot;
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          495
+        </td>
+        <td>
+          1087
+          -
+          1087
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          30
+        </td>
+        <td>
+          257
+        </td>
+        <td>
+          1085
+          -
+          1085
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot;: (value: string, ...) =&gt; hash_value: long&quot;).s(MultiStringArgsHash.this.name())
+        </td>
+      </tr><tr>
+        <td>
+          33
+        </td>
+        <td>
+          1755
+        </td>
+        <td>
+          1210
+          -
+          1210
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dt.isInstanceOf[org.apache.spark.sql.types.StringType]
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1324
+        </td>
+        <td>
+          1260
+          -
+          1260
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.func.MultiStringArgsHash.funcName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          MultiStringArgsHash.this.funcName
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          499
+        </td>
+        <td>
+          1383
+          -
+          1383
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.map
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.StructField](inputType.fields).map[org.apache.spark.sql.types.DataType, Array[org.apache.spark.sql.types.DataType]](((x$1: org.apache.spark.sql.types.StructField) =&gt; x$1.dataType))(scala.this.Array.canBuildFrom[org.apache.spark.sql.types.DataType]((ClassTag.apply[org.apache.spark.sql.types.DataType](classOf[org.apache.spark.sql.types.DataType]): scala.reflect.ClassTag[org.apache.spark.sql.types.DataType])))
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1058
+        </td>
+        <td>
+          1383
+          -
+          1383
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Array.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Array.canBuildFrom[org.apache.spark.sql.types.DataType]((ClassTag.apply[org.apache.spark.sql.types.DataType](classOf[org.apache.spark.sql.types.DataType]): scala.reflect.ClassTag[org.apache.spark.sql.types.DataType]))
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1907
+        </td>
+        <td>
+          1386
+          -
+          1386
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructField.dataType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1.dataType
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          341
+        </td>
+        <td>
+          1373
+          -
+          1373
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.StructType.fields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          inputType.fields
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          2021
+        </td>
+        <td>
+          1426
+          -
+          1426
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.MultiStringArgsHash.isExceptedType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          MultiStringArgsHash.this.isExceptedType(dt)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1115
+        </td>
+        <td>
+          1425
+          -
+          1425
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.forall
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[org.apache.spark.sql.types.DataType](inputDataTypes).forall({
+  ((dt: org.apache.spark.sql.types.DataType) =&gt; MultiStringArgsHash.this.isExceptedType(dt))
+})
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          425
+        </td>
+        <td>
+          1580
+          -
+          1580
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  final class $anon extends Object with org.apache.spark.sql.connector.catalog.functions.ScalarFunction[Long] {
+    def &lt;init&gt;(): &lt;$anon: org.apache.spark.sql.connector.catalog.functions.ScalarFunction[Long]&gt; = {
+      $anon.super.&lt;init&gt;();
+      ()
+    };
+    override def inputTypes(): Array[org.apache.spark.sql.types.DataType] = inputDataTypes;
+    override def name: String = MultiStringArgsHash.this.funcName;
+    override def canonicalName: String = scala.StringContext.apply(&quot;clickhouse.&quot;, &quot;&quot;).s($anon.this.name());
+    override def resultType: org.apache.spark.sql.types.DataType = org.apache.spark.sql.types.LongType;
+    override def toString: String = $anon.this.name();
+    override def produceResult(input: org.apache.spark.sql.catalyst.InternalRow): Long = {
+      val inputStrings: Array[Any] = new Array[Any](input.numFields);
+      var i: Int = 0;
+      doWhile$1(){
+        {
+          inputStrings.update(i, input.getUTF8String(i).getBytes());
+          i = i.+(1)
+        };
+        if (i.&lt;(input.numFields))
+          doWhile$1()
+        else
+          ()
+      };
+      MultiStringArgsHash.this.applyHash(inputStrings)
+    }
+  };
+  new $anon()
+}
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          1274
+        </td>
+        <td>
+          1580
+          -
+          1580
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.MultiStringArgsHash.$anon.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new $anon()
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          295
+        </td>
+        <td>
+          1711
+          -
+          1711
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.func.MultiStringArgsHash.funcName
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          MultiStringArgsHash.this.funcName
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          348
+        </td>
+        <td>
+          1779
+          -
+          1779
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.MultiStringArgsHash.$anon.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          $anon.this.name()
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1281
+        </td>
+        <td>
+          1783
+          -
+          1783
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1881
+        </td>
+        <td>
+          1765
+          -
+          1765
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;clickhouse.&quot;, &quot;&quot;).s($anon.this.name())
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1830
+        </td>
+        <td>
+          1767
+          -
+          1767
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;clickhouse.&quot;
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1063
+        </td>
+        <td>
+          1829
+          -
+          1829
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.types.LongType
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.types.LongType
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          615
+        </td>
+        <td>
+          1878
+          -
+          1878
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.MultiStringArgsHash.$anon.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          $anon.this.name()
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          2149
+        </td>
+        <td>
+          1998
+          -
+          1998
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.numFields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          input.numFields
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1121
+        </td>
+        <td>
+          1977
+          -
+          1977
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new Array[Any](input.numFields)
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          248
+        </td>
+        <td>
+          2027
+          -
+          2027
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1237
+        </td>
+        <td>
+          2039
+          -
+          2039
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          253
+        </td>
+        <td>
+          2039
+          -
+          2039
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          151
+        </td>
+        <td>
+          2039
+          -
+          2039
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.MultiStringArgsHash.$anon.doWhile$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          doWhile$1()
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          2100
+        </td>
+        <td>
+          2039
+          -
+          2039
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.func.MultiStringArgsHash.$anon.doWhile$1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          doWhile$1()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1835
+        </td>
+        <td>
+          2097
+          -
+          2097
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.UTF8String.getBytes
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          input.getUTF8String(i).getBytes()
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1316
+        </td>
+        <td>
+          2072
+          -
+          2072
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Array.update
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          inputStrings.update(i, input.getUTF8String(i).getBytes())
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          466
+        </td>
+        <td>
+          2120
+          -
+          2124
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          i.+(1)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1019
+        </td>
+        <td>
+          2146
+          -
+          2163
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          i.&lt;(input.numFields)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1944
+        </td>
+        <td>
+          2154
+          -
+          2154
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.catalyst.InternalRow.numFields
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          input.numFields
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1840
+        </td>
+        <td>
+          2184
+          -
+          2184
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.func.MultiStringArgsHash.applyHash
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          MultiStringArgsHash.this.applyHash(inputStrings)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1922
+        </td>
+        <td>
+          2236
+          -
+          2236
+        </td>
+        <td>
+          Throw
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(scala.StringContext.apply(&quot;Expect multiple STRING argument. &quot;, &quot;&quot;).s(MultiStringArgsHash.this.description()))
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1027
+        </td>
+        <td>
+          2236
+          -
+          2236
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          throw new scala.`package`.UnsupportedOperationException(scala.StringContext.apply(&quot;Expect multiple STRING argument. &quot;, &quot;&quot;).s(MultiStringArgsHash.this.description()))
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

@@ -1,0 +1,3549 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/Utils.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark
+</span>16 <span style=''>
+</span>17 <span style=''>import org.apache.commons.lang3.time.FastDateFormat
+</span>18 <span style=''>
+</span>19 <span style=''>import java.io.{File, InputStream}
+</span>20 <span style=''>import java.math.{MathContext, RoundingMode}
+</span>21 <span style=''>import java.net.URI
+</span>22 <span style=''>import java.nio.file.{Files, Path, StandardCopyOption}
+</span>23 <span style=''>import java.time.Duration
+</span>24 <span style=''>import java.time.chrono.IsoChronology
+</span>25 <span style=''>import java.time.format.{DateTimeFormatter, DateTimeFormatterBuilder, ResolverStyle}
+</span>26 <span style=''>import java.time.temporal.ChronoField
+</span>27 <span style=''>import java.util.Locale
+</span>28 <span style=''>import java.util.concurrent.TimeUnit.NANOSECONDS
+</span>29 <span style=''>import java.util.concurrent.locks.LockSupport
+</span>30 <span style=''>import scala.annotation.tailrec
+</span>31 <span style=''>import scala.collection.mutable
+</span>32 <span style=''>import scala.reflect.ClassTag
+</span>33 <span style=''>import scala.util.{Failure, Success, Try}
+</span>34 <span style=''>
+</span>35 <span style=''>object Utils extends Logging {
+</span>36 <span style=''>
+</span>37 <span style=''>  @transient lazy val dateFmt: DateTimeFormatter = DateTimeFormatter.ofPattern(&quot;yyyy-MM-dd&quot;)
+</span>38 <span style=''>  @transient lazy val dateTimeFmt: DateTimeFormatter = new DateTimeFormatterBuilder()
+</span>39 <span style=''>    .parseCaseInsensitive()
+</span>40 <span style=''>    .append(DateTimeFormatter.ISO_LOCAL_DATE)
+</span>41 <span style=''>    .appendLiteral(' ')
+</span>42 <span style=''>    .appendValue(ChronoField.HOUR_OF_DAY, 2).appendLiteral(':')
+</span>43 <span style=''>    .appendValue(ChronoField.MINUTE_OF_HOUR, 2).appendLiteral(':')
+</span>44 <span style=''>    .appendValue(ChronoField.SECOND_OF_MINUTE, 2)
+</span>45 <span style=''>    .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+</span>46 <span style=''>    .toFormatter(Locale.US)
+</span>47 <span style=''>    .withChronology(IsoChronology.INSTANCE)
+</span>48 <span style=''>    .withResolverStyle(ResolverStyle.STRICT)
+</span>49 <span style=''>
+</span>50 <span style=''>  @transient lazy val legacyDateFmt: FastDateFormat = FastDateFormat.getInstance(&quot;yyyy-MM-dd&quot;)
+</span>51 <span style=''>  @transient lazy val legacyDateTimeFmt: FastDateFormat = FastDateFormat.getInstance(&quot;yyyy-MM-dd HH:mm:ss&quot;)
+</span>52 <span style=''>
+</span>53 <span style=''>  def defaultClassLoader: ClassLoader =
+</span>54 <span style=''>    Try(Thread.currentThread.getContextClassLoader) // fail if cannot access thread context ClassLoader
+</span>55 <span style=''>      .orElse(Try(getClass.getClassLoader)) // fail indicates the bootstrap ClassLoader
+</span>56 <span style=''>      .orElse(Try(ClassLoader.getSystemClassLoader)) // fail if cannot access system ClassLoader
+</span>57 <span style=''>      .get
+</span>58 <span style=''>
+</span>59 <span style=''>  def classpathResource(name: String): URI = defaultClassLoader.getResource(name).toURI
+</span>60 <span style=''>
+</span>61 <span style=''>  def classpathResourceAsStream(name: String): InputStream = defaultClassLoader.getResourceAsStream(name)
+</span>62 <span style=''>
+</span>63 <span style=''>  def getCodeSourceLocation(clazz: Class[_]): String =
+</span>64 <span style=''>    new File(clazz.getProtectionDomain.getCodeSource.getLocation.toURI).getPath
+</span>65 <span style=''>
+</span>66 <span style=''>  @transient lazy val tmpDirPath: Path = Files.createTempDirectory(&quot;classpath_res_&quot;)
+</span>67 <span style=''>
+</span>68 <span style=''>  def copyFileFromClasspath(name: String): File = {
+</span>69 <span style=''>    val copyPath = tmpDirPath.resolve(name)
+</span>70 <span style=''>    Files.createDirectories(copyPath.getParent)
+</span>71 <span style=''>    tryWithResource(classpathResourceAsStream(name)) { input =&gt;
+</span>72 <span style=''>      Files.copy(input, copyPath, StandardCopyOption.REPLACE_EXISTING)
+</span>73 <span style=''>    }
+</span>74 <span style=''>    copyPath.toFile
+</span>75 <span style=''>  }
+</span>76 <span style=''>
+</span>77 <span style=''>  def load(key: String, defValue: String = &quot;&quot;): String = sys.props.getOrElse(key, sys.env.getOrElse(key, defValue))
+</span>78 <span style=''>
+</span>79 <span style=''>  def stripSingleQuote(maybeQuoted: String): String = {
+</span>80 <span style=''>    var start = 0
+</span>81 <span style=''>    var until = maybeQuoted.length
+</span>82 <span style=''>    if (maybeQuoted.startsWith(&quot;'&quot;)) start = 1
+</span>83 <span style=''>    if (maybeQuoted.endsWith(&quot;'&quot;) </span><span style='background: #AEF1AE'>&amp;&amp; !maybeQuoted.endsWith(&quot;\\'&quot;)</span><span style=''>) until = until </span><span style='background: #AEF1AE'>- 1</span><span style=''>
+</span>84 <span style=''>    if (start </span><span style='background: #AEF1AE'>&gt; until</span><span style=''>) until = start
+</span>85 <span style=''>    maybeQuoted.substring(start, until)
+</span>86 <span style=''>  }
+</span>87 <span style=''>
+</span>88 <span style=''>  def wrapBackQuote(identifier: String): String = {
+</span>89 <span style=''>    val sb = new mutable.StringBuilder(identifier.length </span><span style='background: #AEF1AE'>+ 2</span><span style=''>)
+</span>90 <span style=''>    if (!identifier.startsWith(&quot;`&quot;)) sb.append('`')
+</span>91 <span style=''>    sb.append(identifier)
+</span>92 <span style=''>    if (identifier </span><span style='background: #AEF1AE'>== &quot;`&quot; || !identifier.endsWith(&quot;`&quot;) || identifier.endsWith(&quot;\\`&quot;)</span><span style=''>) sb.append('`')
+</span>93 <span style=''>    sb.mkString
+</span>94 <span style=''>  }
+</span>95 <span style=''>
+</span>96 <span style=''>  @tailrec
+</span>97 <span style=''>  def retry[R, T &lt;: Throwable: ClassTag](retryTimes: Int, interval: Duration)(f: =&gt; R): Try[R] = {
+</span>98 <span style=''>    assert(retryTimes </span><span style='background: #AEF1AE'>&gt;= 0</span><span style=''>)
+</span>99 <span style=''>    val result = Try(f)
+</span>100 <span style=''>    result match {
+</span>101 <span style=''>      case Success(result) =&gt; Success(result)
+</span>102 <span style=''>      case Failure(exception: T) if retryTimes </span><span style='background: #AEF1AE'>&gt; 0</span><span style=''> =&gt;
+</span>103 <span style=''>        log.warn(s&quot;Execution failed caused by: &quot;, exception)
+</span>104 <span style=''>        log.warn(s&quot;$retryTimes times retry remaining, the next will be in ${interval.toMillis}ms&quot;)
+</span>105 <span style=''>        LockSupport.parkNanos(interval.toNanos)
+</span>106 <span style=''>        retry(retryTimes - 1, interval)(f)
+</span>107 <span style=''>      case Failure(exception) =&gt; Failure(exception)
+</span>108 <span style=''>    }
+</span>109 <span style=''>  }
+</span>110 <span style=''>
+</span>111 <span style=''>  /**
+</span>112 <span style=''>   * Convert a quantity in bytes to a human-readable string such as &quot;4.0 MiB&quot;.
+</span>113 <span style=''>   */
+</span>114 <span style=''>  def bytesToString(size: Long): String = bytesToString(BigInt(size))
+</span>115 <span style=''>
+</span>116 <span style=''>  def bytesToString(size: BigInt): String = {
+</span>117 <span style=''>    val EiB = 1L </span><span style='background: #F0ADAD'>&lt;&lt; 60</span><span style=''>
+</span>118 <span style=''>    val PiB = 1L </span><span style='background: #F0ADAD'>&lt;&lt; 50</span><span style=''>
+</span>119 <span style=''>    val TiB = 1L </span><span style='background: #F0ADAD'>&lt;&lt; 40</span><span style=''>
+</span>120 <span style=''>    val GiB = 1L </span><span style='background: #F0ADAD'>&lt;&lt; 30</span><span style=''>
+</span>121 <span style=''>    val MiB = 1L </span><span style='background: #F0ADAD'>&lt;&lt; 20</span><span style=''>
+</span>122 <span style=''>    val KiB = 1L </span><span style='background: #F0ADAD'>&lt;&lt; 10</span><span style=''>
+</span>123 <span style=''>
+</span>124 <span style=''>    if (size </span><span style='background: #F0ADAD'>&gt;= BigInt(1L &lt;&lt; 11) * EiB</span><span style=''>) {
+</span>125 <span style=''>      // The number is too large, show it in scientific notation.
+</span>126 <span style=''>      BigDecimal(size, new MathContext(3, RoundingMode.HALF_UP)).toString() </span><span style='background: #F0ADAD'>+ &quot; B&quot;</span><span style=''>
+</span>127 <span style=''>    } else {
+</span>128 <span style=''>      val (value, unit) =
+</span>129 <span style=''>        if (size &gt;= 2 * EiB) {
+</span>130 <span style=''>          (BigDecimal(size) / EiB, &quot;EiB&quot;)
+</span>131 <span style=''>        } else if (size &gt;= 2 * PiB) {
+</span>132 <span style=''>          (BigDecimal(size) / PiB, &quot;PiB&quot;)
+</span>133 <span style=''>        } else if (size &gt;= 2 * TiB) {
+</span>134 <span style=''>          (BigDecimal(size) / TiB, &quot;TiB&quot;)
+</span>135 <span style=''>        } else if (size &gt;= 2 * GiB) {
+</span>136 <span style=''>          (BigDecimal(size) / GiB, &quot;GiB&quot;)
+</span>137 <span style=''>        } else if (size &gt;= 2 * MiB) {
+</span>138 <span style=''>          (BigDecimal(size) / MiB, &quot;MiB&quot;)
+</span>139 <span style=''>        } else if (size &gt;= 2 * KiB) {
+</span>140 <span style=''>          (BigDecimal(size) / KiB, &quot;KiB&quot;)
+</span>141 <span style=''>        } else {
+</span>142 <span style=''>          (BigDecimal(size), &quot;B&quot;)
+</span>143 <span style=''>        }
+</span>144 <span style=''>      &quot;%.1f %s&quot;.formatLocal(Locale.US, value, unit)
+</span>145 <span style=''>    }
+</span>146 <span style=''>  }
+</span>147 <span style=''>
+</span>148 <span style=''>  /**
+</span>149 <span style=''>   * Returns a human-readable string representing a duration such as &quot;35ms&quot;
+</span>150 <span style=''>   */
+</span>151 <span style=''>  def msDurationToString(ms: Long): String = {
+</span>152 <span style=''>    val second = 1000
+</span>153 <span style=''>    val minute = 60 </span><span style='background: #F0ADAD'>* second</span><span style=''>
+</span>154 <span style=''>    val hour = 60 </span><span style='background: #F0ADAD'>* minute</span><span style=''>
+</span>155 <span style=''>    val locale = Locale.US
+</span>156 <span style=''>
+</span>157 <span style=''>    ms match {
+</span>158 <span style=''>      case t if t </span><span style='background: #F0ADAD'>&lt; second</span><span style=''> =&gt;
+</span>159 <span style=''>        &quot;%d ms&quot;.formatLocal(locale, t)
+</span>160 <span style=''>      case t if t </span><span style='background: #F0ADAD'>&lt; minute</span><span style=''> =&gt;
+</span>161 <span style=''>        &quot;%.1f s&quot;.formatLocal(locale, t.toFloat </span><span style='background: #F0ADAD'>/ second</span><span style=''>)
+</span>162 <span style=''>      case t if t </span><span style='background: #F0ADAD'>&lt; hour</span><span style=''> =&gt;
+</span>163 <span style=''>        &quot;%.1f m&quot;.formatLocal(locale, t.toFloat </span><span style='background: #F0ADAD'>/ minute</span><span style=''>)
+</span>164 <span style=''>      case t =&gt;
+</span>165 <span style=''>        &quot;%.2f h&quot;.formatLocal(locale, t.toFloat </span><span style='background: #F0ADAD'>/ hour</span><span style=''>)
+</span>166 <span style=''>    }
+</span>167 <span style=''>  }
+</span>168 <span style=''>
+</span>169 <span style=''>  def tryWithResource[R &lt;: AutoCloseable, T](createResource: =&gt; R)(f: R =&gt; T): T = {
+</span>170 <span style=''>    val resource = createResource
+</span>171 <span style=''>    try f.apply(resource)
+</span>172 <span style=''>    finally resource.close()
+</span>173 <span style=''>  }
+</span>174 <span style=''>
+</span>175 <span style=''>  /** Records the duration of running `body`. */
+</span>176 <span style=''>  def timeTakenMs[T](body: =&gt; T): (T, Long) = {
+</span>177 <span style=''>    val startTime = System.nanoTime()
+</span>178 <span style=''>    val result = body
+</span>179 <span style=''>    val endTime = System.nanoTime()
+</span>180 <span style=''>    (result, math.max(NANOSECONDS.toMillis(endTime </span><span style='background: #F0ADAD'>- startTime</span><span style=''>), 0))
+</span>181 <span style=''>  }
+</span>182 <span style=''>
+</span>183 <span style=''>  val IS_TESTING = &quot;spark.testing&quot;
+</span>184 <span style=''>  val PREFIX = &quot;SPARK_ON_CLICKHOUSE&quot;
+</span>185 <span style=''>
+</span>186 <span style=''>  def setTesting(): Unit = System.setProperty(IS_TESTING, &quot;true&quot;)
+</span>187 <span style=''>
+</span>188 <span style=''>  def isTesting: Boolean = System.getProperty(IS_TESTING) </span><span style='background: #AEF1AE'>== &quot;true&quot;</span><span style=''>
+</span>189 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          989
+        </td>
+        <td>
+          2186
+          -
+          2186
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Thread.getContextClassLoader
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.lang.Thread.currentThread().getContextClassLoader()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          567
+        </td>
+        <td>
+          2288
+          -
+          2288
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Class.getClassLoader
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.this.getClass().getClassLoader()
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          162
+        </td>
+        <td>
+          2278
+          -
+          2278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[ClassLoader](Utils.this.getClass().getClassLoader())
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          892
+        </td>
+        <td>
+          2379
+          -
+          2379
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.ClassLoader.getSystemClassLoader
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.lang.ClassLoader.getSystemClassLoader()
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          628
+        </td>
+        <td>
+          2366
+          -
+          2366
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[ClassLoader](java.lang.ClassLoader.getSystemClassLoader())
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          214
+        </td>
+        <td>
+          2453
+          -
+          2453
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.util.Try.get
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.util.Try.apply[ClassLoader](java.lang.Thread.currentThread().getContextClassLoader()).orElse[ClassLoader](scala.util.Try.apply[ClassLoader](Utils.this.getClass().getClassLoader())).orElse[ClassLoader](scala.util.Try.apply[ClassLoader](java.lang.ClassLoader.getSystemClassLoader())).get
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          917
+        </td>
+        <td>
+          2540
+          -
+          2540
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.net.URL.toURI
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.this.defaultClassLoader.getResource(name).toURI()
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          516
+        </td>
+        <td>
+          2646
+          -
+          2646
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.ClassLoader.getResourceAsStream
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.this.defaultClassLoader.getResourceAsStream(name)
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          328
+        </td>
+        <td>
+          2781
+          -
+          2781
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.io.File.getPath
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          new java.io.File(clazz.getProtectionDomain().getCodeSource().getLocation().toURI()).getPath()
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          970
+        </td>
+        <td>
+          2965
+          -
+          2965
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Path.resolve
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.this.tmpDirPath.resolve(name)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          559
+        </td>
+        <td>
+          3009
+          -
+          3009
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Path.getParent
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          copyPath.getParent()
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          167
+        </td>
+        <td>
+          2999
+          -
+          2999
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Files.createDirectories
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.nio.file.Files.createDirectories(copyPath.getParent())
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          259
+        </td>
+        <td>
+          3073
+          -
+          3073
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.tryWithResource
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.this.tryWithResource[java.io.InputStream, Long](Utils.this.classpathResourceAsStream(name))(((input: java.io.InputStream) =&gt; java.nio.file.Files.copy(input, copyPath, REPLACE_EXISTING)))
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          895
+        </td>
+        <td>
+          3065
+          -
+          3065
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.classpathResourceAsStream
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.this.classpathResourceAsStream(name)
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          675
+        </td>
+        <td>
+          3100
+          -
+          3100
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Files.copy
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.nio.file.Files.copy(input, copyPath, REPLACE_EXISTING)
+        </td>
+      </tr><tr>
+        <td>
+          74
+        </td>
+        <td>
+          901
+        </td>
+        <td>
+          3174
+          -
+          3174
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.nio.file.Path.toFile
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          copyPath.toFile()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          532
+        </td>
+        <td>
+          3285
+          -
+          3285
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.sys.`package`.env.getOrElse[String](key, defValue)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          67
+        </td>
+        <td>
+          3262
+          -
+          3262
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.MapLike.getOrElse
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.sys.`package`.props.getOrElse[String](key, scala.sys.`package`.env.getOrElse[String](key, defValue))
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          982
+        </td>
+        <td>
+          3375
+          -
+          3375
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          0
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          611
+        </td>
+        <td>
+          3405
+          -
+          3405
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.length
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          maybeQuoted.length()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          236
+        </td>
+        <td>
+          3416
+          -
+          3416
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          872
+        </td>
+        <td>
+          3457
+          -
+          3457
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          1
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          677
+        </td>
+        <td>
+          3455
+          -
+          3455
+        </td>
+        <td>
+          Assign
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          start = 1
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          954
+        </td>
+        <td>
+          3416
+          -
+          3416
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          170
+        </td>
+        <td>
+          3442
+          -
+          3442
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.startsWith
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          maybeQuoted.startsWith(&quot;\'&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          3540
+          -
+          3543
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          until.-(1)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          116
+        </td>
+        <td>
+          3518
+          -
+          3518
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\\\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          875
+        </td>
+        <td>
+          3532
+          -
+          3532
+        </td>
+        <td>
+          Assign
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          until = until.-(1)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          641
+        </td>
+        <td>
+          3463
+          -
+          3463
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          536
+        </td>
+        <td>
+          3488
+          -
+          3488
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          987
+        </td>
+        <td>
+          3496
+          -
+          3496
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          maybeQuoted.endsWith(&quot;\\\'&quot;).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          613
+        </td>
+        <td>
+          3493
+          -
+          3524
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.&amp;&amp;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          maybeQuoted.endsWith(&quot;\'&quot;).&amp;&amp;(maybeQuoted.endsWith(&quot;\\\'&quot;).unary_!)
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          239
+        </td>
+        <td>
+          3463
+          -
+          3463
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          956
+        </td>
+        <td>
+          3558
+          -
+          3565
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          start.&gt;(until)
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          121
+        </td>
+        <td>
+          3548
+          -
+          3548
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          976
+        </td>
+        <td>
+          3548
+          -
+          3548
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          502
+        </td>
+        <td>
+          3573
+          -
+          3573
+        </td>
+        <td>
+          Assign
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          until = start
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          591
+        </td>
+        <td>
+          3606
+          -
+          3606
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.substring
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          maybeQuoted.substring(start, until)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          163
+        </td>
+        <td>
+          3735
+          -
+          3738
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          identifier.length().+(2)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          840
+        </td>
+        <td>
+          3691
+          -
+          3691
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.&lt;init&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          new scala.collection.mutable.StringBuilder(identifier.length().+(2))
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          977
+        </td>
+        <td>
+          3744
+          -
+          3744
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          107
+        </td>
+        <td>
+          3744
+          -
+          3744
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          899
+        </td>
+        <td>
+          3786
+          -
+          3786
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sb.append('`')
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          506
+        </td>
+        <td>
+          3786
+          -
+          3786
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sb.append('`')
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          422
+        </td>
+        <td>
+          3771
+          -
+          3771
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;`&quot;
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          242
+        </td>
+        <td>
+          3748
+          -
+          3748
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          identifier.startsWith(&quot;`&quot;).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          592
+        </td>
+        <td>
+          3805
+          -
+          3805
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sb.append(identifier)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          113
+        </td>
+        <td>
+          3913
+          -
+          3913
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sb.append('`')
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          624
+        </td>
+        <td>
+          3822
+          -
+          3822
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          902
+        </td>
+        <td>
+          3837
+          -
+          3902
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Boolean.||
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          identifier.==(&quot;`&quot;).||(identifier.endsWith(&quot;`&quot;).unary_!).||(identifier.endsWith(&quot;\\`&quot;))
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          223
+        </td>
+        <td>
+          3895
+          -
+          3895
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.endsWith
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          identifier.endsWith(&quot;\\`&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          459
+        </td>
+        <td>
+          3847
+          -
+          3847
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Boolean.unary_!
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          identifier.endsWith(&quot;`&quot;).unary_!
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          755
+        </td>
+        <td>
+          3822
+          -
+          3822
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          486
+        </td>
+        <td>
+          3913
+          -
+          3913
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.append
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sb.append('`')
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          143
+        </td>
+        <td>
+          3840
+          -
+          3840
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;`&quot;
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          843
+        </td>
+        <td>
+          3868
+          -
+          3868
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;`&quot;
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          147
+        </td>
+        <td>
+          3926
+          -
+          3926
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.mutable.StringBuilder.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          sb.mkString
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          831
+        </td>
+        <td>
+          4072
+          -
+          4076
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          retryTimes.&gt;=(0)
+        </td>
+      </tr><tr>
+        <td>
+          98
+        </td>
+        <td>
+          462
+        </td>
+        <td>
+          4060
+          -
+          4060
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Predef.assert
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.Predef.assert(retryTimes.&gt;=(0))
+        </td>
+      </tr><tr>
+        <td>
+          99
+        </td>
+        <td>
+          277
+        </td>
+        <td>
+          4098
+          -
+          4098
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Try.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Try.apply[R](f)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          488
+        </td>
+        <td>
+          4158
+          -
+          4158
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.util.Success.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Success.apply[R](result)
+        </td>
+      </tr><tr>
+        <td>
+          101
+        </td>
+        <td>
+          963
+        </td>
+        <td>
+          4158
+          -
+          4158
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Success.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Success.apply[R](result)
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          184
+        </td>
+        <td>
+          4218
+          -
+          4218
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          {
+  Utils.this.log.warn(scala.StringContext.apply(&quot;Execution failed caused by: &quot;).s(), exception);
+  Utils.this.log.warn(scala.StringContext.apply(&quot;&quot;, &quot; times retry remaining, the next will be in &quot;, &quot;ms&quot;).s(retryTimes, interval.toMillis()));
+  java.util.concurrent.locks.LockSupport.parkNanos(interval.toNanos());
+  Utils.this.retry[R, T](retryTimes.-(1), interval)(f)(evidence$1)
+}
+        </td>
+      </tr><tr>
+        <td>
+          102
+        </td>
+        <td>
+          120
+        </td>
+        <td>
+          4214
+          -
+          4217
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          retryTimes.&gt;(0)
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          813
+        </td>
+        <td>
+          4238
+          -
+          4238
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;Execution failed caused by: &quot;).s()
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          588
+        </td>
+        <td>
+          4237
+          -
+          4237
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.warn
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Utils.this.log.warn(scala.StringContext.apply(&quot;Execution failed caused by: &quot;).s(), exception)
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          855
+        </td>
+        <td>
+          4312
+          -
+          4312
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot; times retry remaining, the next will be in &quot;
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          469
+        </td>
+        <td>
+          4376
+          -
+          4376
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;ms&quot;
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          938
+        </td>
+        <td>
+          4299
+          -
+          4299
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.StringContext.apply(&quot;&quot;, &quot; times retry remaining, the next will be in &quot;, &quot;ms&quot;).s(retryTimes, interval.toMillis())
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          205
+        </td>
+        <td>
+          4301
+          -
+          4301
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          542
+        </td>
+        <td>
+          4298
+          -
+          4298
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.slf4j.Logger.warn
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Utils.this.log.warn(scala.StringContext.apply(&quot;&quot;, &quot; times retry remaining, the next will be in &quot;, &quot;ms&quot;).s(retryTimes, interval.toMillis()))
+        </td>
+      </tr><tr>
+        <td>
+          104
+        </td>
+        <td>
+          221
+        </td>
+        <td>
+          4367
+          -
+          4367
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.Duration.toMillis
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          interval.toMillis()
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          815
+        </td>
+        <td>
+          4410
+          -
+          4410
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.locks.LockSupport.parkNanos
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.util.concurrent.locks.LockSupport.parkNanos(interval.toNanos())
+        </td>
+      </tr><tr>
+        <td>
+          105
+        </td>
+        <td>
+          96
+        </td>
+        <td>
+          4420
+          -
+          4420
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.Duration.toNanos
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          interval.toNanos()
+        </td>
+      </tr><tr>
+        <td>
+          106
+        </td>
+        <td>
+          568
+        </td>
+        <td>
+          4468
+          -
+          4468
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.retry
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          Utils.this.retry[R, T](retryTimes.-(1), interval)(f)(evidence$1)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          444
+        </td>
+        <td>
+          4512
+          -
+          4512
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.util.Failure.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Failure.apply[Nothing](exception)
+        </td>
+      </tr><tr>
+        <td>
+          107
+        </td>
+        <td>
+          858
+        </td>
+        <td>
+          4512
+          -
+          4512
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.util.Failure.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          scala.util.Failure.apply[Nothing](exception)
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          918
+        </td>
+        <td>
+          4681
+          -
+          4681
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.bytesToString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.this.bytesToString(scala.`package`.BigInt.apply(size))
+        </td>
+      </tr><tr>
+        <td>
+          114
+        </td>
+        <td>
+          33
+        </td>
+        <td>
+          4688
+          -
+          4688
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.math.BigInt.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.BigInt.apply(size)
+        </td>
+      </tr><tr>
+        <td>
+          117
+        </td>
+        <td>
+          483
+        </td>
+        <td>
+          4760
+          -
+          4765
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          1152921504606846976L
+        </td>
+      </tr><tr>
+        <td>
+          118
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          4783
+          -
+          4788
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          1125899906842624L
+        </td>
+      </tr><tr>
+        <td>
+          119
+        </td>
+        <td>
+          760
+        </td>
+        <td>
+          4806
+          -
+          4811
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          1099511627776L
+        </td>
+      </tr><tr>
+        <td>
+          120
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          4829
+          -
+          4834
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          1073741824L
+        </td>
+      </tr><tr>
+        <td>
+          121
+        </td>
+        <td>
+          185
+        </td>
+        <td>
+          4852
+          -
+          4857
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          1048576L
+        </td>
+      </tr><tr>
+        <td>
+          122
+        </td>
+        <td>
+          827
+        </td>
+        <td>
+          4875
+          -
+          4880
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          1024L
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          487
+        </td>
+        <td>
+          4895
+          -
+          4920
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.math.Ordered.&gt;=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          size.&gt;=(scala.`package`.BigInt.apply(2048L).*(math.this.BigInt.long2bigInt(EiB)))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          920
+        </td>
+        <td>
+          4915
+          -
+          4920
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.math.BigInt.*
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.BigInt.apply(2048L).*(math.this.BigInt.long2bigInt(EiB))
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          449
+        </td>
+        <td>
+          4908
+          -
+          4913
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          2048L
+        </td>
+      </tr><tr>
+        <td>
+          124
+        </td>
+        <td>
+          12
+        </td>
+        <td>
+          4917
+          -
+          4917
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.math.BigInt.long2bigInt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          math.this.BigInt.long2bigInt(EiB)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          762
+        </td>
+        <td>
+          5066
+          -
+          5072
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.BigDecimal.apply(size, new java.math.MathContext(3, HALF_UP)).toString().+(&quot; B&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          126
+        </td>
+        <td>
+          71
+        </td>
+        <td>
+          5066
+          -
+          5072
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.String.+
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.`package`.BigDecimal.apply(size, new java.math.MathContext(3, HALF_UP)).toString().+(&quot; B&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          127
+        </td>
+        <td>
+          923
+        </td>
+        <td>
+          5084
+          -
+          5084
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$1: (scala.math.BigDecimal, String) = (if (size.&gt;=(math.this.BigInt.long2bigInt(2.*(EiB))))
+    scala.Tuple2.apply[scala.math.BigDecimal, String](scala.`package`.BigDecimal.apply(size)./(math.this.BigDecimal.long2bigDecimal(EiB)), &quot;EiB&quot;)
+  else
+    if (size.&gt;=(math.this.BigInt.long2bigInt(2.*(PiB))))
+      scala.Tuple2.apply[scala.math.BigDecimal, String](scala.`package`.BigDecimal.apply(size)./(math.this.BigDecimal.long2bigDecimal(PiB)), &quot;PiB&quot;)
+    else
+      if (size.&gt;=(math.this.BigInt.long2bigInt(2.*(TiB))))
+        scala.Tuple2.apply[scala.math.BigDecimal, String](scala.`package`.BigDecimal.apply(size)./(math.this.BigDecimal.long2bigDecimal(TiB)), &quot;TiB&quot;)
+      else
+        if (size.&gt;=(math.this.BigInt.long2bigInt(2.*(GiB))))
+          scala.Tuple2.apply[scala.math.BigDecimal, String](scala.`package`.BigDecimal.apply(size)./(math.this.BigDecimal.long2bigDecimal(GiB)), &quot;GiB&quot;)
+        else
+          if (size.&gt;=(math.this.BigInt.long2bigInt(2.*(MiB))))
+            scala.Tuple2.apply[scala.math.BigDecimal, String](scala.`package`.BigDecimal.apply(size)./(math.this.BigDecimal.long2bigDecimal(MiB)), &quot;MiB&quot;)
+          else
+            if (size.&gt;=(math.this.BigInt.long2bigInt(2.*(KiB))))
+              scala.Tuple2.apply[scala.math.BigDecimal, String](scala.`package`.BigDecimal.apply(size)./(math.this.BigDecimal.long2bigDecimal(KiB)), &quot;KiB&quot;)
+            else
+              scala.Tuple2.apply[scala.math.BigDecimal, String](scala.`package`.BigDecimal.apply(size), &quot;B&quot;): (scala.math.BigDecimal, String) @unchecked) match {
+    case (_1: scala.math.BigDecimal, _2: String)(scala.math.BigDecimal, String)((value @ _), (unit @ _)) =&gt; scala.Tuple2.apply[scala.math.BigDecimal, String](value, unit)
+  };
+  val value: scala.math.BigDecimal = x$1._1;
+  val unit: String = x$1._2;
+  scala.Predef.augmentString(&quot;%.1f %s&quot;).formatLocal(java.util.Locale.US, value, unit)
+}
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          560
+        </td>
+        <td>
+          5097
+          -
+          5097
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          128
+        </td>
+        <td>
+          201
+        </td>
+        <td>
+          5104
+          -
+          5104
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          437
+        </td>
+        <td>
+          5681
+          -
+          5681
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.util.Locale.US
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.util.Locale.US
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          832
+        </td>
+        <td>
+          5652
+          -
+          5652
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;%.1f %s&quot;
+        </td>
+      </tr><tr>
+        <td>
+          144
+        </td>
+        <td>
+          15
+        </td>
+        <td>
+          5673
+          -
+          5673
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.formatLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(&quot;%.1f %s&quot;).formatLocal(java.util.Locale.US, value, unit)
+        </td>
+      </tr><tr>
+        <td>
+          152
+        </td>
+        <td>
+          539
+        </td>
+        <td>
+          5861
+          -
+          5861
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          1000
+        </td>
+      </tr><tr>
+        <td>
+          153
+        </td>
+        <td>
+          73
+        </td>
+        <td>
+          5886
+          -
+          5894
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.*
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          60.*(second)
+        </td>
+      </tr><tr>
+        <td>
+          154
+        </td>
+        <td>
+          791
+        </td>
+        <td>
+          5913
+          -
+          5921
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.*
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          60.*(minute)
+        </td>
+      </tr><tr>
+        <td>
+          155
+        </td>
+        <td>
+          370
+        </td>
+        <td>
+          5946
+          -
+          5946
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          java.util.Locale.US
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.util.Locale.US
+        </td>
+      </tr><tr>
+        <td>
+          158
+        </td>
+        <td>
+          206
+        </td>
+        <td>
+          5983
+          -
+          5991
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          t.&lt;(second)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          882
+        </td>
+        <td>
+          6022
+          -
+          6022
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.formatLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(&quot;%d ms&quot;).formatLocal(locale, t)
+        </td>
+      </tr><tr>
+        <td>
+          159
+        </td>
+        <td>
+          441
+        </td>
+        <td>
+          6022
+          -
+          6022
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.formatLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(&quot;%d ms&quot;).formatLocal(locale, t)
+        </td>
+      </tr><tr>
+        <td>
+          160
+        </td>
+        <td>
+          48
+        </td>
+        <td>
+          6052
+          -
+          6060
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          t.&lt;(minute)
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          958
+        </td>
+        <td>
+          6072
+          -
+          6072
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;%.1f s&quot;
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          796
+        </td>
+        <td>
+          6092
+          -
+          6092
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.formatLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(&quot;%.1f s&quot;).formatLocal(locale, t.toFloat./(second))
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          126
+        </td>
+        <td>
+          6092
+          -
+          6092
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.formatLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(&quot;%.1f s&quot;).formatLocal(locale, t.toFloat./(second))
+        </td>
+      </tr><tr>
+        <td>
+          161
+        </td>
+        <td>
+          544
+        </td>
+        <td>
+          6111
+          -
+          6119
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Float./
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          t.toFloat./(second)
+        </td>
+      </tr><tr>
+        <td>
+          162
+        </td>
+        <td>
+          404
+        </td>
+        <td>
+          6139
+          -
+          6145
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.&lt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          t.&lt;(hour)
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          424
+        </td>
+        <td>
+          6177
+          -
+          6177
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.formatLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(&quot;%.1f m&quot;).formatLocal(locale, t.toFloat./(minute))
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          884
+        </td>
+        <td>
+          6196
+          -
+          6204
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Float./
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          t.toFloat./(minute)
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          51
+        </td>
+        <td>
+          6177
+          -
+          6177
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.formatLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(&quot;%.1f m&quot;).formatLocal(locale, t.toFloat./(minute))
+        </td>
+      </tr><tr>
+        <td>
+          163
+        </td>
+        <td>
+          197
+        </td>
+        <td>
+          6157
+          -
+          6157
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;%.1f m&quot;
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          801
+        </td>
+        <td>
+          6250
+          -
+          6250
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.formatLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(&quot;%.2f h&quot;).formatLocal(locale, t.toFloat./(hour))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          86
+        </td>
+        <td>
+          6250
+          -
+          6250
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.immutable.StringLike.formatLocal
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.augmentString(&quot;%.2f h&quot;).formatLocal(locale, t.toFloat./(hour))
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          735
+        </td>
+        <td>
+          6230
+          -
+          6230
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;%.2f h&quot;
+        </td>
+      </tr><tr>
+        <td>
+          165
+        </td>
+        <td>
+          526
+        </td>
+        <td>
+          6269
+          -
+          6275
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Float./
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          t.toFloat./(hour)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          363
+        </td>
+        <td>
+          6422
+          -
+          6422
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          f.apply(resource)
+        </td>
+      </tr><tr>
+        <td>
+          171
+        </td>
+        <td>
+          171
+        </td>
+        <td>
+          6422
+          -
+          6422
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Function1.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          f.apply(resource)
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          427
+        </td>
+        <td>
+          6459
+          -
+          6459
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          java.lang.AutoCloseable.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          resource.close()
+        </td>
+      </tr><tr>
+        <td>
+          172
+        </td>
+        <td>
+          862
+        </td>
+        <td>
+          6459
+          -
+          6459
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.AutoCloseable.close
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          resource.close()
+        </td>
+      </tr><tr>
+        <td>
+          177
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          6599
+          -
+          6599
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.nanoTime
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.lang.System.nanoTime()
+        </td>
+      </tr><tr>
+        <td>
+          179
+        </td>
+        <td>
+          717
+        </td>
+        <td>
+          6657
+          -
+          6657
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.nanoTime
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.lang.System.nanoTime()
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          83
+        </td>
+        <td>
+          6711
+          -
+          6722
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Long.-
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          endTime.-(startTime)
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          507
+        </td>
+        <td>
+          6682
+          -
+          6682
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NANOSECONDS
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          148
+        </td>
+        <td>
+          6681
+          -
+          6681
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.math.max
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.math.`package`.max(NANOSECONDS.toMillis(endTime.-(startTime)), 0L)
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          368
+        </td>
+        <td>
+          6725
+          -
+          6725
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          0L
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          781
+        </td>
+        <td>
+          6702
+          -
+          6702
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.util.concurrent.TimeUnit.toMillis
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          NANOSECONDS.toMillis(endTime.-(startTime))
+        </td>
+      </tr><tr>
+        <td>
+          180
+        </td>
+        <td>
+          879
+        </td>
+        <td>
+          6664
+          -
+          6664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Tuple2.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Tuple2.apply[T, Long](result, scala.math.`package`.max(NANOSECONDS.toMillis(endTime.-(startTime)), 0L))
+        </td>
+      </tr><tr>
+        <td>
+          183
+        </td>
+        <td>
+          431
+        </td>
+        <td>
+          6753
+          -
+          6753
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;spark.testing&quot;
+        </td>
+      </tr><tr>
+        <td>
+          184
+        </td>
+        <td>
+          1
+        </td>
+        <td>
+          6784
+          -
+          6784
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          &quot;SPARK_ON_CLICKHOUSE&quot;
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          490
+        </td>
+        <td>
+          6865
+          -
+          6865
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;true&quot;
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          124
+        </td>
+        <td>
+          6852
+          -
+          6852
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.System.setProperty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          java.lang.System.setProperty(Utils.this.IS_TESTING, &quot;true&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          784
+        </td>
+        <td>
+          6852
+          -
+          6852
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          186
+        </td>
+        <td>
+          721
+        </td>
+        <td>
+          6853
+          -
+          6853
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.Utils.IS_TESTING
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          Utils.this.IS_TESTING
+        </td>
+      </tr><tr>
+        <td>
+          188
+        </td>
+        <td>
+          350
+        </td>
+        <td>
+          6932
+          -
+          6941
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.lang.Object.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #AEF1AE">
+          java.lang.System.getProperty(Utils.this.IS_TESTING).==(&quot;true&quot;)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

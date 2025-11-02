@@ -1,0 +1,1104 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/write/WriteJobDescription.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark.write
+</span>16 <span style=''>
+</span>17 <span style=''>import java.time.ZoneId
+</span>18 <span style=''>
+</span>19 <span style=''>import org.apache.spark.sql.clickhouse.{ExprUtils, WriteOptions}
+</span>20 <span style=''>import org.apache.spark.sql.connector.expressions.{Expression, SortOrder, Transform}
+</span>21 <span style=''>import org.apache.spark.sql.types.StructType
+</span>22 <span style=''>import com.clickhouse.spark.expr.{Expr, FuncExpr, OrderExpr}
+</span>23 <span style=''>import com.clickhouse.spark.spec._
+</span>24 <span style=''>
+</span>25 <span style=''>case class WriteJobDescription(
+</span>26 <span style=''>  queryId: String,
+</span>27 <span style=''>  tableSchema: StructType,
+</span>28 <span style=''>  metadataSchema: StructType,
+</span>29 <span style=''>  dataSetSchema: StructType,
+</span>30 <span style=''>  node: NodeSpec,
+</span>31 <span style=''>  tz: ZoneId,
+</span>32 <span style=''>  tableSpec: TableSpec,
+</span>33 <span style=''>  tableEngineSpec: TableEngineSpec,
+</span>34 <span style=''>  cluster: Option[ClusterSpec],
+</span>35 <span style=''>  localTableSpec: Option[TableSpec],
+</span>36 <span style=''>  localTableEngineSpec: Option[TableEngineSpec],
+</span>37 <span style=''>  shardingKey: Option[Expr],
+</span>38 <span style=''>  partitionKey: Option[List[Expr]],
+</span>39 <span style=''>  sortingKey: Option[List[OrderExpr]],
+</span>40 <span style=''>  writeOptions: WriteOptions
+</span>41 <span style=''>) {
+</span>42 <span style=''>
+</span>43 <span style=''>  def targetDatabase(convert2Local: Boolean): String = tableEngineSpec match {
+</span>44 <span style=''>    case dist: DistributedEngineSpec if convert2Local =&gt; dist.local_db
+</span>45 <span style=''>    case _ =&gt; tableSpec.database
+</span>46 <span style=''>  }
+</span>47 <span style=''>
+</span>48 <span style=''>  def targetTable(convert2Local: Boolean): String = tableEngineSpec match {
+</span>49 <span style=''>    case dist: DistributedEngineSpec if convert2Local =&gt; dist.local_table
+</span>50 <span style=''>    case _ =&gt; tableSpec.name
+</span>51 <span style=''>  }
+</span>52 <span style=''>
+</span>53 <span style=''>  def shardingKeyIgnoreRand: Option[Expr] = shardingKey </span><span style='background: #F0ADAD'>filter</span><span style=''> {
+</span>54 <span style=''>    case FuncExpr(&quot;rand&quot;, Nil) =&gt; false
+</span>55 <span style=''>    case _ =&gt; true
+</span>56 <span style=''>  }
+</span>57 <span style=''>
+</span>58 <span style=''>  def sparkShardExpr: Option[Expression] = shardingKeyIgnoreRand match {
+</span>59 <span style=''>    case Some(expr) =&gt; ExprUtils.toSparkTransformOpt(expr)
+</span>60 <span style=''>    case _ =&gt; None
+</span>61 <span style=''>  }
+</span>62 <span style=''>
+</span>63 <span style=''>  def sparkSplits: Array[Transform] =
+</span>64 <span style=''>    if (writeOptions.repartitionByPartition) {
+</span>65 <span style=''>      ExprUtils.toSparkSplits(shardingKeyIgnoreRand, partitionKey)
+</span>66 <span style=''>    } else {
+</span>67 <span style=''>      ExprUtils.toSparkSplits(shardingKeyIgnoreRand, None)
+</span>68 <span style=''>    }
+</span>69 <span style=''>
+</span>70 <span style=''>  def sparkSortOrders: Array[SortOrder] = {
+</span>71 <span style=''>    val _partitionKey = if (writeOptions.localSortByPartition) partitionKey else None
+</span>72 <span style=''>    val _sortingKey = if (writeOptions.localSortByKey) sortingKey else None
+</span>73 <span style=''>    ExprUtils.toSparkSortOrders(shardingKeyIgnoreRand, _partitionKey, _sortingKey)
+</span>74 <span style=''>  }
+</span>75 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          43
+        </td>
+        <td>
+          1625
+        </td>
+        <td>
+          1457
+          -
+          1457
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.tableEngineSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.tableEngineSpec
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          2267
+        </td>
+        <td>
+          1543
+          -
+          1543
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec.local_db
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dist.local_db
+        </td>
+      </tr><tr>
+        <td>
+          44
+        </td>
+        <td>
+          834
+        </td>
+        <td>
+          1543
+          -
+          1543
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec.local_db
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dist.local_db
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          1798
+        </td>
+        <td>
+          1576
+          -
+          1576
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.database
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.tableSpec.database
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          903
+        </td>
+        <td>
+          1576
+          -
+          1576
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.database
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.tableSpec.database
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          81
+        </td>
+        <td>
+          1642
+          -
+          1642
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.tableEngineSpec
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.tableEngineSpec
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          711
+        </td>
+        <td>
+          1728
+          -
+          1728
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec.local_table
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dist.local_table
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          1551
+        </td>
+        <td>
+          1728
+          -
+          1728
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.DistributedEngineSpec.local_table
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          dist.local_table
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          231
+        </td>
+        <td>
+          1764
+          -
+          1764
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.tableSpec.name
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1630
+        </td>
+        <td>
+          1764
+          -
+          1764
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.spec.TableSpec.name
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.tableSpec.name
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          87
+        </td>
+        <td>
+          1830
+          -
+          1836
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.filter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.shardingKey.filter(((x0$1: com.clickhouse.spark.expr.Expr) =&gt; x0$1 match {
+  case (name: String, args: List[com.clickhouse.spark.expr.Expr])com.clickhouse.spark.expr.FuncExpr(&quot;rand&quot;, scala.collection.immutable.Nil) =&gt; false
+  case _ =&gt; true
+}))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          837
+        </td>
+        <td>
+          1873
+          -
+          1873
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          2201
+        </td>
+        <td>
+          1873
+          -
+          1873
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          false
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          881
+        </td>
+        <td>
+          1893
+          -
+          1893
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1426
+        </td>
+        <td>
+          1893
+          -
+          1893
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          true
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1500
+        </td>
+        <td>
+          1946
+          -
+          1946
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.shardingKeyIgnoreRand
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.shardingKeyIgnoreRand
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          185
+        </td>
+        <td>
+          2028
+          -
+          2028
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkTransformOpt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkTransformOpt(expr)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          635
+        </td>
+        <td>
+          2028
+          -
+          2028
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkTransformOpt
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkTransformOpt(expr)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          819
+        </td>
+        <td>
+          2049
+          -
+          2049
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1597
+        </td>
+        <td>
+          2049
+          -
+          2049
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          2206
+        </td>
+        <td>
+          2118
+          -
+          2118
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.WriteOptions.repartitionByPartition
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.writeOptions.repartitionByPartition
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          882
+        </td>
+        <td>
+          2197
+          -
+          2197
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.partitionKey
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.partitionKey
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1457
+        </td>
+        <td>
+          2173
+          -
+          2173
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkSplits
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkSplits(WriteJobDescription.this.shardingKeyIgnoreRand, WriteJobDescription.this.partitionKey)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1328
+        </td>
+        <td>
+          2174
+          -
+          2174
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.shardingKeyIgnoreRand
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.shardingKeyIgnoreRand
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          93
+        </td>
+        <td>
+          2173
+          -
+          2173
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkSplits
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkSplits(WriteJobDescription.this.shardingKeyIgnoreRand, WriteJobDescription.this.partitionKey)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          1700
+        </td>
+        <td>
+          2253
+          -
+          2253
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkSplits
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkSplits(WriteJobDescription.this.shardingKeyIgnoreRand, scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          734
+        </td>
+        <td>
+          2253
+          -
+          2253
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkSplits
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkSplits(WriteJobDescription.this.shardingKeyIgnoreRand, scala.None)
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          638
+        </td>
+        <td>
+          2254
+          -
+          2254
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.shardingKeyIgnoreRand
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.shardingKeyIgnoreRand
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          224
+        </td>
+        <td>
+          2277
+          -
+          2277
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1461
+        </td>
+        <td>
+          2415
+          -
+          2415
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          139
+        </td>
+        <td>
+          2415
+          -
+          2415
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          940
+        </td>
+        <td>
+          2397
+          -
+          2397
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.partitionKey
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.partitionKey
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          2166
+        </td>
+        <td>
+          2375
+          -
+          2375
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.WriteOptions.localSortByPartition
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.writeOptions.localSortByPartition
+        </td>
+      </tr><tr>
+        <td>
+          71
+        </td>
+        <td>
+          1331
+        </td>
+        <td>
+          2397
+          -
+          2397
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.partitionKey
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.partitionKey
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          810
+        </td>
+        <td>
+          2491
+          -
+          2491
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          1704
+        </td>
+        <td>
+          2475
+          -
+          2475
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.sortingKey
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.sortingKey
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          611
+        </td>
+        <td>
+          2459
+          -
+          2459
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.WriteOptions.localSortByKey
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.writeOptions.localSortByKey
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          2124
+        </td>
+        <td>
+          2475
+          -
+          2475
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.sortingKey
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.sortingKey
+        </td>
+      </tr><tr>
+        <td>
+          72
+        </td>
+        <td>
+          2171
+        </td>
+        <td>
+          2491
+          -
+          2491
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          1380
+        </td>
+        <td>
+          2528
+          -
+          2528
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          com.clickhouse.spark.write.WriteJobDescription.shardingKeyIgnoreRand
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          WriteJobDescription.this.shardingKeyIgnoreRand
+        </td>
+      </tr><tr>
+        <td>
+          73
+        </td>
+        <td>
+          949
+        </td>
+        <td>
+          2527
+          -
+          2527
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkSortOrders
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.spark.sql.clickhouse.ExprUtils.toSparkSortOrders(WriteJobDescription.this.shardingKeyIgnoreRand, _partitionKey, _sortingKey)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>

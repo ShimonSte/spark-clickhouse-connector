@@ -1,0 +1,5598 @@
+<html>
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+        <title id="title">
+          com/clickhouse/spark/SQLHelper.scala.html
+        </title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/css/theme.default.min.css" type="text/css"/><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.tablesorter/2.20.1/js/jquery.tablesorter.min.js"></script><link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/css/bootstrap.min.css" type="text/css"/><script src="https://netdna.bootstrapcdn.com/bootstrap/3.0.3/js/bootstrap.min.js"></script><script type="text/javascript">
+        $(document).ready(function() {$(".tablesorter").tablesorter();});
+      </script>
+        <style>
+          table.codegrid { font-family: monospace; font-size: 12px; width: auto!important; }table.statementlist { width: auto!important; font-size: 13px; } table.codegrid td { padding: 0!important; border: 0!important } table td.linenumber { width: 40px!important; } 
+        </style>
+      </head>
+      <body style="font-family: monospace;">
+        <ul class="nav nav-tabs">
+          <li>
+            <a href="#codegrid" data-toggle="tab">Codegrid</a>
+          </li>
+          <li>
+            <a href="#statementlist" data-toggle="tab">Statement List</a>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane active" id="codegrid">
+            <pre style='font-size: 12pt; font-family: courier, monospace;'>1 <span style=''>/*
+</span>2 <span style=''> * Licensed under the Apache License, Version 2.0 (the &quot;License&quot;);
+</span>3 <span style=''> * you may not use this file except in compliance with the License.
+</span>4 <span style=''> * You may obtain a copy of the License at
+</span>5 <span style=''> *
+</span>6 <span style=''> *     https://www.apache.org/licenses/LICENSE-2.0
+</span>7 <span style=''> *
+</span>8 <span style=''> * Unless required by applicable law or agreed to in writing, software
+</span>9 <span style=''> * distributed under the License is distributed on an &quot;AS IS&quot; BASIS,
+</span>10 <span style=''> * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+</span>11 <span style=''> * See the License for the specific language governing permissions and
+</span>12 <span style=''> * limitations under the License.
+</span>13 <span style=''> */
+</span>14 <span style=''>
+</span>15 <span style=''>package com.clickhouse.spark
+</span>16 <span style=''>
+</span>17 <span style=''>import java.sql.{Date, Timestamp}
+</span>18 <span style=''>import java.time.{Instant, LocalDate, LocalDateTime, ZoneId}
+</span>19 <span style=''>import org.apache.commons.lang3.StringUtils
+</span>20 <span style=''>import org.apache.spark.sql.connector.expressions.aggregate._
+</span>21 <span style=''>import org.apache.spark.sql.connector.expressions.NamedReference
+</span>22 <span style=''>import org.apache.spark.sql.sources._
+</span>23 <span style=''>import org.apache.spark.unsafe.types.UTF8String
+</span>24 <span style=''>import com.clickhouse.spark.Utils._
+</span>25 <span style=''>
+</span>26 <span style=''>trait SQLHelper {
+</span>27 <span style=''>
+</span>28 <span style=''>  def quoted(token: String) = s&quot;`$token`&quot;
+</span>29 <span style=''>
+</span>30 <span style=''>  // null =&gt; null, ' =&gt; ''
+</span>31 <span style=''>  def escapeSql(value: String): String = StringUtils.replace(value, &quot;'&quot;, &quot;''&quot;)
+</span>32 <span style=''>
+</span>33 <span style=''>  def compileValue(value: Any)(implicit tz: ZoneId): Any = value match {
+</span>34 <span style=''>    case string: String =&gt; s&quot;'${escapeSql(string)}'&quot;
+</span>35 <span style=''>    case utf8: UTF8String =&gt; s&quot;'${escapeSql(utf8.toString)}'&quot;
+</span>36 <span style=''>    case instant: Instant =&gt; s&quot;'${dateTimeFmt.withZone(tz).format(instant)}'&quot;
+</span>37 <span style=''>    case timestamp: Timestamp =&gt; s&quot;'${legacyDateTimeFmt.format(timestamp)}'&quot;
+</span>38 <span style=''>    case localDateTime: LocalDateTime =&gt; s&quot;'${dateTimeFmt.format(localDateTime)}'&quot;
+</span>39 <span style=''>    case legacyDate: Date =&gt; s&quot;'${legacyDateFmt.format(legacyDate)}'&quot;
+</span>40 <span style=''>    case localDate: LocalDate =&gt; s&quot;'${dateFmt.format(localDate)}'&quot;
+</span>41 <span style=''>    case array: Array[Any] =&gt; array.map(compileValue).mkString(&quot;,&quot;)
+</span>42 <span style=''>    case _ =&gt; value
+</span>43 <span style=''>  }
+</span>44 <span style=''>
+</span>45 <span style=''>  def compileFilter(f: Filter)(implicit tz: ZoneId): Option[String] = Option(f match {
+</span>46 <span style=''>    case AlwaysTrue =&gt; &quot;1=1&quot;
+</span>47 <span style=''>    case AlwaysFalse =&gt; &quot;1=0&quot;
+</span>48 <span style=''>    case EqualTo(attr, value) =&gt; s&quot;${quoted(attr)} = ${compileValue(value)}&quot;
+</span>49 <span style=''>    case EqualNullSafe(attr, nullableValue) =&gt;
+</span>50 <span style=''>      val (col, value) = (quoted(attr), compileValue(nullableValue))
+</span>51 <span style=''>      s&quot;(NOT ($col != $value OR $col IS NULL OR $value IS NULL) OR ($col IS NULL AND $value IS NULL))&quot;
+</span>52 <span style=''>    case LessThan(attr, value) =&gt; s&quot;${quoted(attr)} &lt; ${compileValue(value)}&quot;
+</span>53 <span style=''>    case GreaterThan(attr, value) =&gt; s&quot;${quoted(attr)} &gt; ${compileValue(value)}&quot;
+</span>54 <span style=''>    case LessThanOrEqual(attr, value) =&gt; s&quot;${quoted(attr)} &lt;= ${compileValue(value)}&quot;
+</span>55 <span style=''>    case GreaterThanOrEqual(attr, value) =&gt; s&quot;${quoted(attr)} &gt;= ${compileValue(value)}&quot;
+</span>56 <span style=''>    case IsNull(attr) =&gt; s&quot;${quoted(attr)} IS NULL&quot;
+</span>57 <span style=''>    case IsNotNull(attr) =&gt; s&quot;${quoted(attr)} IS NOT NULL&quot;
+</span>58 <span style=''>    case StringStartsWith(attr, value) =&gt; s&quot;${quoted(attr)} LIKE '$value%'&quot;
+</span>59 <span style=''>    case StringEndsWith(attr, value) =&gt; s&quot;${quoted(attr)} LIKE '%$value'&quot;
+</span>60 <span style=''>    case StringContains(attr, value) =&gt; s&quot;${quoted(attr)} LIKE '%$value%'&quot;
+</span>61 <span style=''>    case In(attr, value) if value.isEmpty =&gt; s&quot;CASE WHEN ${quoted(attr)} IS NULL THEN NULL ELSE FALSE END&quot;
+</span>62 <span style=''>    case In(attr, value) =&gt; s&quot;${quoted(attr)} IN (${compileValue(value)})&quot;
+</span>63 <span style=''>    case Not(f) =&gt; compileFilter(f).map(p =&gt; s&quot;(NOT ($p))&quot;).orNull
+</span>64 <span style=''>    case Or(f1, f2) =&gt;
+</span>65 <span style=''>      val or = Seq(f1, f2).flatMap(_f =&gt; compileFilter(_f)(tz))
+</span>66 <span style=''>      if (or.size </span><span style='background: #F0ADAD'>== 2</span><span style=''>) or.map(p =&gt; s&quot;($p)&quot;).mkString(&quot; OR &quot;) else null
+</span>67 <span style=''>    case And(f1, f2) =&gt;
+</span>68 <span style=''>      val and = Seq(f1, f2).flatMap(_f =&gt; compileFilter(_f)(tz))
+</span>69 <span style=''>      if (and.size </span><span style='background: #F0ADAD'>== 2</span><span style=''>) and.map(p =&gt; s&quot;($p)&quot;).mkString(&quot; AND &quot;) else null
+</span>70 <span style=''>    case _ =&gt; null
+</span>71 <span style=''>  })
+</span>72 <span style=''>
+</span>73 <span style=''>  def compileAggregate(aggFunction: AggregateFunc): Option[String] =
+</span>74 <span style=''>    aggFunction match {
+</span>75 <span style=''>      case min: Min if min.column.isInstanceOf[NamedReference] =&gt;
+</span>76 <span style=''>        val col = min.column.asInstanceOf[NamedReference]
+</span>77 <span style=''>        if (col.fieldNames().length </span><span style='background: #F0ADAD'>!= 1</span><span style=''>) return None
+</span>78 <span style=''>        Some(s&quot;MIN(${quoted(col.fieldNames.head)})&quot;)
+</span>79 <span style=''>      case max: Max if max.column.isInstanceOf[NamedReference] =&gt;
+</span>80 <span style=''>        val col = max.column.asInstanceOf[NamedReference]
+</span>81 <span style=''>        if (col.fieldNames.length </span><span style='background: #F0ADAD'>!= 1</span><span style=''>) return None
+</span>82 <span style=''>        Some(s&quot;MAX(${quoted(col.fieldNames.head)})&quot;)
+</span>83 <span style=''>      case count: Count if count.column.isInstanceOf[NamedReference] =&gt;
+</span>84 <span style=''>        val col = count.column.asInstanceOf[NamedReference]
+</span>85 <span style=''>        if (col.fieldNames.length </span><span style='background: #F0ADAD'>!= 1</span><span style=''>) return None
+</span>86 <span style=''>        val distinct = if (count.isDistinct) &quot;DISTINCT &quot; else &quot;&quot;
+</span>87 <span style=''>        val column = quoted(col.fieldNames.head)
+</span>88 <span style=''>        Some(s&quot;COUNT($distinct$column)&quot;)
+</span>89 <span style=''>      case sum: Sum if sum.column.isInstanceOf[NamedReference] =&gt;
+</span>90 <span style=''>        val col = sum.column.asInstanceOf[NamedReference]
+</span>91 <span style=''>        if (col.fieldNames.length </span><span style='background: #F0ADAD'>!= 1</span><span style=''>) return None
+</span>92 <span style=''>        val distinct = if (sum.isDistinct) &quot;DISTINCT &quot; else &quot;&quot;
+</span>93 <span style=''>        val column = quoted(col.fieldNames.head)
+</span>94 <span style=''>        Some(s&quot;SUM($distinct$column)&quot;)
+</span>95 <span style=''>      case _: CountStar =&gt;
+</span>96 <span style=''>        Some(&quot;COUNT(*)&quot;)
+</span>97 <span style=''>      case _ =&gt; None
+</span>98 <span style=''>    }
+</span>99 <span style=''>
+</span>100 <span style=''>  def compileFilters(filters: Seq[Filter])(implicit tz: ZoneId): String =
+</span>101 <span style=''>    filters
+</span>102 <span style=''>      .flatMap(_f =&gt; compileFilter(_f)(tz))
+</span>103 <span style=''>      .map(p =&gt; s&quot;($p)&quot;).mkString(&quot; AND &quot;)
+</span>104 <span style=''>}
+</span></pre>
+          </div>
+          <div class="tab-pane" id="statementlist">
+            <table cellspacing="0" cellpadding="0" class="table statementlist">
+      <tr>
+        <th>Line</th>
+        <th>Stmt Id</th>
+        <th>Pos</th>
+        <th>Tree</th>
+        <th>Symbol</th>
+        <th>Tests</th>
+        <th>Code</th>
+      </tr><tr>
+        <td>
+          28
+        </td>
+        <td>
+          1181
+        </td>
+        <td>
+          1032
+          -
+          1032
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;`&quot;, &quot;`&quot;).s(token)
+        </td>
+      </tr><tr>
+        <td>
+          31
+        </td>
+        <td>
+          260
+        </td>
+        <td>
+          1132
+          -
+          1132
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.commons.lang3.StringUtils.replace
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          org.apache.commons.lang3.StringUtils.replace(value, &quot;\'&quot;, &quot;\'\'&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1721
+        </td>
+        <td>
+          1254
+          -
+          1254
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          426
+        </td>
+        <td>
+          1266
+          -
+          1266
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.escapeSql
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.escapeSql(string)
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1278
+        </td>
+        <td>
+          1275
+          -
+          1275
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1924
+        </td>
+        <td>
+          1252
+          -
+          1252
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(SQLHelper.this.escapeSql(string))
+        </td>
+      </tr><tr>
+        <td>
+          34
+        </td>
+        <td>
+          1035
+        </td>
+        <td>
+          1252
+          -
+          1252
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(SQLHelper.this.escapeSql(string))
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          2066
+        </td>
+        <td>
+          1337
+          -
+          1337
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1725
+        </td>
+        <td>
+          1307
+          -
+          1307
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(SQLHelper.this.escapeSql(utf8.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1282
+        </td>
+        <td>
+          1307
+          -
+          1307
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(SQLHelper.this.escapeSql(utf8.toString()))
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          226
+        </td>
+        <td>
+          1321
+          -
+          1321
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.escapeSql
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.escapeSql(utf8.toString())
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          1119
+        </td>
+        <td>
+          1327
+          -
+          1327
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.unsafe.types.UTF8String.toString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          utf8.toString()
+        </td>
+      </tr><tr>
+        <td>
+          35
+        </td>
+        <td>
+          45
+        </td>
+        <td>
+          1309
+          -
+          1309
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          992
+        </td>
+        <td>
+          1405
+          -
+          1405
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.format.DateTimeFormatter.format
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.dateTimeFmt.withZone(tz).format(instant)
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          465
+        </td>
+        <td>
+          1371
+          -
+          1371
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          52
+        </td>
+        <td>
+          1369
+          -
+          1369
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(com.clickhouse.spark.Utils.dateTimeFmt.withZone(tz).format(instant))
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          2070
+        </td>
+        <td>
+          1369
+          -
+          1369
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(com.clickhouse.spark.Utils.dateTimeFmt.withZone(tz).format(instant))
+        </td>
+      </tr><tr>
+        <td>
+          36
+        </td>
+        <td>
+          1884
+        </td>
+        <td>
+          1415
+          -
+          1415
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          191
+        </td>
+        <td>
+          1492
+          -
+          1492
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          316
+        </td>
+        <td>
+          1451
+          -
+          1451
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(com.clickhouse.spark.Utils.legacyDateTimeFmt.format(timestamp))
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1730
+        </td>
+        <td>
+          1480
+          -
+          1480
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.commons.lang3.time.FastDateFormat.format
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.legacyDateTimeFmt.format(timestamp)
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1235
+        </td>
+        <td>
+          1453
+          -
+          1453
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          37
+        </td>
+        <td>
+          1253
+        </td>
+        <td>
+          1451
+          -
+          1451
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(com.clickhouse.spark.Utils.legacyDateTimeFmt.format(timestamp))
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1082
+        </td>
+        <td>
+          1536
+          -
+          1536
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(com.clickhouse.spark.Utils.dateTimeFmt.format(localDateTime))
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          2137
+        </td>
+        <td>
+          1536
+          -
+          1536
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(com.clickhouse.spark.Utils.dateTimeFmt.format(localDateTime))
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1024
+        </td>
+        <td>
+          1575
+          -
+          1575
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          1999
+        </td>
+        <td>
+          1538
+          -
+          1538
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          38
+        </td>
+        <td>
+          57
+        </td>
+        <td>
+          1559
+          -
+          1559
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.format.DateTimeFormatter.format
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.dateTimeFmt.format(localDateTime)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          155
+        </td>
+        <td>
+          1609
+          -
+          1609
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1806
+        </td>
+        <td>
+          1645
+          -
+          1645
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          848
+        </td>
+        <td>
+          1632
+          -
+          1632
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.commons.lang3.time.FastDateFormat.format
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.legacyDateFmt.format(legacyDate)
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          1849
+        </td>
+        <td>
+          1607
+          -
+          1607
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(com.clickhouse.spark.Utils.legacyDateFmt.format(legacyDate))
+        </td>
+      </tr><tr>
+        <td>
+          39
+        </td>
+        <td>
+          449
+        </td>
+        <td>
+          1607
+          -
+          1607
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(com.clickhouse.spark.Utils.legacyDateFmt.format(legacyDate))
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          134
+        </td>
+        <td>
+          1712
+          -
+          1712
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          2140
+        </td>
+        <td>
+          1700
+          -
+          1700
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          java.time.format.DateTimeFormatter.format
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          com.clickhouse.spark.Utils.dateFmt.format(localDate)
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          225
+        </td>
+        <td>
+          1681
+          -
+          1681
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(com.clickhouse.spark.Utils.dateFmt.format(localDate))
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1206
+        </td>
+        <td>
+          1681
+          -
+          1681
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;\'&quot;, &quot;\'&quot;).s(com.clickhouse.spark.Utils.dateFmt.format(localDate))
+        </td>
+      </tr><tr>
+        <td>
+          40
+        </td>
+        <td>
+          1032
+        </td>
+        <td>
+          1683
+          -
+          1683
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          828
+        </td>
+        <td>
+          1777
+          -
+          1777
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.genericArrayOps[Any](scala.Predef.genericArrayOps[Any](array).map[Any, Array[Any]]({
+  ((value: Any) =&gt; SQLHelper.this.compileValue(value)(tz))
+})(scala.this.Array.canBuildFrom[Any]((ClassTag.Any: scala.reflect.ClassTag[Any])))).mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          41
+        </td>
+        <td>
+          1811
+        </td>
+        <td>
+          1777
+          -
+          1777
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.genericArrayOps[Any](scala.Predef.genericArrayOps[Any](array).map[Any, Array[Any]]({
+  ((value: Any) =&gt; SQLHelper.this.compileValue(value)(tz))
+})(scala.this.Array.canBuildFrom[Any]((ClassTag.Any: scala.reflect.ClassTag[Any])))).mkString(&quot;,&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          42
+        </td>
+        <td>
+          452
+        </td>
+        <td>
+          1797
+          -
+          1797
+        </td>
+        <td>
+          Ident
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.value
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          value
+        </td>
+      </tr><tr>
+        <td>
+          45
+        </td>
+        <td>
+          10
+        </td>
+        <td>
+          1884
+          -
+          1884
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Option.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Option.apply[String](f match {
+  case org.apache.spark.sql.sources.AlwaysTrue =&gt; &quot;1=1&quot;
+  case org.apache.spark.sql.sources.AlwaysFalse =&gt; &quot;1=0&quot;
+  case (attribute: String, value: Any)org.apache.spark.sql.sources.EqualTo((attr @ _), (value @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; = &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+  case (attribute: String, value: Any)org.apache.spark.sql.sources.EqualNullSafe((attr @ _), (nullableValue @ _)) =&gt; {
+    &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$1: (String, Any) = (scala.Tuple2.apply[String, Any](SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(nullableValue)(tz)): (String, Any) @unchecked) match {
+      case (_1: String, _2: Any)(String, Any)((col @ _), (value @ _)) =&gt; scala.Tuple2.apply[String, Any](col, value)
+    };
+    val col: String = x$1._1;
+    val value: Any = x$1._2;
+    scala.StringContext.apply(&quot;(NOT (&quot;, &quot; != &quot;, &quot; OR &quot;, &quot; IS NULL OR &quot;, &quot; IS NULL) OR (&quot;, &quot; IS NULL AND &quot;, &quot; IS NULL))&quot;).s(col, value, col, value, col, value)
+  }
+  case (attribute: String, value: Any)org.apache.spark.sql.sources.LessThan((attr @ _), (value @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; &lt; &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+  case (attribute: String, value: Any)org.apache.spark.sql.sources.GreaterThan((attr @ _), (value @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; &gt; &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+  case (attribute: String, value: Any)org.apache.spark.sql.sources.LessThanOrEqual((attr @ _), (value @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; &lt;= &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+  case (attribute: String, value: Any)org.apache.spark.sql.sources.GreaterThanOrEqual((attr @ _), (value @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; &gt;= &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+  case (attribute: String)org.apache.spark.sql.sources.IsNull((attr @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; IS NULL&quot;).s(SQLHelper.this.quoted(attr))
+  case (attribute: String)org.apache.spark.sql.sources.IsNotNull((attr @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; IS NOT NULL&quot;).s(SQLHelper.this.quoted(attr))
+  case (attribute: String, value: String)org.apache.spark.sql.sources.StringStartsWith((attr @ _), (value @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; LIKE \'&quot;, &quot;%\'&quot;).s(SQLHelper.this.quoted(attr), value)
+  case (attribute: String, value: String)org.apache.spark.sql.sources.StringEndsWith((attr @ _), (value @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; LIKE \'%&quot;, &quot;\'&quot;).s(SQLHelper.this.quoted(attr), value)
+  case (attribute: String, value: String)org.apache.spark.sql.sources.StringContains((attr @ _), (value @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; LIKE \'%&quot;, &quot;%\'&quot;).s(SQLHelper.this.quoted(attr), value)
+  case (attribute: String, values: Array[Any])org.apache.spark.sql.sources.In((attr @ _), (value @ _)) if scala.Predef.genericArrayOps[Any](value).isEmpty =&gt; scala.StringContext.apply(&quot;CASE WHEN &quot;, &quot; IS NULL THEN NULL ELSE FALSE END&quot;).s(SQLHelper.this.quoted(attr))
+  case (attribute: String, values: Array[Any])org.apache.spark.sql.sources.In((attr @ _), (value @ _)) =&gt; scala.StringContext.apply(&quot;&quot;, &quot; IN (&quot;, &quot;)&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+  case (child: org.apache.spark.sql.sources.Filter)org.apache.spark.sql.sources.Not((f @ _)) =&gt; SQLHelper.this.compileFilter(f)(tz).map[String](((p: String) =&gt; scala.StringContext.apply(&quot;(NOT (&quot;, &quot;))&quot;).s(p))).orNull[String](scala.Predef.$conforms[Null])
+  case (left: org.apache.spark.sql.sources.Filter, right: org.apache.spark.sql.sources.Filter)org.apache.spark.sql.sources.Or((f1 @ _), (f2 @ _)) =&gt; {
+    val or: Seq[String] = scala.collection.Seq.apply[org.apache.spark.sql.sources.Filter](f1, f2).flatMap[String, Seq[String]](((_f: org.apache.spark.sql.sources.Filter) =&gt; scala.this.Option.option2Iterable[String](SQLHelper.this.compileFilter(_f)(tz))))(collection.this.Seq.canBuildFrom[String]);
+    if (or.size.==(2))
+      or.map[String, Seq[String]](((p: String) =&gt; scala.StringContext.apply(&quot;(&quot;, &quot;)&quot;).s(p)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot; OR &quot;)
+    else
+      null
+  }
+  case (left: org.apache.spark.sql.sources.Filter, right: org.apache.spark.sql.sources.Filter)org.apache.spark.sql.sources.And((f1 @ _), (f2 @ _)) =&gt; {
+    val and: Seq[String] = scala.collection.Seq.apply[org.apache.spark.sql.sources.Filter](f1, f2).flatMap[String, Seq[String]](((_f: org.apache.spark.sql.sources.Filter) =&gt; scala.this.Option.option2Iterable[String](SQLHelper.this.compileFilter(_f)(tz))))(collection.this.Seq.canBuildFrom[String]);
+    if (and.size.==(2))
+      and.map[String, Seq[String]](((p: String) =&gt; scala.StringContext.apply(&quot;(&quot;, &quot;)&quot;).s(p)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot; AND &quot;)
+    else
+      null
+  }
+  case _ =&gt; null
+})
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          989
+        </td>
+        <td>
+          1918
+          -
+          1918
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;1=1&quot;
+        </td>
+      </tr><tr>
+        <td>
+          46
+        </td>
+        <td>
+          1960
+        </td>
+        <td>
+          1918
+          -
+          1918
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;1=1&quot;
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          137
+        </td>
+        <td>
+          1948
+          -
+          1948
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;1=0&quot;
+        </td>
+      </tr><tr>
+        <td>
+          47
+        </td>
+        <td>
+          1618
+        </td>
+        <td>
+          1948
+          -
+          1948
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;1=0&quot;
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          995
+        </td>
+        <td>
+          1987
+          -
+          1987
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; = &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1209
+        </td>
+        <td>
+          1989
+          -
+          1989
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          835
+        </td>
+        <td>
+          1997
+          -
+          1997
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          228
+        </td>
+        <td>
+          2004
+          -
+          2004
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; = &quot;
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          353
+        </td>
+        <td>
+          2021
+          -
+          2021
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.compileValue(value)(tz)
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1914
+        </td>
+        <td>
+          1987
+          -
+          1987
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; = &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          48
+        </td>
+        <td>
+          1767
+        </td>
+        <td>
+          2029
+          -
+          2029
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          49
+        </td>
+        <td>
+          311
+        </td>
+        <td>
+          2075
+          -
+          2075
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  &lt;synthetic&gt; &lt;artifact&gt; private[this] val x$1: (String, Any) = (scala.Tuple2.apply[String, Any](SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(nullableValue)(tz)): (String, Any) @unchecked) match {
+    case (_1: String, _2: Any)(String, Any)((col @ _), (value @ _)) =&gt; scala.Tuple2.apply[String, Any](col, value)
+  };
+  val col: String = x$1._1;
+  val value: Any = x$1._2;
+  scala.StringContext.apply(&quot;(NOT (&quot;, &quot; != &quot;, &quot; OR &quot;, &quot; IS NULL OR &quot;, &quot; IS NULL) OR (&quot;, &quot; IS NULL AND &quot;, &quot; IS NULL))&quot;).s(col, value, col, value, col, value)
+}
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          1626
+        </td>
+        <td>
+          2094
+          -
+          2094
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._2
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1._2
+        </td>
+      </tr><tr>
+        <td>
+          50
+        </td>
+        <td>
+          16
+        </td>
+        <td>
+          2089
+          -
+          2089
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.Tuple2._1
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          x$1._1
+        </td>
+      </tr><tr>
+        <td>
+          51
+        </td>
+        <td>
+          1163
+        </td>
+        <td>
+          2153
+          -
+          2153
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;(NOT (&quot;, &quot; != &quot;, &quot; OR &quot;, &quot; IS NULL OR &quot;, &quot; IS NULL) OR (&quot;, &quot; IS NULL AND &quot;, &quot; IS NULL))&quot;).s(col, value, col, value, col, value)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1079
+        </td>
+        <td>
+          2318
+          -
+          2318
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.compileValue(value)(tz)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1578
+        </td>
+        <td>
+          2284
+          -
+          2284
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; &lt; &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          360
+        </td>
+        <td>
+          2326
+          -
+          2326
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          794
+        </td>
+        <td>
+          2301
+          -
+          2301
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; &lt; &quot;
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1846
+        </td>
+        <td>
+          2294
+          -
+          2294
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          19
+        </td>
+        <td>
+          2284
+          -
+          2284
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; &lt; &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          52
+        </td>
+        <td>
+          1774
+        </td>
+        <td>
+          2286
+          -
+          2286
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          158
+        </td>
+        <td>
+          2382
+          -
+          2382
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; &gt; &quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          923
+        </td>
+        <td>
+          2365
+          -
+          2365
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; &gt; &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          802
+        </td>
+        <td>
+          2375
+          -
+          2375
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          2390
+        </td>
+        <td>
+          2399
+          -
+          2399
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.compileValue(value)(tz)
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1956
+        </td>
+        <td>
+          2365
+          -
+          2365
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; &gt; &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1758
+        </td>
+        <td>
+          2407
+          -
+          2407
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          53
+        </td>
+        <td>
+          1202
+        </td>
+        <td>
+          2367
+          -
+          2367
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1764
+        </td>
+        <td>
+          2485
+          -
+          2485
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.compileValue(value)(tz)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          908
+        </td>
+        <td>
+          2450
+          -
+          2450
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; &lt;= &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          2418
+        </td>
+        <td>
+          2450
+          -
+          2450
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; &lt;= &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          94
+        </td>
+        <td>
+          2452
+          -
+          2452
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          272
+        </td>
+        <td>
+          2460
+          -
+          2460
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1208
+        </td>
+        <td>
+          2493
+          -
+          2493
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          54
+        </td>
+        <td>
+          1588
+        </td>
+        <td>
+          2467
+          -
+          2467
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; &lt;= &quot;
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1187
+        </td>
+        <td>
+          2574
+          -
+          2574
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.compileValue(value)(tz)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1674
+        </td>
+        <td>
+          2549
+          -
+          2549
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1042
+        </td>
+        <td>
+          2556
+          -
+          2556
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; &gt;= &quot;
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          279
+        </td>
+        <td>
+          2539
+          -
+          2539
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; &gt;= &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          99
+        </td>
+        <td>
+          2582
+          -
+          2582
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1965
+        </td>
+        <td>
+          2541
+          -
+          2541
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          55
+        </td>
+        <td>
+          1732
+        </td>
+        <td>
+          2539
+          -
+          2539
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; &gt;= &quot;, &quot;&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          884
+        </td>
+        <td>
+          2611
+          -
+          2611
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          106
+        </td>
+        <td>
+          2609
+          -
+          2609
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; IS NULL&quot;).s(SQLHelper.this.quoted(attr))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          2382
+        </td>
+        <td>
+          2626
+          -
+          2626
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; IS NULL&quot;
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          963
+        </td>
+        <td>
+          2609
+          -
+          2609
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; IS NULL&quot;).s(SQLHelper.this.quoted(attr))
+        </td>
+      </tr><tr>
+        <td>
+          56
+        </td>
+        <td>
+          1932
+        </td>
+        <td>
+          2619
+          -
+          2619
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1737
+        </td>
+        <td>
+          2664
+          -
+          2664
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; IS NOT NULL&quot;).s(SQLHelper.this.quoted(attr))
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          1574
+        </td>
+        <td>
+          2666
+          -
+          2666
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          237
+        </td>
+        <td>
+          2674
+          -
+          2674
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          697
+        </td>
+        <td>
+          2681
+          -
+          2681
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; IS NOT NULL&quot;
+        </td>
+      </tr><tr>
+        <td>
+          57
+        </td>
+        <td>
+          888
+        </td>
+        <td>
+          2664
+          -
+          2664
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; IS NOT NULL&quot;).s(SQLHelper.this.quoted(attr))
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          68
+        </td>
+        <td>
+          2747
+          -
+          2747
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          669
+        </td>
+        <td>
+          2737
+          -
+          2737
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; LIKE \'&quot;, &quot;%\'&quot;).s(SQLHelper.this.quoted(attr), value)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1895
+        </td>
+        <td>
+          2754
+          -
+          2754
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; LIKE \'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          2340
+        </td>
+        <td>
+          2739
+          -
+          2739
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          1582
+        </td>
+        <td>
+          2737
+          -
+          2737
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; LIKE \'&quot;, &quot;%\'&quot;).s(SQLHelper.this.quoted(attr), value)
+        </td>
+      </tr><tr>
+        <td>
+          58
+        </td>
+        <td>
+          948
+        </td>
+        <td>
+          2767
+          -
+          2767
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;%\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          2347
+        </td>
+        <td>
+          2821
+          -
+          2821
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1040
+        </td>
+        <td>
+          2811
+          -
+          2811
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; LIKE \'%&quot;, &quot;\'&quot;).s(SQLHelper.this.quoted(attr), value)
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          770
+        </td>
+        <td>
+          2842
+          -
+          2842
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1742
+        </td>
+        <td>
+          2828
+          -
+          2828
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; LIKE \'%&quot;
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          267
+        </td>
+        <td>
+          2813
+          -
+          2813
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          59
+        </td>
+        <td>
+          1424
+        </td>
+        <td>
+          2811
+          -
+          2811
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; LIKE \'%&quot;, &quot;\'&quot;).s(SQLHelper.this.quoted(attr), value)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          675
+        </td>
+        <td>
+          2916
+          -
+          2916
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;%\'&quot;
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1817
+        </td>
+        <td>
+          2885
+          -
+          2885
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; LIKE \'%&quot;, &quot;%\'&quot;).s(SQLHelper.this.quoted(attr), value)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          1544
+        </td>
+        <td>
+          2902
+          -
+          2902
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; LIKE \'%&quot;
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          772
+        </td>
+        <td>
+          2885
+          -
+          2885
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; LIKE \'%&quot;, &quot;%\'&quot;).s(SQLHelper.this.quoted(attr), value)
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          72
+        </td>
+        <td>
+          2887
+          -
+          2887
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          60
+        </td>
+        <td>
+          275
+        </td>
+        <td>
+          2895
+          -
+          2895
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1046
+        </td>
+        <td>
+          2992
+          -
+          2992
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; IS NULL THEN NULL ELSE FALSE END&quot;
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          633
+        </td>
+        <td>
+          2965
+          -
+          2965
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;CASE WHEN &quot;, &quot; IS NULL THEN NULL ELSE FALSE END&quot;).s(SQLHelper.this.quoted(attr))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1548
+        </td>
+        <td>
+          2965
+          -
+          2965
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;CASE WHEN &quot;, &quot; IS NULL THEN NULL ELSE FALSE END&quot;).s(SQLHelper.this.quoted(attr))
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          55
+        </td>
+        <td>
+          2985
+          -
+          2985
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          2304
+        </td>
+        <td>
+          2954
+          -
+          2954
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.isEmpty
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.genericArrayOps[Any](value).isEmpty
+        </td>
+      </tr><tr>
+        <td>
+          61
+        </td>
+        <td>
+          1498
+        </td>
+        <td>
+          2967
+          -
+          2967
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;CASE WHEN &quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          2311
+        </td>
+        <td>
+          3065
+          -
+          3065
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(attr)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          62
+        </td>
+        <td>
+          3055
+          -
+          3055
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; IN (&quot;, &quot;)&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          845
+        </td>
+        <td>
+          3099
+          -
+          3099
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1508
+        </td>
+        <td>
+          3091
+          -
+          3091
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileValue
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.compileValue(value)(tz)
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          234
+        </td>
+        <td>
+          3057
+          -
+          3057
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1819
+        </td>
+        <td>
+          3072
+          -
+          3072
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot; IN (&quot;
+        </td>
+      </tr><tr>
+        <td>
+          62
+        </td>
+        <td>
+          1002
+        </td>
+        <td>
+          3055
+          -
+          3055
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;&quot;, &quot; IN (&quot;, &quot;)&quot;).s(SQLHelper.this.quoted(attr), SQLHelper.this.compileValue(value)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1784
+        </td>
+        <td>
+          3162
+          -
+          3162
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Option.orNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.compileFilter(f)(tz).map[String](((p: String) =&gt; scala.StringContext.apply(&quot;(NOT (&quot;, &quot;))&quot;).s(p))).orNull[String](scala.Predef.$conforms[Null])
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          1634
+        </td>
+        <td>
+          3147
+          -
+          3147
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;(NOT (&quot;, &quot;))&quot;).s(p)
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          2274
+        </td>
+        <td>
+          3162
+          -
+          3162
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.Option.orNull
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.compileFilter(f)(tz).map[String](((p: String) =&gt; scala.StringContext.apply(&quot;(NOT (&quot;, &quot;))&quot;).s(p))).orNull[String](scala.Predef.$conforms[Null])
+        </td>
+      </tr><tr>
+        <td>
+          63
+        </td>
+        <td>
+          715
+        </td>
+        <td>
+          3162
+          -
+          3162
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Predef.$conforms
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.$conforms[Null]
+        </td>
+      </tr><tr>
+        <td>
+          64
+        </td>
+        <td>
+          808
+        </td>
+        <td>
+          3189
+          -
+          3189
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val or: Seq[String] = scala.collection.Seq.apply[org.apache.spark.sql.sources.Filter](f1, f2).flatMap[String, Seq[String]](((_f: org.apache.spark.sql.sources.Filter) =&gt; scala.this.Option.option2Iterable[String](SQLHelper.this.compileFilter(_f)(tz))))(collection.this.Seq.canBuildFrom[String]);
+  if (or.size.==(2))
+    or.map[String, Seq[String]](((p: String) =&gt; scala.StringContext.apply(&quot;(&quot;, &quot;)&quot;).s(p)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot; OR &quot;)
+  else
+    null
+}
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1470
+        </td>
+        <td>
+          3226
+          -
+          3226
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          2406
+        </td>
+        <td>
+          3250
+          -
+          3250
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[String](SQLHelper.this.compileFilter(_f)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          850
+        </td>
+        <td>
+          3250
+          -
+          3250
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileFilter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.compileFilter(_f)(tz)
+        </td>
+      </tr><tr>
+        <td>
+          65
+        </td>
+        <td>
+          1008
+        </td>
+        <td>
+          3226
+          -
+          3226
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[org.apache.spark.sql.sources.Filter](f1, f2).flatMap[String, Seq[String]](((_f: org.apache.spark.sql.sources.Filter) =&gt; scala.this.Option.option2Iterable[String](SQLHelper.this.compileFilter(_f)(tz))))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          23
+        </td>
+        <td>
+          3274
+          -
+          3278
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          or.size.==(2)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1713
+        </td>
+        <td>
+          3323
+          -
+          3323
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          1637
+        </td>
+        <td>
+          3309
+          -
+          3309
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          or.map[String, Seq[String]](((p: String) =&gt; scala.StringContext.apply(&quot;(&quot;, &quot;)&quot;).s(p)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot; OR &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          673
+        </td>
+        <td>
+          3309
+          -
+          3309
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          or.map[String, Seq[String]](((p: String) =&gt; scala.StringContext.apply(&quot;(&quot;, &quot;)&quot;).s(p)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot; OR &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          66
+        </td>
+        <td>
+          2228
+        </td>
+        <td>
+          3323
+          -
+          3323
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          67
+        </td>
+        <td>
+          2307
+        </td>
+        <td>
+          3349
+          -
+          3349
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val and: Seq[String] = scala.collection.Seq.apply[org.apache.spark.sql.sources.Filter](f1, f2).flatMap[String, Seq[String]](((_f: org.apache.spark.sql.sources.Filter) =&gt; scala.this.Option.option2Iterable[String](SQLHelper.this.compileFilter(_f)(tz))))(collection.this.Seq.canBuildFrom[String]);
+  if (and.size.==(2))
+    and.map[String, Seq[String]](((p: String) =&gt; scala.StringContext.apply(&quot;(&quot;, &quot;)&quot;).s(p)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot; AND &quot;)
+  else
+    null
+}
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          1429
+        </td>
+        <td>
+          3411
+          -
+          3411
+        </td>
+        <td>
+          ApplyImplicitView
+        </td>
+        <td>
+          scala.Option.option2Iterable
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.this.Option.option2Iterable[String](SQLHelper.this.compileFilter(_f)(tz))
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          974
+        </td>
+        <td>
+          3387
+          -
+          3387
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.collection.Seq.canBuildFrom
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          collection.this.Seq.canBuildFrom[String]
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          2301
+        </td>
+        <td>
+          3411
+          -
+          3411
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileFilter
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.compileFilter(_f)(tz)
+        </td>
+      </tr><tr>
+        <td>
+          68
+        </td>
+        <td>
+          31
+        </td>
+        <td>
+          3387
+          -
+          3387
+        </td>
+        <td>
+          ApplyToImplicitArgs
+        </td>
+        <td>
+          scala.collection.TraversableLike.flatMap
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.collection.Seq.apply[org.apache.spark.sql.sources.Filter](f1, f2).flatMap[String, Seq[String]](((_f: org.apache.spark.sql.sources.Filter) =&gt; scala.this.Option.option2Iterable[String](SQLHelper.this.compileFilter(_f)(tz))))(collection.this.Seq.canBuildFrom[String])
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          630
+        </td>
+        <td>
+          3472
+          -
+          3472
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          and.map[String, Seq[String]](((p: String) =&gt; scala.StringContext.apply(&quot;(&quot;, &quot;)&quot;).s(p)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot; AND &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          815
+        </td>
+        <td>
+          3487
+          -
+          3487
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1696
+        </td>
+        <td>
+          3487
+          -
+          3487
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          1642
+        </td>
+        <td>
+          3436
+          -
+          3440
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.==
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          and.size.==(2)
+        </td>
+      </tr><tr>
+        <td>
+          69
+        </td>
+        <td>
+          2174
+        </td>
+        <td>
+          3472
+          -
+          3472
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          and.map[String, Seq[String]](((p: String) =&gt; scala.StringContext.apply(&quot;(&quot;, &quot;)&quot;).s(p)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot; AND &quot;)
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          1401
+        </td>
+        <td>
+          3506
+          -
+          3506
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          70
+        </td>
+        <td>
+          595
+        </td>
+        <td>
+          3506
+          -
+          3506
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          null
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          2428
+        </td>
+        <td>
+          3673
+          -
+          3673
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val col: org.apache.spark.sql.connector.expressions.NamedReference = min.column().asInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference];
+  if (col.fieldNames().length.!=(1))
+    return scala.None
+  else
+    ();
+  scala.Some.apply[String](scala.StringContext.apply(&quot;MIN(&quot;, &quot;)&quot;).s(SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head)))
+}
+        </td>
+      </tr><tr>
+        <td>
+          75
+        </td>
+        <td>
+          1678
+        </td>
+        <td>
+          3656
+          -
+          3656
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          min.column().isInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference]
+        </td>
+      </tr><tr>
+        <td>
+          76
+        </td>
+        <td>
+          638
+        </td>
+        <td>
+          3717
+          -
+          3717
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          min.column().asInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference]
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          821
+        </td>
+        <td>
+          3776
+          -
+          3776
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileAggregate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          return scala.None
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1781
+        </td>
+        <td>
+          3783
+          -
+          3783
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          1407
+        </td>
+        <td>
+          3742
+          -
+          3742
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          2160
+        </td>
+        <td>
+          3770
+          -
+          3774
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          col.fieldNames().length.!=(1)
+        </td>
+      </tr><tr>
+        <td>
+          77
+        </td>
+        <td>
+          2423
+        </td>
+        <td>
+          3742
+          -
+          3742
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1378
+        </td>
+        <td>
+          3801
+          -
+          3801
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;MIN(&quot;, &quot;)&quot;).s(SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          1679
+        </td>
+        <td>
+          3820
+          -
+          3820
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.NamedReference.fieldNames
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          col.fieldNames()
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          749
+        </td>
+        <td>
+          3831
+          -
+          3831
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](col.fieldNames()).head
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          551
+        </td>
+        <td>
+          3803
+          -
+          3803
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;MIN(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          805
+        </td>
+        <td>
+          3800
+          -
+          3800
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](scala.StringContext.apply(&quot;MIN(&quot;, &quot;)&quot;).s(SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head)))
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          111
+        </td>
+        <td>
+          3837
+          -
+          3837
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          78
+        </td>
+        <td>
+          2225
+        </td>
+        <td>
+          3815
+          -
+          3815
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head)
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          2194
+        </td>
+        <td>
+          3904
+          -
+          3904
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val col: org.apache.spark.sql.connector.expressions.NamedReference = max.column().asInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference];
+  if (col.fieldNames().length.!=(1))
+    return scala.None
+  else
+    ();
+  scala.Some.apply[String](scala.StringContext.apply(&quot;MAX(&quot;, &quot;)&quot;).s(SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head)))
+}
+        </td>
+      </tr><tr>
+        <td>
+          79
+        </td>
+        <td>
+          1517
+        </td>
+        <td>
+          3887
+          -
+          3887
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          max.column().isInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference]
+        </td>
+      </tr><tr>
+        <td>
+          80
+        </td>
+        <td>
+          561
+        </td>
+        <td>
+          3948
+          -
+          3948
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          max.column().asInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference]
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          752
+        </td>
+        <td>
+          4005
+          -
+          4005
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileAggregate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          return scala.None
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          118
+        </td>
+        <td>
+          3999
+          -
+          4003
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          col.fieldNames().length.!=(1)
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1347
+        </td>
+        <td>
+          3973
+          -
+          3973
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          2192
+        </td>
+        <td>
+          3973
+          -
+          3973
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          81
+        </td>
+        <td>
+          1594
+        </td>
+        <td>
+          4012
+          -
+          4012
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          813
+        </td>
+        <td>
+          4032
+          -
+          4032
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;MAX(&quot;
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          681
+        </td>
+        <td>
+          4029
+          -
+          4029
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](scala.StringContext.apply(&quot;MAX(&quot;, &quot;)&quot;).s(SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head)))
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1449
+        </td>
+        <td>
+          4049
+          -
+          4049
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.NamedReference.fieldNames
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          col.fieldNames()
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          2358
+        </td>
+        <td>
+          4066
+          -
+          4066
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;)&quot;
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          6
+        </td>
+        <td>
+          4044
+          -
+          4044
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head)
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          1603
+        </td>
+        <td>
+          4030
+          -
+          4030
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;MAX(&quot;, &quot;)&quot;).s(SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head))
+        </td>
+      </tr><tr>
+        <td>
+          82
+        </td>
+        <td>
+          571
+        </td>
+        <td>
+          4060
+          -
+          4060
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](col.fieldNames()).head
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          2279
+        </td>
+        <td>
+          4139
+          -
+          4139
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val col: org.apache.spark.sql.connector.expressions.NamedReference = count.column().asInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference];
+  if (col.fieldNames().length.!=(1))
+    return scala.None
+  else
+    ();
+  val distinct: String = if (count.isDistinct())
+    &quot;DISTINCT &quot;
+  else
+    &quot;&quot;;
+  val column: String = SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head);
+  scala.Some.apply[String](scala.StringContext.apply(&quot;COUNT(&quot;, &quot;&quot;, &quot;)&quot;).s(distinct, column))
+}
+        </td>
+      </tr><tr>
+        <td>
+          83
+        </td>
+        <td>
+          1355
+        </td>
+        <td>
+          4122
+          -
+          4122
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          count.column().isInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference]
+        </td>
+      </tr><tr>
+        <td>
+          84
+        </td>
+        <td>
+          777
+        </td>
+        <td>
+          4185
+          -
+          4185
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          count.column().asInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference]
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1509
+        </td>
+        <td>
+          4249
+          -
+          4249
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          2361
+        </td>
+        <td>
+          4236
+          -
+          4240
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          col.fieldNames().length.!=(1)
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          1556
+        </td>
+        <td>
+          4210
+          -
+          4210
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          524
+        </td>
+        <td>
+          4242
+          -
+          4242
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileAggregate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          return scala.None
+        </td>
+      </tr><tr>
+        <td>
+          85
+        </td>
+        <td>
+          2043
+        </td>
+        <td>
+          4210
+          -
+          4210
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          1306
+        </td>
+        <td>
+          4299
+          -
+          4299
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;DISTINCT &quot;
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          782
+        </td>
+        <td>
+          4316
+          -
+          4316
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          746
+        </td>
+        <td>
+          4287
+          -
+          4287
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.aggregate.Count.isDistinct
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          count.isDistinct()
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          2319
+        </td>
+        <td>
+          4316
+          -
+          4316
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          86
+        </td>
+        <td>
+          2163
+        </td>
+        <td>
+          4299
+          -
+          4299
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;DISTINCT &quot;
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          1514
+        </td>
+        <td>
+          4351
+          -
+          4351
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.NamedReference.fieldNames
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          col.fieldNames()
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          2010
+        </td>
+        <td>
+          4346
+          -
+          4346
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head)
+        </td>
+      </tr><tr>
+        <td>
+          87
+        </td>
+        <td>
+          475
+        </td>
+        <td>
+          4362
+          -
+          4362
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](col.fieldNames()).head
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          750
+        </td>
+        <td>
+          4380
+          -
+          4380
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](scala.StringContext.apply(&quot;COUNT(&quot;, &quot;&quot;, &quot;)&quot;).s(distinct, column))
+        </td>
+      </tr><tr>
+        <td>
+          88
+        </td>
+        <td>
+          1561
+        </td>
+        <td>
+          4381
+          -
+          4381
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;COUNT(&quot;, &quot;&quot;, &quot;)&quot;).s(distinct, column)
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          1345
+        </td>
+        <td>
+          4455
+          -
+          4455
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.isInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          sum.column().isInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference]
+        </td>
+      </tr><tr>
+        <td>
+          89
+        </td>
+        <td>
+          2246
+        </td>
+        <td>
+          4472
+          -
+          4472
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          {
+  val col: org.apache.spark.sql.connector.expressions.NamedReference = sum.column().asInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference];
+  if (col.fieldNames().length.!=(1))
+    return scala.None
+  else
+    ();
+  val distinct: String = if (sum.isDistinct())
+    &quot;DISTINCT &quot;
+  else
+    &quot;&quot;;
+  val column: String = SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head);
+  scala.Some.apply[String](scala.StringContext.apply(&quot;SUM(&quot;, &quot;&quot;, &quot;)&quot;).s(distinct, column))
+}
+        </td>
+      </tr><tr>
+        <td>
+          90
+        </td>
+        <td>
+          917
+        </td>
+        <td>
+          4516
+          -
+          4516
+        </td>
+        <td>
+          TypeApply
+        </td>
+        <td>
+          scala.Any.asInstanceOf
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          sum.column().asInstanceOf[org.apache.spark.sql.connector.expressions.NamedReference]
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1521
+        </td>
+        <td>
+          4580
+          -
+          4580
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          2121
+        </td>
+        <td>
+          4541
+          -
+          4541
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          2411
+        </td>
+        <td>
+          4567
+          -
+          4571
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Int.!=
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          col.fieldNames().length.!=(1)
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          1684
+        </td>
+        <td>
+          4541
+          -
+          4541
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          ()
+        </td>
+      </tr><tr>
+        <td>
+          91
+        </td>
+        <td>
+          607
+        </td>
+        <td>
+          4573
+          -
+          4573
+        </td>
+        <td>
+          Return
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.compileAggregate
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          return scala.None
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          723
+        </td>
+        <td>
+          4616
+          -
+          4616
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.aggregate.Sum.isDistinct
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          sum.isDistinct()
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          435
+        </td>
+        <td>
+          4645
+          -
+          4645
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          1296
+        </td>
+        <td>
+          4628
+          -
+          4628
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;DISTINCT &quot;
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          2414
+        </td>
+        <td>
+          4645
+          -
+          4645
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;&quot;
+        </td>
+      </tr><tr>
+        <td>
+          92
+        </td>
+        <td>
+          2282
+        </td>
+        <td>
+          4628
+          -
+          4628
+        </td>
+        <td>
+          Literal
+        </td>
+        <td>
+          &lt;nosymbol&gt;
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          &quot;DISTINCT &quot;
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          1483
+        </td>
+        <td>
+          4680
+          -
+          4680
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          org.apache.spark.sql.connector.expressions.NamedReference.fieldNames
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          col.fieldNames()
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          2083
+        </td>
+        <td>
+          4675
+          -
+          4675
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          com.clickhouse.spark.SQLHelper.quoted
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          SQLHelper.this.quoted(scala.Predef.refArrayOps[String](col.fieldNames()).head)
+        </td>
+      </tr><tr>
+        <td>
+          93
+        </td>
+        <td>
+          521
+        </td>
+        <td>
+          4691
+          -
+          4691
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.collection.IndexedSeqOptimized.head
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Predef.refArrayOps[String](col.fieldNames()).head
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          1551
+        </td>
+        <td>
+          4710
+          -
+          4710
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.StringContext.s
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.StringContext.apply(&quot;SUM(&quot;, &quot;&quot;, &quot;)&quot;).s(distinct, column)
+        </td>
+      </tr><tr>
+        <td>
+          94
+        </td>
+        <td>
+          725
+        </td>
+        <td>
+          4709
+          -
+          4709
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](scala.StringContext.apply(&quot;SUM(&quot;, &quot;&quot;, &quot;)&quot;).s(distinct, column))
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          439
+        </td>
+        <td>
+          4775
+          -
+          4775
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](&quot;COUNT(*)&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          96
+        </td>
+        <td>
+          1301
+        </td>
+        <td>
+          4775
+          -
+          4775
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.Some.apply
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.Some.apply[String](&quot;COUNT(*)&quot;)
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          2316
+        </td>
+        <td>
+          4804
+          -
+          4804
+        </td>
+        <td>
+          Select
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          97
+        </td>
+        <td>
+          1486
+        </td>
+        <td>
+          4804
+          -
+          4804
+        </td>
+        <td>
+          Block
+        </td>
+        <td>
+          scala.None
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          scala.None
+        </td>
+      </tr><tr>
+        <td>
+          103
+        </td>
+        <td>
+          490
+        </td>
+        <td>
+          4979
+          -
+          4979
+        </td>
+        <td>
+          Apply
+        </td>
+        <td>
+          scala.collection.TraversableOnce.mkString
+        </td>
+        <td>
+          
+        </td>
+        <td style="background: #F0ADAD">
+          filters.flatMap[String, Seq[String]](((_f: org.apache.spark.sql.sources.Filter) =&gt; scala.this.Option.option2Iterable[String](SQLHelper.this.compileFilter(_f)(tz))))(collection.this.Seq.canBuildFrom[String]).map[String, Seq[String]](((p: String) =&gt; scala.StringContext.apply(&quot;(&quot;, &quot;)&quot;).s(p)))(collection.this.Seq.canBuildFrom[String]).mkString(&quot; AND &quot;)
+        </td>
+      </tr>
+    </table>
+          </div>
+        </div>
+      </body>
+    </html>
