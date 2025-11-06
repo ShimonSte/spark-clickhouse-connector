@@ -68,6 +68,7 @@ trait ClickHouseHelper extends Logging {
         !ignore
       }
       .toMap
+    val optsWithDefaults = clientOpts + ("custom_http_params" -> "enable_http_compression=0")
     NodeSpec(
       _host = options.getOrDefault(CATALOG_PROP_HOST, "localhost"),
       _tcp_port = Some(options.getInt(CATALOG_PROP_TCP_PORT, 9000)),
@@ -76,7 +77,7 @@ trait ClickHouseHelper extends Logging {
       username = options.getOrDefault(CATALOG_PROP_USER, "default"),
       password = options.getOrDefault(CATALOG_PROP_PASSWORD, ""),
       database = options.getOrDefault(CATALOG_PROP_DATABASE, "default"),
-      options = new JHashMap(clientOpts.asJava)
+      options = new JHashMap(optsWithDefaults.asJava)
     )
   }
 
