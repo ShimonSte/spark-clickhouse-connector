@@ -68,6 +68,50 @@ project(":clickhouse-spark-runtime-${spark_binary_version}_$scala_binary_version
     }
 }
 
+// Databricks-specific runtime jar (with shaded Jackson) - only for Spark 4.0
+project(":clickhouse-spark-runtime-${spark_binary_version}_${scala_binary_version}-databricks") {
+    apply plugin: "com.github.johnrengelman.shadow"
+
+    tasks.jar.dependsOn tasks.shadowJar
+
+    dependencies {
+        compileOnly "org.scala-lang:scala-library:$scala_version"
+
+        implementation(project(":clickhouse-spark-${spark_binary_version}_$scala_binary_version")) {
+            exclude group: "org.antlr", module: "antlr4-runtime"
+            exclude group: "org.scala-lang", module: "scala-library"
+            exclude group: "org.slf4j", module: "slf4j-api"
+            exclude group: "org.apache.commons", module: "commons-lang3"
+            exclude group: "com.clickhouse", module: "clickhouse-jdbc"
+        }
+
+        // Include Jackson dependencies to be bundled and shaded in the runtime jar
+        // This ensures we use our version and avoid conflicts with external versions (e.g., Databricks Hudi)
+        implementation "com.fasterxml.jackson.core:jackson-databind:$jackson_version"
+        implementation "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:$jackson_version"
+        implementation "com.fasterxml.jackson.module:jackson-module-scala_$scala_binary_version:$jackson_version"
+    }
+
+    shadowJar {
+        zip64=true
+        archiveClassifier="databricks"
+        relocate "com.fasterxml.jackson", "com.clickhouse.spark.shaded.jackson"
+        exclude "META-INF/services/com.fasterxml.jackson.databind.Module"
+        
+        mergeServiceFiles()
+    }
+
+    jar {
+        archiveClassifier="empty"
+        manifest {
+            attributes(
+                    'Implementation-Title': 'Spark-ClickHouse-Connector-Databricks',
+                    'Implementation-Version': "${spark_binary_version}_${scala_binary_version}_${getProjectVersion()}"
+            )
+        }
+    }
+}
+
 project(":clickhouse-spark-it-${spark_binary_version}_$scala_binary_version") {
     dependencies {
         implementation "org.scala-lang:scala-library:$scala_version" // for scala plugin detect scala binary version

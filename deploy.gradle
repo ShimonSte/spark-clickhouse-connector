@@ -22,7 +22,7 @@ subprojects {
         publishing {
             if (project.name.contains("-runtime")) {
                 // Determine the corresponding implementation project name
-                def implProjectName = project.name.replace("-runtime", "")
+                def implProjectName = project.name.replace("-runtime", "").replace("-databricks", "")
                 def implProject = project.parent.findProject(":${implProjectName}")
 
                 tasks.register('sourceJar', Jar) {
@@ -81,11 +81,22 @@ subprojects {
                         project.shadow.component(publication)
                         artifact sourceJar
                         artifact javadocJar
+                        
+                        // For databricks variant, set the artifact ID to match the normal runtime (without -databricks)
+                        if (project.name.contains("-databricks")) {
+                            def baseArtifactId = project.name.replace("-databricks", "")
+                            publication.artifactId = baseArtifactId
+                        }
 
                         pom {
-                            name = "Spark ClickHouse Connector"
+                            if (project.name.contains("-databricks")) {
+                                name = "Spark ClickHouse Connector (Databricks)"
+                                description = "Spark ClickHouse Connector build on Apache Spark DataSourceV2 API. Databricks variant with shaded Jackson to avoid conflicts."
+                            } else {
+                                name = "Spark ClickHouse Connector"
+                                description = "Spark ClickHouse Connector build on Apache Spark DataSourceV2 API."
+                            }
                             url = "https://github.com/clickhouse/spark-clickhouse-connector"
-                            description = "Spark ClickHouse Connector build on Apache Spark DataSourceV2 API."
                             developers {
                                 developer {
                                     id = 'pan3793'

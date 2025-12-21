@@ -39,6 +39,13 @@ include ":clickhouse-spark-runtime-${spark_binary_version}_$scala_binary_version
 project(":clickhouse-spark-runtime-${spark_binary_version}_$scala_binary_version").projectDir = file("spark-${spark_binary_version}/clickhouse-spark-runtime")
 project(":clickhouse-spark-runtime-${spark_binary_version}_$scala_binary_version").name = "clickhouse-spark-runtime-${spark_binary_version}_$scala_binary_version"
 
+// Databricks-specific runtime jar (with shaded Jackson) - only for Spark 4.0
+if (spark_binary_version == "4.0") {
+    include ":clickhouse-spark-runtime-${spark_binary_version}_${scala_binary_version}-databricks"
+    project(":clickhouse-spark-runtime-${spark_binary_version}_${scala_binary_version}-databricks").projectDir = file("spark-${spark_binary_version}/clickhouse-spark-runtime")
+    project(":clickhouse-spark-runtime-${spark_binary_version}_${scala_binary_version}-databricks").name = "clickhouse-spark-runtime-${spark_binary_version}_${scala_binary_version}-databricks"
+}
+
 include ":clickhouse-spark-it-${spark_binary_version}_$scala_binary_version"
 project(":clickhouse-spark-it-${spark_binary_version}_$scala_binary_version").projectDir = file("spark-${spark_binary_version}/clickhouse-spark-it")
 project(":clickhouse-spark-it-${spark_binary_version}_$scala_binary_version").name = "clickhouse-spark-it-${spark_binary_version}_$scala_binary_version"
