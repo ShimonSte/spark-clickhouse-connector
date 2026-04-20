@@ -97,7 +97,7 @@ class ClickHouseScanBuilder(
          |$groupByClause
          |""".stripMargin
     try {
-      _readSchema = Utils.tryWithResource(NodeClient(scanJob.node)) { implicit nodeClient: NodeClient =>
+      _readSchema = Utils.tryWithResource(NodeClient(scanJob.node, scanJob.readOptions.queryTimeoutMs)) { implicit nodeClient: NodeClient =>
         val fields = (getQueryOutputSchema(aggQuery) zip compiledSelectItems)
           .map { case (structField, colExpr) => structField.copy(name = colExpr) }
         StructType(fields)
@@ -142,7 +142,7 @@ class ClickHouseBatchScan(scanJob: ScanJobDescription) extends Scan with Batch
   lazy val inputPartitions: Array[ClickHouseInputPartition] = scanJob.tableEngineSpec match {
     case DistributedEngineSpec(_, _, local_db, local_table, _, _) if scanJob.readOptions.convertDistributedToLocal =>
       scanJob.cluster.get.shards.flatMap { shardSpec =>
-        Utils.tryWithResource(NodeClient(shardSpec.nodes.head)) { implicit nodeClient: NodeClient =>
+        Utils.tryWithResource(NodeClient(shardSpec.nodes.head, scanJob.readOptions.queryTimeoutMs)) { implicit nodeClient: NodeClient =>
           queryPartitionSpec(local_db, local_table).map { partitionSpec =>
             ClickHouseInputPartition(
               scanJob.localTableSpec.get,
@@ -166,7 +166,7 @@ class ClickHouseBatchScan(scanJob: ScanJobDescription) extends Scan with Batch
         scanJob.node
       ))
     case _: TableEngineSpec =>
-      Utils.tryWithResource(NodeClient(scanJob.node)) { implicit nodeClient: NodeClient =>
+      Utils.tryWithResource(NodeClient(scanJob.node, scanJob.readOptions.queryTimeoutMs)) { implicit nodeClient: NodeClient =>
         queryPartitionSpec(database, table).map { partitionSpec =>
           ClickHouseInputPartition(
             scanJob.tableSpec,

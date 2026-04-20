@@ -42,12 +42,18 @@ import java.util.UUID
 import scala.util.{Failure, Success, Try}
 
 object NodeClient {
+  final val DefaultReadQueryTimeoutMs: Long = 60000L
+
   def apply(node: NodeSpec): NodeClient = new NodeClient(node)
+
+  def apply(node: NodeSpec, readQueryTimeoutMs: Long): NodeClient =
+    new NodeClient(node, readQueryTimeoutMs)
 }
 
-class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
-  // TODO: add configurable timeout
-  private val timeout: Int = 60000
+class NodeClient(
+  val nodeSpec: NodeSpec,
+  private val readQueryTimeoutMs: Long = NodeClient.DefaultReadQueryTimeoutMs
+) extends AutoCloseable with Logging {
 
   private lazy val userAgent: String = {
     val title = getClass.getPackage.getImplementationTitle
@@ -199,7 +205,7 @@ class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
     querySettings.setFormat(clickHouseFormat)
     querySettings.setQueryId(queryId)
     settings.foreach { case (k, v) => querySettings.setOption(k, v) }
-    Try(client.query(sql, querySettings).get(timeout, TimeUnit.MILLISECONDS)) match {
+    Try(client.query(sql, querySettings).get(readQueryTimeoutMs, TimeUnit.MILLISECONDS)) match {
       case Success(response: QueryResponse) => Right(deserializer(response.getInputStream))
       case Failure(se: ServerException) => Left(CHServerException(se.getCode, se.getMessage, Some(nodeSpec), Some(se)))
       case Failure(ex: Exception) => Left(CHClientException(ex.getMessage, Some(nodeSpec), Some(ex)))
@@ -233,7 +239,7 @@ class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
     querySettings.setQueryId(queryId)
     settings.foreach { case (k, v) => querySettings.setOption(k, v) }
 
-    Try(client.query(sql, querySettings).get(timeout, TimeUnit.MILLISECONDS)) match {
+    Try(client.query(sql, querySettings).get(readQueryTimeoutMs, TimeUnit.MILLISECONDS)) match {
       case Success(response: QueryResponse) => response
       case Failure(se: ServerException) => throw CHServerException(se.getCode, se.getMessage, Some(nodeSpec), Some(se))
       case Failure(ex: Exception) => throw CHClientException(ex.getMessage, Some(nodeSpec), Some(ex))
@@ -249,6 +255,10 @@ class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
        |$sql
        |""".stripMargin
   )
-  def ping(timeout: Int = timeout) =
-    client.ping(timeout)
+
+  private def pingTimeoutMsAsInt: Int =
+    if (readQueryTimeoutMs >= Int.MaxValue) Int.MaxValue else readQueryTimeoutMs.toInt
+
+  def ping(pingTimeoutMs: Int = pingTimeoutMsAsInt): Unit =
+    client.ping(pingTimeoutMs)
 }

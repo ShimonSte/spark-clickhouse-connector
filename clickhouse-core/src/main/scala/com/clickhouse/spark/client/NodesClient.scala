@@ -22,10 +22,11 @@ import scala.collection.JavaConverters._
 import scala.util.Random.shuffle
 
 object NodesClient {
-  def apply(nodes: Nodes) = new NodesClient(nodes)
+  def apply(nodes: Nodes, readQueryTimeoutMs: Long = NodeClient.DefaultReadQueryTimeoutMs): NodesClient =
+    new NodesClient(nodes, readQueryTimeoutMs)
 }
 
-class NodesClient(nodes: Nodes) extends AutoCloseable with Logging {
+class NodesClient(nodes: Nodes, readQueryTimeoutMs: Long) extends AutoCloseable with Logging {
   assert(nodes.nodes.nonEmpty)
 
   @transient lazy val cache = new ConcurrentHashMap[NodeSpec, NodeClient]
@@ -37,7 +38,7 @@ class NodesClient(nodes: Nodes) extends AutoCloseable with Logging {
       nodeSpec,
       { nodeSpec =>
         log.info(s"Create client of $nodeSpec")
-        new NodeClient(nodeSpec)
+        new NodeClient(nodeSpec, readQueryTimeoutMs)
       }
     )
   }

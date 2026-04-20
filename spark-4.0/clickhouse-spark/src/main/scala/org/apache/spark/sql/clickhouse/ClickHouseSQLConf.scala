@@ -236,6 +236,14 @@ object ClickHouseSQLConf {
       )
       .createWithDefault("variant")
 
+  val READ_QUERY_TIMEOUT: ConfigEntry[Long] =
+    buildConf("spark.clickhouse.read.queryTimeout")
+      .doc("Maximum time to wait for each ClickHouse read query to return a response (client-side timeout on the HTTP query future).")
+      .version("0.9.0")
+      .timeConf(TimeUnit.MILLISECONDS)
+      .checkValue(_ > 0, "`spark.clickhouse.read.queryTimeout` must be positive.")
+      .createWithDefaultString("60s")
+
   val READ_SETTINGS: OptionalConfigEntry[String] =
     buildConf("spark.clickhouse.read.settings")
       .doc("Settings when read from ClickHouse. e.g. `final=1, max_execution_time=5`")

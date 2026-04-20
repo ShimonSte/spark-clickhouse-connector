@@ -51,6 +51,9 @@ class ReadOptions(_options: JMap[String, String]) extends SparkOptions {
 
   def runtimeFilterEnabled: Boolean =
     eval(RUNTIME_FILTER_ENABLED.key, RUNTIME_FILTER_ENABLED)
+
+  def queryTimeoutMs: Long =
+    eval(READ_QUERY_TIMEOUT.key, READ_QUERY_TIMEOUT)
 }
 
 class WriteOptions(_options: JMap[String, String]) extends SparkOptions {
