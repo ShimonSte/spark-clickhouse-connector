@@ -1115,7 +1115,11 @@ class ArrowStreamAssemblerRoundTripSuite extends AnyFunSuite {
       BatchHandle(ShardKey("d", "t", None), "1", 2L, new BytesPayload(batchBytes(Seq(1, 2)))),
       BatchHandle(ShardKey("d", "t", None), "2", 3L, new BytesPayload(batchBytes(Seq(3, 4, 5))))
     )
-    val streamBytes = ArrowStreamAssembler.lazyStream(header, group).readAllBytes()
+    def readAll(is: java.io.InputStream): Array[Byte] = {
+      val baos = new ByteArrayOutputStream(); val tmp = new Array[Byte](4096)
+      var n = is.read(tmp); while (n != -1) { baos.write(tmp, 0, n); n = is.read(tmp) }; baos.toByteArray
+    }
+    val streamBytes = readAll(ArrowStreamAssembler.lazyStream(header, group)) // JDK8-safe (no readAllBytes)
 
     val reader = new ArrowStreamReader(new ByteArrayInputStream(streamBytes), allocator)
     val readBack = scala.collection.mutable.ArrayBuffer.empty[Int]
