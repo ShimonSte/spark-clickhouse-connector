@@ -40,6 +40,8 @@ object InsertCoordinator extends Logging {
     bucketFor(h.bucket, ctx).submit(h)
 
   def seal(key: ShardKey): Unit = {
+    // Benign race: if shutdown() clears the map between the get and seal, we seal an orphaned
+    // bucket that simply drains and is GC'd. Harmless.
     val b = buckets.get(key)
     if (b != null) b.seal()
   }
@@ -95,6 +97,8 @@ object InsertCoordinator extends Logging {
   }
 
   // test seams
+  // NOTE: a bucket snapshots `sender` at creation, so this must be called BEFORE the first submit
+  // for a given key (tests reset all buckets via shutdownForTest between cases).
   private[coalesce] def setSenderForTest(s: (BucketContext, Seq[BatchHandle]) => Unit): Unit = sender = s
   private[coalesce] def shutdownForTest(): Unit = {
     shutdown()
