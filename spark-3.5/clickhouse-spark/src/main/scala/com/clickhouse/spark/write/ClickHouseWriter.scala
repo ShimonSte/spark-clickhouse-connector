@@ -325,7 +325,7 @@ abstract class ClickHouseWriter(writeJob: WriteJobDescription)
     }
   }
 
-  override def commit(): WriterCommitMessage = {
+  override def commit(): WriterCommitMessage =
     if (coalesceActive) {
       flush(force = currentBufferedRows > 0, currentShardNum)
       sealedBuckets.foreach(InsertCoordinator.seal)
@@ -336,7 +336,6 @@ abstract class ClickHouseWriter(writeJob: WriteJobDescription)
       flush(currentBufferedRows > 0, currentShardNum)
       CommitMessage(s"Job[${writeJob.queryId}]: commit")
     }
-  }
 
   override def abort(): Unit = {}
 

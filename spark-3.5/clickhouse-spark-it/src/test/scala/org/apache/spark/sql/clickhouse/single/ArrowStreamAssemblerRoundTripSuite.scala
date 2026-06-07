@@ -42,7 +42,8 @@ class ArrowStreamAssemblerRoundTripSuite extends AnyFunSuite {
       val baos = new ByteArrayOutputStream()
       val ch = new WriteChannel(Channels.newChannel(baos))
       val rb = new VectorUnloader(root).getRecordBatch
-      try MessageSerializer.serialize(ch, rb) finally rb.close()
+      try MessageSerializer.serialize(ch, rb)
+      finally rb.close()
       root.close()
       baos.toByteArray
     }
