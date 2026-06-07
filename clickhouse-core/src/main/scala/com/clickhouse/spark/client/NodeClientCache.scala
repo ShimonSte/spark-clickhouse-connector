@@ -52,6 +52,12 @@ object NodeClientCache extends Logging {
       }
     )
 
+  /**
+   * Closes every cached client and empties the cache. Intended for JVM/executor shutdown and
+   * test teardown only — it is NOT safe to call concurrently with [[get]]: a client built by a
+   * `get` that wins its `computeIfAbsent` race after the value snapshot but before the map clear
+   * would be dropped without being closed. At shutdown no tasks are issuing `get`, so this is safe.
+   */
   def closeAll(): Unit = {
     cache.values().asScala.foreach(c => Try(c.close()))
     cache.clear()

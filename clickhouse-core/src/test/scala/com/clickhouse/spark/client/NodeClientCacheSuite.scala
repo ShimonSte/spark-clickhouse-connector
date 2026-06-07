@@ -18,6 +18,7 @@ import com.clickhouse.spark.spec.NodeSpec
 import org.scalatest.BeforeAndAfterEach
 import org.scalatest.funsuite.AnyFunSuite
 
+import java.util.concurrent.{CountDownLatch, Executors, TimeUnit}
 import java.util.concurrent.atomic.AtomicInteger
 
 class NodeClientCacheSuite extends AnyFunSuite with BeforeAndAfterEach {
@@ -61,5 +62,29 @@ class NodeClientCacheSuite extends AnyFunSuite with BeforeAndAfterEach {
     NodeClientCache.setFactory { spec => built.incrementAndGet(); new FakeNodeClient(spec, new AtomicInteger) }
     NodeClientCache.get(specA)
     assert(built.get() == 1)
+  }
+
+  test("concurrent get for one spec builds exactly one client") {
+    val built = new AtomicInteger(0)
+    NodeClientCache.setFactory { spec => built.incrementAndGet(); new FakeNodeClient(spec, new AtomicInteger) }
+    val threads = 16
+    val pool = Executors.newFixedThreadPool(threads)
+    val start = new CountDownLatch(1)
+    val done = new CountDownLatch(threads)
+    val seen = java.util.Collections.synchronizedSet(new java.util.HashSet[NodeClient]())
+    (1 to threads).foreach { _ =>
+      pool.submit(new Runnable {
+        override def run(): Unit = {
+          start.await()
+          seen.add(NodeClientCache.get(specA))
+          done.countDown()
+        }
+      })
+    }
+    start.countDown()
+    assert(done.await(10, TimeUnit.SECONDS))
+    pool.shutdown()
+    assert(built.get() == 1)
+    assert(seen.size() == 1)
   }
 }
