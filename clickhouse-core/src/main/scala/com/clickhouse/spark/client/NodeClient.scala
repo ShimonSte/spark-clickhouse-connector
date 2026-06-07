@@ -97,8 +97,12 @@ class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
   // pool to the executor's parallelism. Overridable via the `client_max_connections` node
   // option; Phase 8 wires spark.clickhouse.write.client.maxConnections into this.
   private val maxConnections: Int =
-    Option(nodeSpec.options.get("client_max_connections")).map(_.toInt)
-      .getOrElse(Runtime.getRuntime.availableProcessors() * 2)
+    Option(nodeSpec.options.get("client_max_connections")) match {
+      case Some(v) => scala.util.Try(v.toInt).getOrElse(
+          throw CHClientException(s"Invalid client_max_connections: '$v'", Some(nodeSpec), None)
+        )
+      case None => Runtime.getRuntime.availableProcessors() * 2
+    }
 
   private val client = new Client.Builder()
     .setUsername(nodeSpec.username)
@@ -169,7 +173,7 @@ class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
   ): Either[CHException, Unit] = {
     val queryId = nextQueryId()
     onExecuteQuery(queryId, s"INSERT INTO `$database`.`$table` FORMAT ArrowStream")
-    rawInsert(table, database, payload, ClickHouseFormat.ArrowStream, settings).map(_ => ())
+    rawInsert(table, database, payload, ClickHouseFormat.ArrowStream, settings)
   }
 
   def syncInsert[OUT](
@@ -194,14 +198,16 @@ class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
     data: InputStream,
     format: ClickHouseFormat,
     settings: Map[String, String]
-  ): Either[CHException, InsertResponse] = {
+  ): Either[CHException, Unit] = {
     val insertSettings: InsertSettings = new InsertSettings()
     settings.foreach { case (k, v) => insertSettings.setOption(k, v) }
     insertSettings.setDatabase(database)
     // TODO: check what type of compression is supported by the client v2
     insertSettings.compressClientRequest(true)
     Try(client.insert(table, data, format, insertSettings).get()) match {
-      case Success(resp: InsertResponse) => Right(resp)
+      case Success(resp: InsertResponse) =>
+        resp.close() // InsertResponse is AutoCloseable; close to return the connection to the pool
+        Right(())
       case Success(other) =>
         Left(CHClientException(s"Unexpected insert response: $other", Some(nodeSpec), None))
       case Failure(se: ServerException) =>
