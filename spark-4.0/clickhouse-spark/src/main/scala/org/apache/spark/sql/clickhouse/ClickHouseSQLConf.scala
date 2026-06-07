@@ -15,6 +15,7 @@
 package org.apache.spark.sql.clickhouse
 
 import org.apache.spark.internal.config.{ConfigEntry, OptionalConfigEntry}
+import org.apache.spark.network.util.ByteUnit
 import org.apache.spark.sql.internal.SQLConf._
 import com.clickhouse.spark.exception.ClickHouseErrCode._
 
@@ -57,6 +58,52 @@ object ClickHouseSQLConf {
       .toSequence
       .checkValue(codes => !codes.exists(_ <= OK.code), "Error code should be positive.")
       .createWithDefault(MEMORY_LIMIT_EXCEEDED.code :: Nil)
+
+  val WRITE_COALESCE_ENABLED: ConfigEntry[Boolean] =
+    buildConf("spark.clickhouse.write.coalesce.enabled")
+      .doc("Coalesce multiple tasks' Arrow batches into fewer, larger inserts per executor. " +
+        "Only effective with the arrow write format.")
+      .version("0.9.0")
+      .booleanConf
+      .createWithDefault(false)
+
+  val WRITE_COALESCE_TARGET_BYTES: ConfigEntry[Long] =
+    buildConf("spark.clickhouse.write.coalesce.targetBytes")
+      .doc("Target serialized size of a coalesced insert before it is flushed.")
+      .version("0.9.0")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("64m")
+
+  val WRITE_COALESCE_MAX_BUFFERED_BYTES: ConfigEntry[Long] =
+    buildConf("spark.clickhouse.write.coalesce.maxBufferedBytes")
+      .doc("Per-bucket backpressure cap; submits block once buffered bytes reach this.")
+      .version("0.9.0")
+      .bytesConf(ByteUnit.BYTE)
+      .createWithDefaultString("256m")
+
+  val WRITE_COALESCE_LINGER_MS: ConfigEntry[Long] =
+    buildConf("spark.clickhouse.write.coalesce.lingerMs")
+      .doc("Max time a sub-target buffer waits before being flushed.")
+      .version("0.9.0")
+      .timeConf(TimeUnit.MILLISECONDS)
+      .createWithDefault(300)
+
+  val WRITE_COALESCE_SENDER_THREADS: ConfigEntry[Int] =
+    buildConf("spark.clickhouse.write.coalesce.senderThreads")
+      .doc("Number of executor-wide sender threads draining coalesce buckets.")
+      .version("0.9.0")
+      .intConf
+      .checkValue(_ > 0, "senderThreads must be positive.")
+      .createWithDefault(2)
+
+  val WRITE_DEDUP_MODE: ConfigEntry[String] =
+    buildConf("spark.clickhouse.write.dedup.mode")
+      .doc("Insert dedup mode: none | coalesced.")
+      .version("0.9.0")
+      .stringConf
+      .transform(_.toLowerCase)
+      .checkValue(Set("none", "coalesced").contains, "dedup.mode must be one of: none, coalesced.")
+      .createWithDefault("coalesced")
 
   val WRITE_REPARTITION_NUM: ConfigEntry[Int] =
     buildConf("spark.clickhouse.write.repartitionNum")
