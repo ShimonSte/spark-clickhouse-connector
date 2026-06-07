@@ -18,8 +18,6 @@ import com.clickhouse.spark.Logging
 import com.clickhouse.spark.exception.CHClientException
 import com.clickhouse.spark.spec.ClusterSpec
 
-import java.util.concurrent.ConcurrentHashMap
-import scala.collection.JavaConverters._
 import scala.util.Random._
 
 object ClusterClient {
@@ -27,8 +25,6 @@ object ClusterClient {
 }
 
 class ClusterClient(cluster: ClusterSpec) extends AutoCloseable with Logging {
-
-  @transient lazy val cache = new ConcurrentHashMap[(Int, Int), NodeClient]
 
   def node(shard: Option[Int] = None, replica: Option[Int] = None): NodeClient = {
     val (_shard, _replica) = (shard, replica) match {
@@ -46,17 +42,11 @@ class ClusterClient(cluster: ClusterSpec) extends AutoCloseable with Logging {
         )
     }
 
-    cache.computeIfAbsent(
-      (_shard, _replica),
-      { case (s, r) =>
-        val shardSpec = cluster.shards.find(_.num == s).get
-        val replicaSpec = shardSpec.replicas.find(_.num == r).get
-        val nodeSpec = replicaSpec.node
-        log.info(s"Create client to $nodeSpec, shard $s replica $r")
-        new NodeClient(nodeSpec)
-      }
-    )
+    val shardSpec = cluster.shards.find(_.num == _shard).get
+    val replicaSpec = shardSpec.replicas.find(_.num == _replica).get
+    NodeClientCache.get(replicaSpec.node)
   }
 
-  override def close(): Unit = cache.asScala.values.foreach(_.close())
+  // The shared cache owns client lifetime; closing a ClusterClient must not close cached clients.
+  override def close(): Unit = ()
 }

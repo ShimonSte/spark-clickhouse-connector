@@ -27,7 +27,13 @@ spark.clickhouse.read.settings|<undefined>|Settings when read from ClickHouse. e
 spark.clickhouse.read.splitByPartitionId|true|If `true`, construct input partition filter by virtual column `_partition_id`, instead of partition value. There are known bugs to assemble SQL predication by partition value. This feature requires ClickHouse Server v21.6+|0.4.0
 spark.clickhouse.useNullableQuerySchema|false|If `true`, mark all the fields of the query schema as nullable when executing `CREATE/REPLACE TABLE ... AS SELECT ...` on creating the table. Note, this configuration requires SPARK-43390(available in Spark 3.5), w/o this patch, it always acts as `true`.|0.8.0
 spark.clickhouse.write.batchSize|10000|The number of records per batch on writing to ClickHouse.|0.1.0
+spark.clickhouse.write.coalesce.enabled|false|Coalesce multiple tasks' Arrow batches into fewer, larger inserts per executor. Only effective with the arrow write format.|0.9.0
+spark.clickhouse.write.coalesce.lingerMs|300ms|Max time a sub-target buffer waits before being flushed.|0.9.0
+spark.clickhouse.write.coalesce.maxBufferedBytes|256m|Per-bucket backpressure cap; submits block once buffered bytes reach this.|0.9.0
+spark.clickhouse.write.coalesce.senderThreads|2|Number of executor-wide sender threads draining coalesce buckets.|0.9.0
+spark.clickhouse.write.coalesce.targetBytes|64m|Target serialized size of a coalesced insert before it is flushed.|0.9.0
 spark.clickhouse.write.compression.codec|lz4|The codec used to compress data for writing. Supported codecs: none, lz4.|0.3.0
+spark.clickhouse.write.dedup.mode|coalesced|Insert dedup mode: none | coalesced.|0.9.0
 spark.clickhouse.write.distributed.convertLocal|false|When writing Distributed table, write local table instead of itself. If `true`, ignore `spark.clickhouse.write.distributed.useClusterNodes`. This bypasses ClickHouse's native routing, requiring Spark to evaluate the sharding key. When using unsupported sharding expressions, set `spark.clickhouse.ignoreUnsupportedTransform` to `false` to prevent silent data distribution errors.|0.1.0
 spark.clickhouse.write.distributed.convertLocal.allowUnsupportedSharding|false|Allow writing to Distributed tables with `convertLocal=true` and `ignoreUnsupportedTransform=true` when the sharding key is unsupported. This is dangerous and may cause data corruption due to incorrect sharding. Only set to `true` if you understand the risks and have verified your data distribution. By default, this combination will throw an error to prevent silent data corruption.|0.9.0
 spark.clickhouse.write.distributed.useClusterNodes|true|Write to all nodes of cluster when writing Distributed table.|0.1.0

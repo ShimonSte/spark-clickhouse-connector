@@ -20,7 +20,6 @@ import com.clickhouse.client.api.enums.Protocol
 import com.clickhouse.client.api.insert.{InsertResponse, InsertSettings}
 import com.clickhouse.client.api.query.{QueryResponse, QuerySettings}
 import com.clickhouse.data.ClickHouseFormat
-import com.clickhouse.shaded.org.apache.commons.io.IOUtils
 import com.clickhouse.spark.Logging
 
 import java.util.concurrent.TimeUnit
@@ -94,6 +93,17 @@ class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
     }
   }
 
+  // Pool sizing: one shared client per executor serves many concurrent tasks, so size the
+  // pool to the executor's parallelism. Overridable via the `client_max_connections` node
+  // option; Phase 8 wires spark.clickhouse.write.client.maxConnections into this.
+  private val maxConnections: Int =
+    Option(nodeSpec.options.get("client_max_connections")) match {
+      case Some(v) => scala.util.Try(v.toInt).getOrElse(
+          throw CHClientException(s"Invalid client_max_connections: '$v'", Some(nodeSpec), None)
+        )
+      case None => Runtime.getRuntime.availableProcessors() * 2
+    }
+
   private val client = new Client.Builder()
     .setUsername(nodeSpec.username)
     .setPassword(nodeSpec.password)
@@ -101,6 +111,9 @@ class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
     .setOptions(nodeSpec.options)
     .setClientName(userAgent)
     .addEndpoint(createClickHouseURL(nodeSpec))
+    .setMaxConnections(maxConnections)
+    .setConnectTimeout(timeout.toLong, ChronoUnit.MILLIS)
+    .setConnectionRequestTimeout(timeout.toLong, ChronoUnit.MILLIS)
     .build()
 
   override def close(): Unit =
@@ -152,6 +165,17 @@ class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
       settings
     ).asInstanceOf[SimpleOutput[Array[JsonNode]] with NamesAndTypes]
 
+  def insertArrowStream(
+    table: String,
+    payload: InputStream,
+    database: String,
+    settings: Map[String, String] = Map.empty
+  ): Either[CHException, Unit] = {
+    val queryId = nextQueryId()
+    onExecuteQuery(queryId, s"INSERT INTO `$database`.`$table` FORMAT ArrowStream")
+    rawInsert(table, database, payload, ClickHouseFormat.ArrowStream, settings)
+  }
+
   def syncInsert[OUT](
     database: String,
     table: String,
@@ -161,25 +185,31 @@ class NodeClient(val nodeSpec: NodeSpec) extends AutoCloseable with Logging {
     deserializer: InputStream => SimpleOutput[OUT],
     settings: Map[String, String]
   ): Either[CHException, SimpleOutput[OUT]] = {
-    def readAllBytes(inputStream: InputStream): Array[Byte] =
-      IOUtils.toByteArray(inputStream)
     val queryId = nextQueryId()
     val sql = s"INSERT INTO `$database`.`$table` FORMAT $inputFormat"
     onExecuteQuery(queryId, sql)
-    val insertSettings: InsertSettings = new InsertSettings();
+    rawInsert(table, database, data, ClickHouseFormat.valueOf(inputFormat), settings)
+      .map(_ => deserializer(new ByteArrayInputStream(Array.emptyByteArray)))
+  }
+
+  private def rawInsert(
+    table: String,
+    database: String,
+    data: InputStream,
+    format: ClickHouseFormat,
+    settings: Map[String, String]
+  ): Either[CHException, Unit] = {
+    val insertSettings: InsertSettings = new InsertSettings()
     settings.foreach { case (k, v) => insertSettings.setOption(k, v) }
     insertSettings.setDatabase(database)
     // TODO: check what type of compression is supported by the client v2
     insertSettings.compressClientRequest(true)
-    val payload: Array[Byte] = readAllBytes(data)
-    val is: InputStream = new ByteArrayInputStream("".getBytes())
-    Try(client.insert(
-      table,
-      new ByteArrayInputStream(payload),
-      ClickHouseFormat.valueOf(inputFormat),
-      insertSettings
-    ).get()) match {
-      case Success(resp: InsertResponse) => Right(deserializer(is))
+    Try(client.insert(table, data, format, insertSettings).get()) match {
+      case Success(resp: InsertResponse) =>
+        resp.close() // InsertResponse is AutoCloseable; close to return the connection to the pool
+        Right(())
+      case Success(other) =>
+        Left(CHClientException(s"Unexpected insert response: $other", Some(nodeSpec), None))
       case Failure(se: ServerException) =>
         Left(CHServerException(se.getCode, se.getMessage, Some(nodeSpec), Some(se)))
       case Failure(ex) => Left(CHClientException(ex.getMessage, Some(nodeSpec), Some(ex)))

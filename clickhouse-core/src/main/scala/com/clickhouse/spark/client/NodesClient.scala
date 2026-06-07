@@ -15,10 +15,8 @@
 package com.clickhouse.spark.client
 
 import com.clickhouse.spark.Logging
-import com.clickhouse.spark.spec.{NodeSpec, Nodes}
+import com.clickhouse.spark.spec.Nodes
 
-import java.util.concurrent.ConcurrentHashMap
-import scala.collection.JavaConverters._
 import scala.util.Random.shuffle
 
 object NodesClient {
@@ -28,19 +26,12 @@ object NodesClient {
 class NodesClient(nodes: Nodes) extends AutoCloseable with Logging {
   assert(nodes.nodes.nonEmpty)
 
-  @transient lazy val cache = new ConcurrentHashMap[NodeSpec, NodeClient]
-
   def node: NodeClient = {
-
     val nodeSpec = shuffle(nodes.nodes.toSeq).head
-    cache.computeIfAbsent(
-      nodeSpec,
-      { nodeSpec =>
-        log.info(s"Create client of $nodeSpec")
-        new NodeClient(nodeSpec)
-      }
-    )
+    NodeClientCache.get(nodeSpec)
   }
 
-  override def close(): Unit = cache.asScala.values.foreach(_.close())
+  // The shared cache owns client lifetime (closed at executor shutdown). Closing a NodesClient
+  // must NOT close cached clients, since other tasks on this executor still use them.
+  override def close(): Unit = ()
 }

@@ -97,4 +97,24 @@ class WriteOptions(_options: JMap[String, String]) extends SparkOptions {
 
   def format: String =
     eval(WRITE_FORMAT.key, WRITE_FORMAT)
+
+  def coalesceEnabled: Boolean = eval(WRITE_COALESCE_ENABLED.key, WRITE_COALESCE_ENABLED)
+  def coalesceTargetBytes: Long = eval(WRITE_COALESCE_TARGET_BYTES.key, WRITE_COALESCE_TARGET_BYTES)
+  def coalesceMaxBufferedBytes: Long = eval(WRITE_COALESCE_MAX_BUFFERED_BYTES.key, WRITE_COALESCE_MAX_BUFFERED_BYTES)
+  def coalesceLingerMs: Long = eval(WRITE_COALESCE_LINGER_MS.key, WRITE_COALESCE_LINGER_MS)
+  def coalesceSenderThreads: Int = eval(WRITE_COALESCE_SENDER_THREADS.key, WRITE_COALESCE_SENDER_THREADS)
+  def dedupMode: String = eval(WRITE_DEDUP_MODE.key, WRITE_DEDUP_MODE)
+
+  def coalesceConfig: com.clickhouse.spark.write.coalesce.CoalesceConfig =
+    com.clickhouse.spark.write.coalesce.CoalesceConfig(
+      enabled = coalesceEnabled,
+      targetBytes = coalesceTargetBytes,
+      maxBufferedBytes = coalesceMaxBufferedBytes,
+      lingerMs = coalesceLingerMs,
+      senderThreads = coalesceSenderThreads,
+      dedupMode = dedupMode,
+      maxRetry = maxRetry,
+      retryInterval = retryInterval,
+      retryableErrorCodes = retryableErrorCodes.toSet
+    )
 }

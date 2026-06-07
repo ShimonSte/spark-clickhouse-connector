@@ -15,13 +15,19 @@
 package com.clickhouse.spark.write.format
 
 import com.clickhouse.spark.write.{ClickHouseWriter, WriteJobDescription}
+import com.clickhouse.spark.write.coalesce.{BatchPayload, BytesPayload}
 import org.apache.arrow.memory.BufferAllocator
-import org.apache.arrow.vector.VectorSchemaRoot
+import org.apache.arrow.vector.{VectorSchemaRoot, VectorUnloader}
 import org.apache.arrow.vector.ipc.ArrowStreamWriter
+import org.apache.arrow.vector.ipc.WriteChannel
+import org.apache.arrow.vector.ipc.message.MessageSerializer
 import org.apache.arrow.vector.types.pojo.Schema
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.clickhouse.SparkUtils
 import org.apache.spark.sql.execution.arrow.ArrowWriter
+
+import java.io.ByteArrayOutputStream
+import java.nio.channels.Channels
 
 class ClickHouseArrowStreamWriter(writeJob: WriteJobDescription) extends ClickHouseWriter(writeJob) {
 
@@ -43,6 +49,29 @@ class ClickHouseArrowStreamWriter(writeJob: WriteJobDescription) extends ClickHo
     output.close()
     serializedBuffer.toByteArray
   }
+
+  // IPC schema message for arrowSchema, serialized once and reused as the coalesced stream header.
+  override lazy val schemaHeaderBytes: Array[Byte] = {
+    val baos = new ByteArrayOutputStream()
+    val ch = new WriteChannel(Channels.newChannel(baos))
+    MessageSerializer.serialize(ch, arrowSchema)
+    baos.toByteArray
+  }
+
+  // Serialize ONLY the current batch's record-batch message (uncompressed). Mirrors what
+  // ArrowStreamWriter.writeBatch() emits, minus the schema/EOS framing (added by the assembler).
+  override def serializeRecordBatch(): BatchPayload = {
+    arrowWriter.finish()
+    val baos = new ByteArrayOutputStream()
+    val ch = new WriteChannel(Channels.newChannel(baos))
+    val unloader = new VectorUnloader(root)
+    val recordBatch = unloader.getRecordBatch
+    try MessageSerializer.serialize(ch, recordBatch)
+    finally recordBatch.close()
+    new BytesPayload(baos.toByteArray)
+  }
+
+  override def coalesceSupported: Boolean = true
 
   override def reset(): Unit = {
     super.reset()
