@@ -32,9 +32,14 @@ import com.clickhouse.spark.io.{ForwardingOutputStream, ObservableOutputStream}
 import com.clickhouse.spark._
 import com.clickhouse.spark.client.{ClusterClient, NodeClient, NodeClientCache}
 import com.clickhouse.spark.exception._
+import com.clickhouse.spark.write.coalesce.{BatchHandle, BatchPayload, BucketContext, InsertCoordinator, ShardKey}
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, OutputStream}
+import java.util.UUID
 import java.util.concurrent.atomic.LongAdder
+import scala.collection.mutable.ArrayBuffer
+import scala.concurrent.{Await, Future}
+import scala.concurrent.duration.Duration
 import scala.util.{Failure, Success}
 
 abstract class ClickHouseWriter(writeJob: WriteJobDescription)
@@ -205,6 +210,20 @@ abstract class ClickHouseWriter(writeJob: WriteJobDescription)
 
   var currentShardNum: Option[Int] = None
 
+  // Coalescing hooks. Default: not supported (JSON writer); the Arrow writer overrides these.
+  def coalesceSupported: Boolean = false
+  def serializeRecordBatch(): BatchPayload =
+    throw new UnsupportedOperationException("record-batch serialization not supported for this format")
+  def schemaHeaderBytes: Array[Byte] =
+    throw new UnsupportedOperationException("schema header not supported for this format")
+
+  private lazy val coalesceConfig = writeJob.writeOptions.coalesceConfig
+  private def coalesceActive: Boolean = coalesceConfig.enabled && coalesceSupported
+
+  private val pendingAcks = ArrayBuffer.empty[Future[Unit]]
+  private val sealedBuckets = scala.collection.mutable.Set.empty[ShardKey]
+  private var submittedRows = 0L
+
   override def write(record: InternalRow): Unit = {
     val shardNum = calcShard(record)
     flush(force = shardNum != currentShardNum && currentBufferedRows > 0, currentShardNum)
@@ -244,7 +263,29 @@ abstract class ClickHouseWriter(writeJob: WriteJobDescription)
       doFlush(shardNum)
     }
 
-  def doFlush(shardNum: Option[Int]): Unit = {
+  def doFlush(shardNum: Option[Int]): Unit =
+    if (coalesceActive) doCoalescedFlush(shardNum) else doDirectFlush(shardNum)
+
+  private def doCoalescedFlush(shardNum: Option[Int]): Unit = {
+    if (currentBufferedRows == 0) return
+    val key = ShardKey(database, table, shardNum)
+    val payload = serializeRecordBatch()
+    val handle = BatchHandle(key, UUID.randomUUID().toString, currentBufferedRows, payload)
+    val ctx = BucketContext(
+      client = nodeClient(shardNum),
+      database = database,
+      table = table,
+      schemaHeader = schemaHeaderBytes,
+      baseSettings = Map.empty,
+      config = coalesceConfig
+    )
+    pendingAcks += InsertCoordinator.submit(handle, ctx)
+    sealedBuckets += key
+    submittedRows += currentBufferedRows
+    reset()
+  }
+
+  private def doDirectFlush(shardNum: Option[Int]): Unit = {
     val client = nodeClient(shardNum)
     val data = serialize()
     var writeTime = 0L
@@ -285,8 +326,16 @@ abstract class ClickHouseWriter(writeJob: WriteJobDescription)
   }
 
   override def commit(): WriterCommitMessage = {
-    flush(currentBufferedRows > 0, currentShardNum)
-    CommitMessage(s"Job[${writeJob.queryId}]: commit")
+    if (coalesceActive) {
+      flush(force = currentBufferedRows > 0, currentShardNum)
+      sealedBuckets.foreach(InsertCoordinator.seal)
+      pendingAcks.foreach(f => Await.result(f, Duration.Inf))
+      _totalRecordsWritten.add(submittedRows)
+      CommitMessage(s"Job[${writeJob.queryId}]: commit (coalesced)")
+    } else {
+      flush(currentBufferedRows > 0, currentShardNum)
+      CommitMessage(s"Job[${writeJob.queryId}]: commit")
+    }
   }
 
   override def abort(): Unit = {}
