@@ -20,13 +20,21 @@ class ArrowStreamAssemblerSuite extends AnyFunSuite {
 
   private def payload(bytes: Int*): BytesPayload = new BytesPayload(bytes.map(_.toByte).toArray)
 
+  private def readAll(is: java.io.InputStream): Array[Byte] = {
+    val buf = new java.io.ByteArrayOutputStream()
+    val tmp = new Array[Byte](4096)
+    var n = is.read(tmp)
+    while (n != -1) { buf.write(tmp, 0, n); n = is.read(tmp) }
+    buf.toByteArray
+  }
+
   test("lazyStream concatenates header, each payload, then the 8-byte EOS marker") {
     val header = Array[Byte](10, 11, 12)
     val group = Seq(
       BatchHandle(ShardKey("d", "t", None), "1", 1L, payload(1, 2)),
       BatchHandle(ShardKey("d", "t", None), "2", 1L, payload(3, 4, 5))
     )
-    val out = ArrowStreamAssembler.lazyStream(header, group).readAllBytes()
+    val out = readAll(ArrowStreamAssembler.lazyStream(header, group))
     val expected =
       Array[Byte](10, 11, 12) ++ Array[Byte](1, 2) ++ Array[Byte](3, 4, 5) ++
         ArrowStreamAssembler.EOS
@@ -40,8 +48,8 @@ class ArrowStreamAssemblerSuite extends AnyFunSuite {
   test("lazyStream can be rebuilt and re-read (retry-safety)") {
     val header = Array[Byte](7)
     val group = Seq(BatchHandle(ShardKey("d", "t", None), "1", 1L, payload(8, 9)))
-    val first = ArrowStreamAssembler.lazyStream(header, group).readAllBytes()
-    val second = ArrowStreamAssembler.lazyStream(header, group).readAllBytes()
+    val first = readAll(ArrowStreamAssembler.lazyStream(header, group))
+    val second = readAll(ArrowStreamAssembler.lazyStream(header, group))
     assert(first.toSeq == second.toSeq)
   }
 }

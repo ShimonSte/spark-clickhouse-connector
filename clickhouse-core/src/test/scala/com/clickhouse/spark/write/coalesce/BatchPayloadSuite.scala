@@ -18,6 +18,14 @@ import org.scalatest.funsuite.AnyFunSuite
 
 class BatchPayloadSuite extends AnyFunSuite {
 
+  private def readAll(is: java.io.InputStream): Array[Byte] = {
+    val buf = new java.io.ByteArrayOutputStream()
+    val tmp = new Array[Byte](4096)
+    var n = is.read(tmp)
+    while (n != -1) { buf.write(tmp, 0, n); n = is.read(tmp) }
+    buf.toByteArray
+  }
+
   test("BytesPayload reports its size and yields a fresh stream each call") {
     val bytes = Array[Byte](1, 2, 3, 4, 5)
     val p = new BytesPayload(bytes)
@@ -26,7 +34,7 @@ class BatchPayloadSuite extends AnyFunSuite {
     assert(s1.read() == 1)
     val s2 = p.asInputStream
     assert(s2.read() == 1)
-    assert(p.asInputStream.readAllBytes().toSeq == bytes.toSeq)
+    assert(readAll(p.asInputStream).toSeq == bytes.toSeq)
   }
 
   test("BatchHandle exposes a future that completes from its promise") {

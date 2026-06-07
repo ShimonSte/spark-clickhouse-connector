@@ -26,7 +26,10 @@ trait BatchPayload {
   def close(): Unit
 }
 
-/** Heap-backed payload. `close()` is a no-op (GC reclaims the array). */
+/**
+ * Heap-backed payload. `close()` is a no-op (GC reclaims the array). The backing array is wrapped
+ * without a defensive copy, so it must not be mutated after construction.
+ */
 final class BytesPayload(bytes: Array[Byte]) extends BatchPayload {
   override def asInputStream: InputStream = new ByteArrayInputStream(bytes)
   override def sizeBytes: Long = bytes.length.toLong
