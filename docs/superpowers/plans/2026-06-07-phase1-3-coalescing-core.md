@@ -804,6 +804,14 @@ git commit -m "feat(core): add InsertCoordinator (bucket registry + sender pool)
 
 ---
 
+> **Cross-version note (discovered during execution):** `docs/configurations/02_sql_configurations.md`
+> is a SINGLE shared golden file validated by `ConfigurationSuite` in every version module. Adding
+> config entries to only spark-3.5 breaks the other modules' suites. Therefore the 6 `ConfigEntry`
+> definitions (+ `ByteUnit` import) were added to **all four** versions' `ClickHouseSQLConf.scala`,
+> and the golden was regenerated from spark-4.0 (the superset incl. the `[Spark 4.0+ only]`
+> `read.jsonAs` row). The `WriteOptions` accessors + `coalesceConfig` and the writer wiring remain
+> spark-3.5-only for now; Plan 3 adds the accessors+wiring to 3.3/3.4/4.0 (entries already exist).
+
 ## Task 6: spark-3.5 config keys + `WriteOptions` accessors
 
 **Files:**
