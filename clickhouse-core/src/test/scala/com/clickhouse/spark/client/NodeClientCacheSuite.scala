@@ -87,4 +87,30 @@ class NodeClientCacheSuite extends AnyFunSuite with BeforeAndAfterEach {
     assert(built.get() == 1)
     assert(seen.size() == 1)
   }
+
+  test("NodesClient.node returns the cache-shared instance and close() does not close it") {
+    val closes = new AtomicInteger(0)
+    NodeClientCache.setFactory(spec => new FakeNodeClient(spec, closes))
+    val nodes = new NodesClient(specA) // NodeSpec is itself a `Nodes` of size 1
+    val viaNodes = nodes.node
+    assert(viaNodes eq NodeClientCache.get(specA))
+    nodes.close()
+    assert(closes.get() == 0) // cache owns lifetime; NodesClient.close must not close it
+  }
+
+  test("ClusterClient.node returns cache-shared instances and close() does not close them") {
+    val closes = new AtomicInteger(0)
+    NodeClientCache.setFactory(spec => new FakeNodeClient(spec, closes))
+    val cluster = new ClusterClient(NodeClientCacheSuite.singleNodeCluster(specA))
+    val viaCluster = cluster.node()
+    assert(viaCluster eq NodeClientCache.get(specA))
+    cluster.close()
+    assert(closes.get() == 0)
+  }
+}
+
+object NodeClientCacheSuite {
+  import com.clickhouse.spark.spec.{ClusterSpec, ReplicaSpec, ShardSpec}
+  def singleNodeCluster(spec: NodeSpec): ClusterSpec =
+    ClusterSpec("test", Array(ShardSpec(1, 1, Array(ReplicaSpec(1, spec)))))
 }
