@@ -147,6 +147,11 @@ confirm `VectorUnloader`/`MessageSerializer`/`TransferPair` API per version befo
   cached clients in `close()`. Set pool sizing on the builder
   (`setMaxConnections` ≈ `2 × executor.cores`, connect/connection-request timeouts) from `nodeSpec.options`.
 - **Done:** existing IT suites pass unchanged with cache on; one shared client per (executor, node).
+- **Note (not strictly config-neutral):** the shared client now sets an explicit pool. Previously each
+  task had its own v2-default pool (≈10 connections, 10s connection-request timeout); now an executor
+  shares one `availableProcessors()×2` pool with a 60s connect/connection-request timeout. Adequate for
+  the synchronous one-insert-at-a-time writer and one-held-connection-per-task reader; tune via
+  `client_max_connections` (Phase 8 wires `spark.clickhouse.write.client.maxConnections`).
 
 ### Phase 1 — Split convert from flush
 - `ClickHouseArrowStreamWriter.doSerialize()` → emit only the record-batch message bytes (`BytesPayload`).

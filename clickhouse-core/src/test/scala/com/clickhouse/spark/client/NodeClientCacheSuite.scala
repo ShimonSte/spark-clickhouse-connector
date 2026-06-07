@@ -26,7 +26,8 @@ class NodeClientCacheSuite extends AnyFunSuite with BeforeAndAfterEach {
   private val specA = NodeSpec("hostA", Some(8123))
   private val specB = NodeSpec("hostB", Some(8123))
 
-  // a NodeClient subclass whose construction performs no network/builder work
+  // A NodeClient whose close() is observable. Construction still runs the real NodeClient
+  // builder, but the v2 client pool is lazy so no socket is opened during these tests.
   private class FakeNodeClient(spec: NodeSpec, closed: AtomicInteger) extends NodeClient(spec) {
     override def close(): Unit = closed.incrementAndGet()
   }
