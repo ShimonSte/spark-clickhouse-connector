@@ -61,7 +61,7 @@ final class InsertBucket(
           TimeUnit.MILLISECONDS
         )
       }
-      if (overTarget) ensureDraining()
+      if (overTarget || isSealed) ensureDraining()
       h.future
     } finally lock.unlock()
   }
@@ -118,7 +118,13 @@ final class InsertBucket(
       } finally lock.unlock()
       if (group != null) {
         try sender(ctx, group)
-        finally releaseInFlight(groupBytes)
+        catch {
+          // The sender contract is to complete handle promises itself (all-or-nothing) and not
+          // throw. Defend against a buggy/unexpected throw: fail any still-pending handles so
+          // awaiting tasks don't hang, and let the loop continue so `draining` is reset normally
+          // (otherwise the bucket would wedge with draining=true and deadlock backpressure).
+          case t: Throwable => group.foreach(h => if (!h.promise.isCompleted) h.promise.failure(t))
+        } finally releaseInFlight(groupBytes)
       }
     }
   }

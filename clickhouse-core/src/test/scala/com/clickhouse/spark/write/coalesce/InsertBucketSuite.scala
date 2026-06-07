@@ -131,4 +131,27 @@ class InsertBucketSuite extends AnyFunSuite with BeforeAndAfterEach {
     blockedSubmit.join(5000)
     assert(!blockedSubmit.isAlive, "third submit should proceed once space frees")
   }
+
+  test("a throwing sender fails the group's handles and does not wedge the bucket") {
+    import scala.concurrent.Await
+    import scala.concurrent.duration._
+    @volatile var first = true
+    val bucket = new InsertBucket(
+      key,
+      ctxWith(cfg(target = 1, maxBuf = 10000, linger = 0)),
+      pool,
+      { (_, g) =>
+        if (first) { first = false; throw new RuntimeException("boom") }
+        else g.foreach(_.promise.success(()))
+      }
+    )
+    val f1 = bucket.submit(handle("a", 10))
+    // the first group's handle must fail (not hang)
+    val caught = intercept[RuntimeException](Await.result(f1, 5.seconds))
+    assert(caught.getMessage == "boom")
+    // bucket must NOT be wedged: a subsequent submit still flushes and completes
+    val f2 = bucket.submit(handle("b", 10))
+    Await.result(f2, 5.seconds)
+    assert(f2.isCompleted)
+  }
 }
