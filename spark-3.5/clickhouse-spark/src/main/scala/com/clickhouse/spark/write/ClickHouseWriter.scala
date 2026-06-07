@@ -30,7 +30,7 @@ import org.apache.spark.sql.types._
 import com.clickhouse.spark.Metrics._
 import com.clickhouse.spark.io.{ForwardingOutputStream, ObservableOutputStream}
 import com.clickhouse.spark._
-import com.clickhouse.spark.client.{ClusterClient, NodeClient}
+import com.clickhouse.spark.client.{ClusterClient, NodeClient, NodeClientCache}
 import com.clickhouse.spark.exception._
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, OutputStream}
@@ -111,7 +111,7 @@ abstract class ClickHouseWriter(writeJob: WriteJobDescription)
       case _ =>
         val nodeSpec = writeJob.node
         log.info(s"Connect to single node: $nodeSpec")
-        Right(NodeClient(nodeSpec))
+        Right(NodeClientCache.get(nodeSpec))
     }
 
   def nodeClient(shardNum: Option[Int]): NodeClient = client match {
@@ -291,11 +291,8 @@ abstract class ClickHouseWriter(writeJob: WriteJobDescription)
 
   override def abort(): Unit = {}
 
-  override def close(): Unit = {
+  override def close(): Unit =
+    // The shared NodeClientCache owns client lifetime (closed at executor shutdown). Only
+    // per-task resources are released here; the Arrow root/allocator are closed by subclasses.
     IOUtils.closeQuietly(output)
-    client match {
-      case Left(clusterClient) => clusterClient.close()
-      case Right(nodeClient) => nodeClient.close()
-    }
-  }
 }
