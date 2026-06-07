@@ -326,10 +326,13 @@ Run:
 ```bash
 ./gradlew :clickhouse-spark-it-3.5_2.13:test \
   -Dspark_binary_version=3.5 -Dscala_binary_version=2.13 \
-  --tests='*ClickHouseArrowWriterSuite*' --tests='*ClickHouseJsonWriterSuite*'
+  --tests='org.apache.spark.sql.clickhouse.single.ClickHouseSingleArrowWriterSuite' \
+  --tests='org.apache.spark.sql.clickhouse.single.ClickHouseSingleJsonWriterSuite'
 ```
 Expected: PASS — both suites still write and read back identical data, proving the single-read
-refactor and pool sizing are behavior-neutral.
+refactor and pool sizing are behavior-neutral. (Use the concrete `ClickHouseSingle*WriterSuite`
+classes; the abstract `ClickHouse*WriterSuite` bases run 0 tests. Do NOT use a `*glob*` pattern —
+it breaks ScalaTest's `--tests` arg parser; pass fully-qualified class names.)
 
 - [ ] **Step 5: Commit**
 
@@ -571,7 +574,8 @@ Run:
 ```bash
 ./gradlew :clickhouse-spark-it-3.5_2.13:test \
   -Dspark_binary_version=3.5 -Dscala_binary_version=2.13 \
-  --tests='*ClickHouseArrowWriterSuite*' --tests='*ClickHouseJsonWriterSuite*'
+  --tests='org.apache.spark.sql.clickhouse.single.ClickHouseSingleArrowWriterSuite' \
+  --tests='org.apache.spark.sql.clickhouse.single.ClickHouseSingleJsonWriterSuite'
 ```
 Expected: PASS — confirms cache reuse + streaming insert are behavior-neutral on a live server.
 
